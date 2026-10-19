@@ -1,6 +1,6 @@
-target/
-data/
-uploads/
+/target/
+/data/
+/uploads/
 .env
 *.log
 .idea/
