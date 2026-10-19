@@ -1,4 +1,7 @@
-// Yandex Maps JS API 2.1 — sayt ichida ishlaydi, foydalanuvchi Yandex ilovasiga o'tib ketmaydi.
+// Yandex Maps JS API 2.1 — xarita sayt ichida ishlaydi.
+// Bepul kalit shartlari: Yandex logotipi, mualliflik yozuvi va «Открыть в Яндекс Картах» tugmasi
+// doim ko'rinib turishi shart, shuning uchun ularni yashirmaymiz.
+// Marshrut va manzil aniqlash so'rovlari kunlik limitdan ketadi — ular tejab ishlatiladi (pastga qarang).
 import { config } from './api.js';
 import { esc } from './ui.js';
 
@@ -37,7 +40,6 @@ export async function createMap(el, { center = UZ_CENTER, zoom = 6, controls } =
     center, zoom,
     controls: controls ?? ['zoomControl', 'geolocationControl', 'trafficControl', 'typeSelector'],
   }, {
-    suppressMapOpenBlock: true,    // "Yandex Xaritada ochish" tugmasini yashiramiz
     yandexMapDisablePoiInteractivity: true,
   });
   map.behaviors.disable('scrollZoom');
@@ -59,8 +61,25 @@ export function pin(ymaps, coords, kind = 'from', { label, hint, draggable = fal
   }, { ...PRESETS[kind], draggable });
 }
 
-/** Marshrut chizadi va masofa/vaqtni qaytaradi */
-export function drawRoute(ymaps, map, points, { fit = true } = {}) {
+// Bir xil nuqtalar uchun marshrut qayta so'ralmasin (sahifa qayta chizilganda ham)
+const routeCache = new Map();
+const ROUTE_CACHE_MAX = 50;
+const routeKey = (points) => points.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join('|');
+
+/**
+ * Marshrut chizadi. Natija: { route, distanceKm, durationMin, coords, failed? }
+ * coords — marshrut chizig'i nuqtalari [[lat, lng], ...] (navigatsiyada qolgan masofani hisoblash uchun).
+ * useCache: false — keshdan foydalanmaslik (haydovchining joylashuvi har safar boshqa bo'ladi).
+ */
+export function drawRoute(ymaps, map, points, { fit = true, useCache = true } = {}) {
+  const key = routeKey(points);
+  const cached = useCache ? routeCache.get(key) : null;
+  if (cached) {
+    const line = new ymaps.Polyline(cached.coords, {}, { strokeColor: '#1D5FA8', strokeWidth: 6, strokeOpacity: 0.9 });
+    map.geoObjects.add(line);
+    if (fit) map.setBounds(line.geometry.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
+    return Promise.resolve({ route: line, ...cached });
+  }
   return new Promise((resolve) => {
     const mr = new ymaps.multiRouter.MultiRoute({
       referencePoints: points,
@@ -75,16 +94,27 @@ export function drawRoute(ymaps, map, points, { fit = true } = {}) {
     });
     mr.model.events.add('requestsuccess', () => {
       const r = mr.getActiveRoute();
-      if (!r) return resolve({ route: mr, distanceKm: null, durationMin: null });
+      if (!r) return resolve({ route: mr, distanceKm: null, durationMin: null, coords: [] });
       const dist = r.properties.get('distance');
       const dur = r.properties.get('durationInTraffic') || r.properties.get('duration');
-      resolve({
-        route: mr,
+      const coords = [];
+      try {
+        r.getPaths().each((path) => {
+          for (const c of path.geometry.getCoordinates()) coords.push(c);
+        });
+      } catch { /* chiziq nuqtalarisiz ham ishlayveradi */ }
+      const result = {
         distanceKm: dist ? Math.round(dist.value / 100) / 10 : null,
         durationMin: dur ? Math.round(dur.value / 60) : null,
-      });
+        coords,
+      };
+      if (useCache && coords.length > 1) {
+        if (routeCache.size >= ROUTE_CACHE_MAX) routeCache.delete(routeCache.keys().next().value);
+        routeCache.set(key, result);
+      }
+      resolve({ route: mr, ...result });
     });
-    mr.model.events.add('requestfail', () => resolve({ route: mr, distanceKm: null, durationMin: null, failed: true }));
+    mr.model.events.add('requestfail', () => resolve({ route: mr, distanceKm: null, durationMin: null, coords: [], failed: true }));
     map.geoObjects.add(mr);
   });
 }
@@ -111,6 +141,34 @@ export function haversine(a, b) {
   const dLat = toRad(b[0] - a[0]), dLng = toRad(b[1] - a[1]);
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+/** Marshrut chizig'ini navigatsiya uchun tayyorlaydi: har bir nuqtadan manzilgacha masofa oldindan hisoblanadi. */
+export function prepareRouteLine(coords) {
+  if (!coords || coords.length < 2) return null;
+  const toEnd = new Array(coords.length).fill(0);
+  for (let i = coords.length - 2; i >= 0; i--) toEnd[i] = toEnd[i + 1] + haversine(coords[i], coords[i + 1]);
+  return { coords, toEnd, totalM: toEnd[0] };
+}
+
+/**
+ * Nuqta marshrut chizig'idan qancha uzoqda (offM) va marshrut bo'yicha manzilgacha qancha qolgani (restM), metrda.
+ * Har bir GPS yangilanishida qurilmaning o'zida hisoblanadi — Yandex'ga so'rov ketmaydi.
+ */
+export function locateOnRoute(line, p) {
+  const rad = Math.PI / 180, R = 6371000;
+  const kx = Math.cos(p[0] * rad) * R * rad, ky = R * rad;   // gradusdan metrga (nuqta atrofida)
+  let best = { offM: Infinity, restM: line.totalM };
+  for (let i = 0; i < line.coords.length - 1; i++) {
+    const a = line.coords[i], b = line.coords[i + 1];
+    const ax = (a[1] - p[1]) * kx, ay = (a[0] - p[0]) * ky;
+    const dx = (b[1] - a[1]) * kx, dy = (b[0] - a[0]) * ky;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const off = Math.hypot(ax + t * dx, ay + t * dy);
+    if (off < best.offM) best = { offM: off, restM: (1 - t) * Math.sqrt(len2) + line.toEnd[i + 1] };
+  }
+  return best;
 }
 
 export function myPosition({ highAccuracy = true, timeout = 10000 } = {}) {

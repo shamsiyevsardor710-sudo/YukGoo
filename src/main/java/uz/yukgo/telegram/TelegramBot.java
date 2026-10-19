@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 import uz.yukgo.auth.VerificationRequest;
 import uz.yukgo.auth.VerificationService;
 import uz.yukgo.common.Phones;
@@ -45,8 +46,14 @@ public class TelegramBot {
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
-        if (!client.enabled()) {
+        if (!client.configured()) {
             log.warn("TELEGRAM_BOT_TOKEN berilmagan — bot o'chiq. Tasdiqlash kodlari logga yoziladi.");
+            return;
+        }
+        if (!client.verify()) {
+            log.error("Telegram bot ishga tushmadi: TELEGRAM_BOT_TOKEN noto'g'ri yoki internet yo'q. "
+                    + "Token ko'rinishi: 1234567890:AAH... — boshida ortiqcha raqam yoki bo'sh joy bo'lmasin. "
+                    + "Hozircha tasdiqlash kodlari logga yoziladi.");
             return;
         }
         client.deleteWebhook();
@@ -70,6 +77,7 @@ public class TelegramBot {
 
     private void loop() {
         long offset = 0;
+        long lastConflictLog = 0;
         while (running) {
             try {
                 JsonNode res = client.getUpdates(offset, 25);
@@ -89,15 +97,44 @@ public class TelegramBot {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
-            } catch (Exception e) {
-                log.warn("Telegram polling xatosi: {}", e.getMessage());
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+            } catch (RestClientResponseException e) {
+                int code = e.getStatusCode().value();
+                if (code == 401 || code == 404) {
+                    // Token @BotFather'da bekor qilingan yoki noto'g'ri — qayta urinishdan foyda yo'q
+                    log.error("Telegram tokenni rad etdi ({}): token bekor qilingan yoki noto'g'ri. "
+                            + "Yangi tokenni TELEGRAM_BOT_TOKEN ga yozing — ilova qayta ishga tushganda bot ulanadi. "
+                            + "Hozircha tasdiqlash kodlari logga yoziladi.", code);
+                    client.markUnhealthy();
+                    running = false;
                     return;
                 }
+                if (code == 409) {
+                    // Ikkinchi nusxa ham shu token bilan getUpdates qilyapti — logni har 5 soniyada to'ldirmaslik uchun daqiqada bir marta
+                    long now = System.currentTimeMillis();
+                    if (now - lastConflictLog > 60_000) {
+                        lastConflictLog = now;
+                        log.warn("Shu token bilan bot boshqa joyda ham ishlayapti (409 Conflict). Bitta token bilan faqat "
+                                + "bitta ilova ishlay oladi: kompyuteringizdagi ilovani to'xtating yoki unga alohida test bot bering.");
+                    }
+                } else {
+                    log.warn("Telegram polling xatosi: {}", e.getMessage());
+                }
+                if (!pause(5000)) return;
+            } catch (Exception e) {
+                log.warn("Telegram polling xatosi: {}", e.getMessage());
+                if (!pause(5000)) return;
             }
+        }
+    }
+
+    /** false qaytarsa — oqim to'xtatilmoqda. */
+    private boolean pause(long ms) {
+        try {
+            Thread.sleep(ms);
+            return true;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -187,7 +224,7 @@ public class TelegramBot {
     private void onMyOrders(long chatId) {
         User u = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).orElse(null);
         if (u == null) {
-            client.sendNow(chatId, "Siz hali ro'yxatdan o'tmagansiz. Saytda ro'yxatdan o'ting:", TelegramClient.inlineUrlButton(
+            client.sendNow(chatId, "Siz hali ro'yxatdan o'tmagansiz. Saytda ro'yxatdan o'ting:", TelegramClient.linkButton(
                     "Ro'yxatdan o'tish", notifications.siteUrl("#/register")));
             return;
         }
@@ -205,7 +242,7 @@ public class TelegramBot {
                     .append("   ").append(statusLabel(o.getStatus())).append(asDriver ? " · siz haydovchisiz" : "")
                     .append("\n\n");
         }
-        client.sendNow(chatId, sb.toString(), TelegramClient.inlineUrlButton("Saytda ochish", notifications.siteUrl("#/my")));
+        client.sendNow(chatId, sb.toString(), TelegramClient.linkButton("Saytda ochish", notifications.siteUrl("#/my")));
     }
 
     private void onProfile(long chatId) {
@@ -221,7 +258,7 @@ public class TelegramBot {
                 + "🚚 Yetkazgan buyurtmalar: " + u.getDeliveriesCompleted()
                 + (u.isDriver() ? "\n🚗 " + esc(u.getVehicle().getBrand()) + " " + esc(u.getVehicle().getModel() == null ? "" : u.getVehicle().getModel())
                 + " · " + esc(u.getVehicle().getPlateNumber()) : "");
-        client.sendNow(chatId, text, TelegramClient.inlineUrlButton("Profilni ochish", notifications.siteUrl("#/profile")));
+        client.sendNow(chatId, text, TelegramClient.linkButton("Profilni ochish", notifications.siteUrl("#/profile")));
     }
 
     private void onHelp(long chatId) {

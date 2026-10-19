@@ -1,7 +1,7 @@
 // Haydovchi navigatsiyasi: ilova ichida Yandex xarita, jonli joylashuv, marshrut va yuboruvchiga GPS uzatish
 import { get, post } from '../api.js';
 import { $, esc, icon, toast, km, phoneFmt, modal, showError, busy, confirmDialog } from '../ui.js';
-import { createMap, pin, drawRoute, geocode, haversine, myPosition } from '../maps.js';
+import { createMap, pin, drawRoute, geocode, haversine, myPosition, prepareRouteLine, locateOnRoute } from '../maps.js';
 import { go } from '../app.js';
 
 export async function navigationPage(main, { id }) {
@@ -35,6 +35,17 @@ export async function navigationPage(main, { id }) {
   let me = null, meMark = null, targetMark = null, routeObj = null;
   let lastRouteFrom = null, lastRouteAt = 0, follow = true, watchId = null, trackTimer = null, wakeLock = null;
   let lastFix = null;
+
+  // Marshrut Yandex'dan faqat kerak bo'lganda qayta so'raladi (har bir so'rov kunlik limitdan ketadi):
+  // haydovchi yo'ldan chiqib ketsa yoki tirbandlikka qarab vaqtni yangilash payti kelsa.
+  // Qolgan masofa va vaqt esa har bir GPS yangilanishida qurilmaning o'zida hisoblanadi.
+  let routeLine = null, routeDurationMin = null, routeFailed = false, routeSeq = 0;
+  const OFF_ROUTE_M = 150;                // yo'ldan shuncha metr chiqsa — qayta hisoblash
+  const MIN_REROUTE_MS = 30 * 1000;       // qayta hisoblashlar orasida kamida
+  const FAILED_RETRY_MS = 2 * 60 * 1000;  // so'rov xato bo'lsa, qayta urinishgacha
+  const REFRESH_MS = 15 * 60 * 1000;      // yetib borish vaqtini yangilash
+  const fmtDist = (m) => (m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)} m` : km(m / 1000));
+  const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
   async function target() {
     const pickup = o.status === 'ACCEPTED';
@@ -73,6 +84,9 @@ export async function navigationPage(main, { id }) {
       tgt = await target();
       placeTarget();
       renderSheet();
+      routeLine = null;
+      routeFailed = false;
+      lastRouteFrom = null;
       lastRouteAt = 0;
       reroute(true);
     } catch (err) { toast(err.message, 'err'); }
@@ -107,27 +121,40 @@ export async function navigationPage(main, { id }) {
     map.geoObjects.add(targetMark);
   }
 
+  function showStraight() {
+    $('#nav-dist', main).textContent = fmtDist(haversine(me, tgt.coords));
+    $('#nav-eta', main).textContent = "To'g'ri chiziq bo'yicha masofa";
+  }
+
+  function showProgress(restM) {
+    $('#nav-dist', main).textContent = fmtDist(restM);
+    if (routeDurationMin != null && routeLine.totalM > 0) {
+      const min = Math.max(1, Math.round(routeDurationMin * restM / routeLine.totalM));
+      $('#nav-eta', main).textContent = `Yetib borish: ${hhmm(new Date(Date.now() + min * 60000))} (${min} daq)`;
+    }
+  }
+
   async function reroute(fit = false) {
     if (!me || !tgt.coords) return;
     lastRouteFrom = me;
     lastRouteAt = Date.now();
-    if (!map) {
-      $('#nav-dist', main).textContent = km(haversine(me, tgt.coords) / 1000);
-      $('#nav-eta', main).textContent = "To'g'ri chiziq bo'yicha masofa";
-      return;
-    }
-    const old = routeObj;
-    const r = await drawRoute(ymaps, map, [me, tgt.coords], { fit });
-    if (old) map.geoObjects.remove(old);
+    if (!map) { routeLine = null; showStraight(); return; }
+    const seq = ++routeSeq;
+    const r = await drawRoute(ymaps, map, [me, tgt.coords], { fit, useCache: false });
+    if (seq !== routeSeq) { map.geoObjects.remove(r.route); return; } // eskirgan javob (manzil o'zgargan)
+    if (routeObj) map.geoObjects.remove(routeObj);
     routeObj = r.route;
-    if (r.distanceKm != null) {
+    routeFailed = !!r.failed || r.distanceKm == null;
+    routeLine = prepareRouteLine(r.coords);
+    routeDurationMin = r.durationMin;
+    if (routeLine) {
+      showProgress(locateOnRoute(routeLine, me).restM);
+    } else if (r.distanceKm != null) {
       $('#nav-dist', main).textContent = km(r.distanceKm);
-      const eta = new Date(Date.now() + r.durationMin * 60000);
-      $('#nav-eta', main).textContent = `Yetib borish: ${String(eta.getHours()).padStart(2, '0')}:${String(eta.getMinutes()).padStart(2, '0')} (${r.durationMin} daq)`;
+      $('#nav-eta', main).textContent = r.durationMin != null
+        ? `Yetib borish: ${hhmm(new Date(Date.now() + r.durationMin * 60000))} (${r.durationMin} daq)` : '';
     } else {
-      const straight = haversine(me, tgt.coords) / 1000;
-      $('#nav-dist', main).textContent = km(straight);
-      $('#nav-eta', main).textContent = "To'g'ri chiziq bo'yicha masofa";
+      showStraight();
     }
   }
 
@@ -142,9 +169,25 @@ export async function navigationPage(main, { id }) {
       } else meMark.geometry.setCoordinates(me);
       if (follow) map.panTo(me, { flying: false, duration: 300 });
     }
-    const moved = lastRouteFrom ? haversine(lastRouteFrom, me) : Infinity;
-    if (moved > 250 || Date.now() - lastRouteAt > 60000) reroute(!lastRouteFrom);
-    if (tgt.coords && haversine(me, tgt.coords) < 150) {
+    if (!tgt.coords) return;
+
+    let needRoute;
+    if (routeLine) {
+      const pos = locateOnRoute(routeLine, me);
+      needRoute = pos.offM > OFF_ROUTE_M;
+      if (!needRoute) showProgress(pos.restM);
+    } else if (routeFailed) {
+      needRoute = true;
+    } else {
+      // Marshrut chizig'i yo'q (xarita yuklanmagan) — taxminiy masofa, 2 km yurganda yangilanadi
+      needRoute = !lastRouteFrom || haversine(lastRouteFrom, me) > 2000;
+      if (!map) showStraight();
+    }
+    const since = Date.now() - lastRouteAt;
+    const gap = routeFailed ? FAILED_RETRY_MS : MIN_REROUTE_MS;
+    if (!lastRouteAt || (needRoute && since > gap) || since > REFRESH_MS) reroute(!lastRouteAt);
+
+    if (haversine(me, tgt.coords) < 150) {
       $('#nav-eta', main).textContent = tgt.pickup ? 'Siz yuk olish manzilidasiz' : 'Siz topshirish manzilidasiz';
     }
   }
