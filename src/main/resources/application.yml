@@ -1,0 +1,71 @@
+server:
+  port: ${PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: yukgo
+  # Standart holatda H2 (fayl) — hech narsa o'rnatmasdan ishga tushadi.
+  # Ishlab chiqarishda: SPRING_PROFILES_ACTIVE=prod (PostgreSQL).
+  datasource:
+    url: jdbc:h2:file:./data/yukgo;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+app:
+  # true bo'lsa, Telegram bot ulanmagan holatda tasdiqlash kodi javobda (devCode) qaytariladi.
+  # Ishlab chiqarishda albatta false qiling!
+  dev-mode: ${APP_DEV_MODE:true}
+  # Saytning ochiq manzili (bot xabarlaridagi havolalar uchun)
+  public-url: ${PUBLIC_URL:http://localhost:8080}
+  jwt:
+    secret: ${JWT_SECRET:ZGV2LXNlY3JldC1rZXktY2hhbmdlLW1lLWluLXByb2R1Y3Rpb24tMTIzNDU2Nzg5MA==}
+    expiration-hours: ${JWT_EXPIRATION_HOURS:720}
+  telegram:
+    # @BotFather dan olingan token. Bo'sh bo'lsa bot o'chiq, kodlar logga yoziladi.
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    bot-username: ${TELEGRAM_BOT_USERNAME:@YukGoobot}
+  yandex:
+    # https://developer.tech.yandex.ru — "JavaScript API va HTTP Geocoder" kaliti
+    maps-api-key: ${YANDEX_MAPS_API_KEY:9a429494-a513-4e89-9128-92dbd3d0be43}
+  owner:
+    # Birinchi ishga tushishda ega (owner) hisobi shu ma'lumotlar bilan yaratiladi.
+    phone: ${OWNER_PHONE:+998777167479}
+    first-name: ${OWNER_FIRST_NAME:Sardor }
+    last-name: ${OWNER_LAST_NAME:Shamsiyev}
+    password: ${OWNER_PASSWORD:}
+  uploads-dir: ${UPLOADS_DIR:./uploads}
+  verification:
+    code-ttl-minutes: 5
+    max-attempts: 5
+  pricing:
+    city-base: 20000
+    intercity-base: 50000
+    per-km-light: 1500      # 50 kg gacha
+    per-km-medium: 3000     # 500 kg gacha
+    per-km-heavy: 5000      # 3 t gacha
+    per-km-truck: 8000      # 3 t dan ko'p
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

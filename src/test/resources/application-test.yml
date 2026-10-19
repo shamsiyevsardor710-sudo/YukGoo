@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:yukgo-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+app:
+  dev-mode: true
+  telegram:
+    bot-token: ""
+  uploads-dir: ./target/test-uploads
