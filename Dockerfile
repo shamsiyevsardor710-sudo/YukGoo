@@ -9,7 +9,8 @@ RUN mvn -q -B -DskipTests package
 # 2-bosqich: ishga tushirish
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-RUN useradd -r -u 1001 yukgo && mkdir -p /app/uploads && chown yukgo /app/uploads
+# Ilova /app ichida yozadi: uploads/ (rasmlar) va data/ (H2 baza, agar PostgreSQL ulanmagan bo'lsa)
+RUN useradd -r -u 1001 yukgo && mkdir -p /app/uploads /app/data && chown -R yukgo /app
 COPY --from=build /src/target/yukgo-*.jar app.jar
 USER yukgo
 ENV UPLOADS_DIR=/app/uploads
