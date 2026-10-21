@@ -1,0 +1,17 @@
+{
+  "name": "YukGo — yuk yetkazib berish",
+  "short_name": "YukGo",
+  "description": "Viloyatdan viloyatga va shahar ichida yuk yetkazib berish. Haydovchi toping, yukingizni xaritada kuzating.",
+  "lang": "uz",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1F2A30",
+  "theme_color": "#1F2A30",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import uz.yukgo.user.BodyType;
@@ -99,6 +100,24 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
               and ((o.sender.id = :a and o.driver.id = :b) or (o.sender.id = :b and o.driver.id = :a))
             """)
     long countDealsBetween(@Param("a") Long a, @Param("b") Long b, @Param("statuses") Collection<OrderStatus> statuses);
+
+    /** Hisob o'chirilganda: foydalanuvchining hali haydovchi kutayotgan e'lonlari (faqat ID — keyin har biri bloklanadi) */
+    @Query("select o.id from Shipment o where o.sender.id = :userId and o.status = uz.yukgo.order.OrderStatus.NEW")
+    List<Long> findOpenOrderIdsBySender(@Param("userId") Long userId);
+
+    @Query("""
+            select count(o) from Shipment o
+            where (o.sender.id = :userId or o.driver.id = :userId) and o.status in :statuses
+            """)
+    long countForUser(@Param("userId") Long userId, @Param("statuses") Collection<OrderStatus> statuses);
+
+    /** Hisob o'chirilganda: haydovchining buyurtmalardagi oxirgi joylashuvi o'chiriladi */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Shipment o set o.driverLat = null, o.driverLng = null, o.driverLocationAt = null
+            where o.id in (select x.id from Shipment x where x.driver.id = :driverId)
+            """)
+    int clearDriverLocation(@Param("driverId") Long driverId);
 
     long countByStatus(OrderStatus status);
 

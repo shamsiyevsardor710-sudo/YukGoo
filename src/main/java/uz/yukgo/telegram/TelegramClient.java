@@ -11,9 +11,12 @@ import org.springframework.web.client.RestClientResponseException;
 import uz.yukgo.config.AppProperties;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Telegram Bot API bilan to'g'ridan-to'g'ri HTTP orqali ishlaydi (qo'shimcha kutubxonasiz).
@@ -98,30 +101,37 @@ public class TelegramClient {
 
     /** Sinxron yuborish (tasdiqlash kodi uchun — natija muhim). */
     public boolean sendNow(long chatId, String html, Object replyMarkup) {
+        List<Object> markups = new ArrayList<>();
+        if (replyMarkup != null) markups.add(replyMarkup);
+        return deliver(chatId, html, markups);
+    }
+
+    /**
+     * Tugmalarni navbat bilan sinaydi: Telegram birini rad etsa (400, masalan, Mini App tugmasi), keyingisi bilan,
+     * oxirida tugmasiz yuboradi — xabarning o'zi baribir yetib borsin.
+     */
+    private boolean deliver(long chatId, String html, List<Object> markups) {
         if (!enabled()) {
             log.info("[TELEGRAM o'chiq] chat={} xabar: {}", chatId, html);
             return false;
         }
-        try {
-            post(chatId, html, replyMarkup);
-            return true;
-        } catch (RestClientResponseException e) {
-            // Telegram tugmani rad etsa (masalan, havola noto'g'ri), xabarning o'zi baribir yetib borsin
-            if (replyMarkup != null && e.getStatusCode().value() == 400) {
-                try {
-                    post(chatId, html, null);
-                    return true;
-                } catch (Exception again) {
-                    log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, again.getMessage());
-                    return false;
-                }
+        List<Object> attempts = new ArrayList<>(markups);
+        attempts.add(null);
+        for (int i = 0; i < attempts.size(); i++) {
+            Object markup = attempts.get(i);
+            try {
+                post(chatId, html, markup);
+                return true;
+            } catch (RestClientResponseException e) {
+                if (markup != null && e.getStatusCode().value() == 400) continue;
+                log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
+                return false;
+            } catch (Exception e) {
+                log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
+                return false;
             }
-            log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
-            return false;
-        } catch (Exception e) {
-            log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
-            return false;
         }
+        return false;
     }
 
     private void post(long chatId, String html, Object replyMarkup) {
@@ -146,20 +156,162 @@ public class TelegramClient {
         sendNow(chatId, html, linkButton(buttonText, url));
     }
 
+    /**
+     * Mini App tugmali xabar: bosilganda YukGo Telegram ichida ochiladi (avtomatik kirish bilan).
+     * Telegram Mini App tugmasini qabul qilmasa — oddiy havola, u ham bo'lmasa — tugmasiz.
+     */
+    @Async
+    public void sendWithAppButton(long chatId, String html, String buttonText, String appUrl, String webUrl) {
+        List<Object> markups = new ArrayList<>();
+        Map<String, Object> app = appButton(buttonText, appUrl);
+        if (app != null) markups.add(app);
+        Map<String, Object> link = linkButton(buttonText, webUrl);
+        if (link != null) markups.add(link);
+        deliver(chatId, html, markups);
+    }
+
     /** Ommaviy xabar: Telegram limitidan oshmaslik uchun sekin yuboriladi. */
     @Async
     public void broadcast(List<Long> chatIds, String html) {
         int ok = 0;
         for (Long c : chatIds) {
             if (sendNow(c, html, null)) ok++;
-            try {
-                Thread.sleep(40);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
+            if (!pause(40)) return;
         }
         log.info("Ommaviy xabar {}/{} ta foydalanuvchiga yetkazildi", ok, chatIds.size());
+    }
+
+    /**
+     * Admin botga yuborgan xabar(lar)ni — rasm, video, dumaloq video, ovozli xabar, fayl, matn yoki albom —
+     * barcha foydalanuvchilarga nusxa qilib yuboradi ("Forwarded from" belgisisiz, izohi bilan birga).
+     * Sekundiga ~25 ta xabar (Telegram limiti 30). Oxirida adminning so'rov xabari natija bilan yangilanadi.
+     */
+    @Async
+    public void broadcastCopy(List<Long> chatIds, long fromChatId, List<Integer> messageIds,
+                              long reportChatId, int reportMessageId) {
+        int ok = 0;
+        for (Long c : chatIds) {
+            if (copy(c, fromChatId, messageIds)) ok++;
+            if (!pause(40L * messageIds.size())) return;
+        }
+        int failed = chatIds.size() - ok;
+        log.info("Ommaviy xabar (Telegram orqali) {}/{} ta foydalanuvchiga yetkazildi", ok, chatIds.size());
+        editMessage(reportChatId, reportMessageId, "✅ <b>Yuborildi:</b> " + ok + " ta foydalanuvchiga."
+                + (failed > 0 ? "\n⚠️ " + failed + " tasiga yetmadi (botni bloklagan yoki Telegramdan o'chgan)." : ""), null);
+    }
+
+    /** Bitta xabar — copyMessage, albom — copyMessages (albom ko'rinishi saqlanadi). 429 da bir marta kutib qayta uradi. */
+    private boolean copy(long toChatId, long fromChatId, List<Integer> messageIds) {
+        if (!enabled()) return false;
+        Map<String, Object> body = new HashMap<>();
+        body.put("chat_id", toChatId);
+        body.put("from_chat_id", fromChatId);
+        String method;
+        if (messageIds.size() == 1) {
+            method = "/copyMessage";
+            body.put("message_id", messageIds.get(0));
+        } else {
+            method = "/copyMessages";
+            body.put("message_ids", messageIds.stream().sorted().toList());
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                rest.post().uri(method).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().toBodilessEntity();
+                return true;
+            } catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() == 429 && attempt == 0) {
+                    if (!pause(retryAfterMs(e.getResponseBodyAsString()))) return false;
+                    continue;
+                }
+                log.debug("Nusxa yuborilmadi (chat={}): {}", toChatId, e.getResponseBodyAsString());
+                return false;
+            } catch (Exception e) {
+                log.debug("Nusxa yuborilmadi (chat={}): {}", toChatId, e.getMessage());
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private static final Pattern RETRY_AFTER = Pattern.compile("\"retry_after\"\\s*:\\s*(\\d+)");
+
+    /** Telegram "Too Many Requests" javobidagi kutish vaqti (ko'pi bilan 60 soniya) */
+    static long retryAfterMs(String body) {
+        Matcher m = RETRY_AFTER.matcher(body == null ? "" : body);
+        long sec = m.find() ? Long.parseLong(m.group(1)) : 3;
+        return Math.min(60, Math.max(1, sec)) * 1000;
+    }
+
+    private static boolean pause(long ms) {
+        try {
+            Thread.sleep(ms);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * Javob xabari (masalan, adminga "hammaga yuborilsinmi?" so'rovi) — yuborilgan xabarning ID sini qaytaradi.
+     * @return message_id yoki null (yuborilmadi)
+     */
+    public Integer sendReply(long chatId, String html, Object replyMarkup, Integer replyToMessageId) {
+        if (!enabled()) {
+            log.info("[TELEGRAM o'chiq] chat={} xabar: {}", chatId, html);
+            return null;
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("chat_id", chatId);
+        body.put("text", html);
+        body.put("parse_mode", "HTML");
+        body.put("disable_web_page_preview", true);
+        if (replyMarkup != null) body.put("reply_markup", replyMarkup);
+        if (replyToMessageId != null) {
+            body.put("reply_parameters", Map.of("message_id", replyToMessageId, "allow_sending_without_reply", true));
+        }
+        try {
+            JsonNode res = rest.post().uri("/sendMessage").contentType(MediaType.APPLICATION_JSON).body(body)
+                    .retrieve().body(JsonNode.class);
+            return res != null && res.path("ok").asBoolean() ? res.path("result").path("message_id").asInt() : null;
+        } catch (RestClientResponseException e) {
+            log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
+        }
+        return null;
+    }
+
+    /** Bot yuborgan xabar matnini almashtiradi; replyMarkup null bo'lsa tugmalar olib tashlanadi. */
+    public void editMessage(long chatId, int messageId, String html, Object replyMarkup) {
+        if (!enabled()) return;
+        Map<String, Object> body = new HashMap<>();
+        body.put("chat_id", chatId);
+        body.put("message_id", messageId);
+        body.put("text", html);
+        body.put("parse_mode", "HTML");
+        body.put("disable_web_page_preview", true);
+        if (replyMarkup != null) body.put("reply_markup", replyMarkup);
+        try {
+            rest.post().uri("/editMessageText").contentType(MediaType.APPLICATION_JSON).body(body)
+                    .retrieve().toBodilessEntity();
+        } catch (Exception e) {
+            log.debug("Xabarni yangilab bo'lmadi (chat={}): {}", chatId, e.getMessage());
+        }
+    }
+
+    /** Inline tugma bosilganda Telegram "soat" belgisini olib tashlash uchun javob kutadi (text — qisqa bildirishnoma). */
+    public void answerCallback(String callbackQueryId, String text) {
+        if (!enabled() || callbackQueryId == null) return;
+        Map<String, Object> body = new HashMap<>();
+        body.put("callback_query_id", callbackQueryId);
+        if (text != null) body.put("text", text);
+        try {
+            rest.post().uri("/answerCallbackQuery").contentType(MediaType.APPLICATION_JSON).body(body)
+                    .retrieve().toBodilessEntity();
+        } catch (Exception e) {
+            log.debug("answerCallbackQuery xatosi: {}", e.getMessage());
+        }
     }
 
     public JsonNode getUpdates(long offset, int timeoutSec) {
@@ -167,7 +319,8 @@ public class TelegramClient {
                 .uri(u -> u.path("/getUpdates")
                         .queryParam("offset", offset)
                         .queryParam("timeout", timeoutSec)
-                        .queryParam("allowed_updates", "[\"message\"]")
+                        // callback_query — admin "Hammaga yuborish" tugmasini bosganda
+                        .queryParam("allowed_updates", "[\"message\",\"callback_query\"]")
                         .build())
                 .retrieve().body(JsonNode.class);
     }
@@ -187,6 +340,26 @@ public class TelegramClient {
         } catch (Exception e) {
             log.warn("setMyCommands xatosi: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Botdagi menyu tugmasi (yozish maydoni yonida): bosilganda sayt Telegram ichida Mini App bo'lib ochiladi.
+     * Telegram faqat https manzilni qabul qiladi.
+     * @return tugma o'rnatildimi
+     */
+    public boolean setMenuButton(String text, String url) {
+        if (!isHttpsPublic(url)) return false;
+        try {
+            rest.post().uri("/setChatMenuButton").contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("menu_button", Map.of("type", "web_app", "text", text, "web_app", Map.of("url", url))))
+                    .retrieve().toBodilessEntity();
+            return true;
+        } catch (RestClientResponseException e) {
+            log.warn("Mini App menyu tugmasini o'rnatib bo'lmadi: {}", e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.warn("Mini App menyu tugmasini o'rnatib bo'lmadi: {}", e.getMessage());
+        }
+        return false;
     }
 
     // ---- Klaviaturalar ----
@@ -213,6 +386,16 @@ public class TelegramClient {
     public static Map<String, Object> linkButton(String text, String url) {
         if (!isPublicUrl(url)) return null;
         return Map.of("inline_keyboard", List.of(List.of(Map.of("text", text, "url", url))));
+    }
+
+    /** Mini App tugmasi: sayt Telegram ichida ochiladi. Faqat ochiq https manzil bo'lsa (aks holda null). */
+    public static Map<String, Object> appButton(String text, String url) {
+        if (!isHttpsPublic(url)) return null;
+        return Map.of("inline_keyboard", List.of(List.of(Map.of("text", text, "web_app", Map.of("url", url)))));
+    }
+
+    static boolean isHttpsPublic(String url) {
+        return url != null && url.startsWith("https://") && isPublicUrl(url);
     }
 
     static boolean isPublicUrl(String url) {

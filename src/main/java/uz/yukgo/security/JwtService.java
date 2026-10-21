@@ -38,19 +38,30 @@ public class JwtService {
         return Jwts.builder()
                 .subject(String.valueOf(user.getId()))
                 .claim("role", user.getRole().name())
+                .claim("tv", user.currentTokenVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(ttl)))
                 .signWith(key)
                 .compact();
     }
 
-    /** Token to'g'ri bo'lsa foydalanuvchi ID sini qaytaradi, aks holda null. */
-    public Long parseUserId(String token) {
+    /** Imzosi va muddati tekshirilgan token: foydalanuvchi ID si va token versiyasi ("tv"; eski tokenlarda yo'q — 0) */
+    public record TokenInfo(Long userId, int tokenVersion) {}
+
+    /** Token to'g'ri bo'lsa uning ma'lumotlarini qaytaradi, aks holda null. */
+    public TokenInfo parse(String token) {
         try {
             Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
-            return Long.valueOf(claims.getSubject());
+            Object tv = claims.get("tv");
+            return new TokenInfo(Long.valueOf(claims.getSubject()), tv instanceof Number n ? n.intValue() : 0);
         } catch (JwtException | IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /** Token to'g'ri bo'lsa foydalanuvchi ID sini qaytaradi, aks holda null. */
+    public Long parseUserId(String token) {
+        TokenInfo t = parse(token);
+        return t == null ? null : t.userId();
     }
 }

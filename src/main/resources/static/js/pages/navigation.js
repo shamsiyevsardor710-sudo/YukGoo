@@ -1,11 +1,37 @@
 // Haydovchi navigatsiyasi: ilova ichida Yandex xarita, jonli joylashuv, marshrut va yuboruvchiga GPS uzatish
-import { get, post } from '../api.js';
+import { auth, get, post } from '../api.js';
 import { $, esc, icon, toast, km, phoneFmt, modal, showError, busy, confirmDialog } from '../ui.js';
 import { createMap, pin, drawRoute, geocode, haversine, myPosition, prepareRouteLine, locateOnRoute } from '../maps.js';
 import { go } from '../app.js';
 
+// Android ilova (Capacitor) ichida: GPS ekran o'chiq bo'lsa ham ishlaydi (fon xizmati va bildirishnoma bilan),
+// nuqtalar esa telefonning o'z HTTP'si orqali yuboriladi (WebView fonda 5 daqiqadan keyin so'rovlarni sekinlashtiradi).
+function nativeApp() {
+  const cap = window.Capacitor;
+  try {
+    return cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins && cap.Plugins.BackgroundGeolocation ? cap : null;
+  } catch { return null; }
+}
+
+/**
+ * Joylashuv ruxsati. Android ilovada WebView'ning joylashuv so'rovi tizimning ruxsat oynasini ochadi (Capacitor shunday
+ * ulagan). Fon xizmatini ruxsat berilgandan KEYIN ishga tushirish kerak — aks holda Android uni rad etadi va kuzatuv
+ * ekran o'chganda to'xtab qoladi.
+ * @returns {Promise<'granted'|'denied'|'unavailable'>}
+ */
+function locationPermission() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve('unavailable');
+    navigator.geolocation.getCurrentPosition(
+      () => resolve('granted'),
+      (e) => resolve(e && e.code === 1 ? 'denied' : 'unavailable'),
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 10 * 60 * 1000 });
+  });
+}
+
 export async function navigationPage(main, { id }) {
   let o = await get('/orders/' + id);
+  const cap = nativeApp();
   if (o.viewerRole !== 'DRIVER' || !['ACCEPTED', 'IN_TRANSIT'].includes(o.status)) {
     toast("Navigatsiya faqat shu buyurtmaning haydovchisi uchun va buyurtma faol bo'lganda ishlaydi", 'err');
     go('#/orders/' + id);
@@ -198,15 +224,26 @@ export async function navigationPage(main, { id }) {
       : "GPS signal yo'q. Ochiq joyga chiqing";
   }
 
+  let lastSentAt = 0;
   async function sendTrack() {
     if (!lastFix) return;
     const c = lastFix.coords;
+    const body = {
+      lat: c.latitude, lng: c.longitude,
+      speedKmh: c.speed != null ? Math.round(c.speed * 3.6) : null,
+      heading: c.heading ?? null,
+    };
+    lastSentAt = Date.now();
     try {
-      await post(`/orders/${id}/track`, {
-        lat: c.latitude, lng: c.longitude,
-        speedKmh: c.speed != null ? Math.round(c.speed * 3.6) : null,
-        heading: c.heading ?? null,
-      });
+      if (cap && cap.Plugins.CapacitorHttp) {
+        await cap.Plugins.CapacitorHttp.request({
+          url: location.origin + `/api/orders/${id}/track`, method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + auth.token },
+          data: body,
+        });
+      } else {
+        await post(`/orders/${id}/track`, body);
+      }
     } catch { /* tarmoq uzilsa keyingi safar yuboriladi */ }
   }
 
@@ -222,13 +259,94 @@ export async function navigationPage(main, { id }) {
   renderSheet();
   if (tgt.coords && map) map.setCenter(tgt.coords, 13);
 
-  if (navigator.geolocation) {
-    watchId = navigator.geolocation.watchPosition(onPosition, onError, { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 });
-  } else {
-    onError({ code: 2 });
+  let bgWatcher = null;
+  let disposed = false;          // sahifadan chiqildi — kechikib kelgan kuzatuvchi darhol to'xtatiladi
+  let retryNative = false;       // ruxsat sozlamalarda berilsa, ilovaga qaytganda qayta ishga tushiramiz
+  let permDialogShown = false;
+
+  // Brauzer (va zaxira) usuli: faqat sahifa ochiq turganda ishlaydi
+  function startWebTracking() {
+    if (disposed || watchId != null) return;
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(onPosition, onError, { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 });
+    } else {
+      onError({ code: 2 });
+    }
+    if (!trackTimer) trackTimer = setInterval(sendTrack, 10000);
   }
-  myPosition().catch(() => {});
-  trackTimer = setInterval(sendTrack, 10000);
+
+  function stopWebTracking() {
+    if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if (trackTimer) { clearInterval(trackTimer); trackTimer = null; }
+  }
+
+  function askForPermission(BG, precise = false) {
+    $('#nav-eta', main).textContent = precise
+      ? "Ekran o'chganda ham kuzatish uchun «Aniq joylashuv» ruxsatini yoqing"
+      : "Joylashuvga ruxsat bering: Sozlamalar → Ilovalar → YukGo → Joylashuv";
+    retryNative = true;
+    if (permDialogShown) return;
+    permDialogShown = true;
+    confirmDialog('Joylashuvga ruxsat kerak', precise
+      ? "Hozir YukGo'da taxminiy joylashuv ruxsati bor — kuzatuv faqat ilova ochiq turganda ishlaydi. Ekran o'chiq bo'lsa ham "
+        + "yuboruvchi sizni ko'rishi uchun Sozlamalar → Ruxsatlar → Joylashuv bo'limida «Aniq joylashuv»ni yoqing va shu sahifaga qayting."
+      : "Yuboruvchi yukini kuzata olishi uchun YukGo'ga joylashuvdan foydalanishga ruxsat bering "
+        + "(«Ilovadan foydalanayotganda» yoki «Har doim»). Keyin shu sahifaga qayting.",
+      { okText: 'Sozlamalarni ochish' }).then((r) => { if (r) BG.openSettings(); });
+  }
+
+  // Android ilova: fondagi kuzatuv. Har bir yangi nuqtada (kamida 10 soniyada bir) yuboruvchiga uzatamiz —
+  // JS taymerlari fonda sekinlashadi, joylashuv chaqiruvlari esa to'xtamaydi.
+  async function startNativeTracking() {
+    const BG = cap.Plugins.BackgroundGeolocation;
+    retryNative = false;
+    const perm = await locationPermission();
+    if (disposed) return;
+    if (perm === 'denied') { askForPermission(BG); return; }
+    try {
+      const id = await Promise.resolve(BG.addWatcher({
+        backgroundTitle: 'YukGo: buyurtma bajarilmoqda',
+        backgroundMessage: "Joylashuvingiz yuboruvchiga ko'rsatilmoqda. Navigatsiyadan chiqsangiz to'xtaydi.",
+        requestPermissions: false,   // ruxsat yuqorida so'raldi
+        stale: false,
+        distanceFilter: 10,
+      }, (loc, err) => {
+        if (disposed) return;
+        if (err) {
+          if (err.code === 'NOT_AUTHORIZED' && /disabled/i.test(err.message || '')) {
+            // Ruxsat bor, lekin telefonda joylashuv (GPS) o'chiq — yoqilishi bilan nuqtalar o'zi kela boshlaydi
+            $('#nav-eta', main).textContent = "Telefonda joylashuv (GPS) o'chiq — uni yoqing";
+          } else if (err.code === 'NOT_AUTHORIZED') {
+            // Tizim ruxsati bor (WebView joylashuvni oldi), lekin fon xizmatiga yetmaydi — odatda «Taxminiy joylashuv».
+            // Fon kuzatuvchisini o'chirib, sahifa ochiq turganda brauzer usulida kuzatamiz
+            const wid = bgWatcher;
+            bgWatcher = null;
+            if (wid != null) { try { BG.removeWatcher({ id: wid }); } catch { /* */ } }
+            startWebTracking();
+            askForPermission(BG, true);
+          } else {
+            startWebTracking();   // kutilmagan xato — hech bo'lmasa sahifa ochiq turganda kuzatamiz
+          }
+          return;
+        }
+        if (!loc) return;
+        onPosition({ coords: { latitude: loc.latitude, longitude: loc.longitude, speed: loc.speed, heading: loc.bearing, accuracy: loc.accuracy } });
+        if (Date.now() - lastSentAt >= 10000) sendTrack();
+      }));
+      if (disposed) { try { BG.removeWatcher({ id }); } catch { /* */ } return; }
+      bgWatcher = id;
+      stopWebTracking();   // sozlamalardan qaytib, fon kuzatuvi ishga tushdi — zaxira usul endi kerak emas
+    } catch {
+      startWebTracking();
+    }
+  }
+
+  if (cap) {
+    await startNativeTracking();
+  } else {
+    startWebTracking();
+    myPosition().catch(() => {});
+  }
 
   // Ekran o'chib qolmasin (haydovchi yo'lda)
   async function lockScreen() {
@@ -238,11 +356,17 @@ export async function navigationPage(main, { id }) {
     } catch { /* qo'llab-quvvatlanmaydi */ }
   }
   await lockScreen();
-  const onVis = () => { if (document.visibilityState === 'visible' && !wakeLock) lockScreen(); };
+  const onVis = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!wakeLock) lockScreen();
+    if (cap && retryNative && bgWatcher == null && !disposed) startNativeTracking();   // sozlamalardan qaytdi
+  };
   document.addEventListener('visibilitychange', onVis);
 
   return () => {
+    disposed = true;
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    if (bgWatcher != null) { try { cap.Plugins.BackgroundGeolocation.removeWatcher({ id: bgWatcher }); } catch { /* */ } }
     clearInterval(trackTimer);
     document.removeEventListener('visibilitychange', onVis);
     try { wakeLock?.release(); } catch { /* */ }

@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import uz.yukgo.auth.AuthDtos.AuthResponse;
+import uz.yukgo.auth.TelegramAuthService;
 import uz.yukgo.auth.VerificationService;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.user.UserDtos.*;
@@ -14,6 +16,29 @@ import uz.yukgo.user.UserDtos.*;
 @RequiredArgsConstructor
 public class UserController {
     private final UserService userService;
+    private final TelegramAuthService telegramAuthService;
+
+    /*
+     * Telegramga ulash alohida endpoint emas: u faqat parol (yoki Telegram kodi) isbotlangan so'rovda —
+     * /api/auth/login, /register/complete, /reset/complete ichida telegramInitData bilan bo'ladi.
+     */
+    @Operation(summary = "Hisobni Telegramdan uzish: avtomatik kirish va Telegram xabarlari o'chadi")
+    @PostMapping("/api/users/me/telegram/unlink")
+    public MeDto unlinkTelegram() {
+        return telegramAuthService.unlink();
+    }
+
+    @Operation(summary = "Mini App ichida chiqish: avtomatik kirish o'chadi, Telegram xabarlari kelaveradi")
+    @PostMapping("/api/users/me/telegram/logout")
+    public void telegramLogout() {
+        telegramAuthService.pauseAutoLogin();
+    }
+
+    @Operation(summary = "Hisobni o'chirish: shaxsiy ma'lumotlar o'chiriladi, buyurtmalar tarixi anonim qoladi")
+    @PostMapping("/api/users/me/delete")
+    public void deleteAccount(@Valid @RequestBody DeleteAccountRequest req) {
+        userService.deleteAccount(req);
+    }
 
     @GetMapping("/api/users/me")
     public MeDto me() {
@@ -57,9 +82,10 @@ public class UserController {
         return userService.updateSettings(req);
     }
 
+    @Operation(summary = "Parolni o'zgartirish: boshqa qurilmalardagi kirishlar bekor bo'ladi, shu qurilma uchun yangi token")
     @PutMapping("/api/users/me/password")
-    public void password(@Valid @RequestBody ChangePasswordRequest req) {
-        userService.changePassword(req);
+    public AuthResponse password(@Valid @RequestBody ChangePasswordRequest req) {
+        return userService.changePassword(req);
     }
 
     @Operation(summary = "Telefon raqamni o'zgartirish: yangi raqamga Telegram orqali kod")

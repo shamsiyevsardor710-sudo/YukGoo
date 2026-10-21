@@ -3,6 +3,7 @@ package uz.yukgo.auth;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,14 @@ public class VerificationService {
 
     public record StartResult(String requestId, boolean codeSent, String botLink, String botUsername,
                               Instant expiresAt, String devCode) {}
+
+    /** Har kuni tunda: 2 kundan eski tasdiqlash so'rovlari (telefon raqam, kod izi) o'chiriladi — keraksiz saqlanmasin */
+    @Scheduled(cron = "0 45 3 * * *")
+    @Transactional
+    public void purgeOld() {
+        int n = repository.deleteCreatedBefore(Instant.now().minus(Duration.ofDays(2)));
+        if (n > 0) log.info("Eski tasdiqlash so'rovlari o'chirildi: {}", n);
+    }
 
     @Transactional
     public StartResult start(String phone, VerificationPurpose purpose, Long userId) {

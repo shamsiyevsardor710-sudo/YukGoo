@@ -30,6 +30,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final TelegramLinkRepository linkRepository;
     private final LoginAttemptGuard guard;
+    private final TelegramAuthService telegramAuth;
 
     // ---------- Ro'yxatdan o'tish ----------
 
@@ -62,6 +63,7 @@ public class AuthService {
         u.setLastLoginAt(Instant.now());
         linkRepository.findById(vr.getPhone()).ifPresent(l -> u.setTelegramChatId(l.getChatId()));
         userRepository.save(u);
+        telegramAuth.bindAfterPasswordProof(u, req.telegramInitData());
         return new AuthResponse(jwtService.generate(u), MeDto.of(u));
     }
 
@@ -108,6 +110,7 @@ public class AuthService {
             throw ApiException.forbidden("Hisobingiz tizimdan chiqarilgan");
         }
         user.setLastLoginAt(Instant.now());
+        telegramAuth.bindAfterPasswordProof(user, req.telegramInitData());
         return new AuthResponse(jwtService.generate(user), MeDto.of(user));
     }
 
@@ -129,6 +132,9 @@ public class AuthService {
                 .orElseThrow(() -> ApiException.notFound("Foydalanuvchi topilmadi"));
         if (!user.isActive()) throw ApiException.forbidden("Hisobingiz faol emas");
         user.setPasswordHash(passwordEncoder.encode(req.newPassword()));
+        user.revokeTokens();                           // boshqa qurilmalardagi (begona) kirishlar bekor bo'ladi
+        telegramAuth.secureAfterPasswordChange(user);  // begona ulangan Telegram parolsiz kira olmasin
+        telegramAuth.bindAfterPasswordProof(user, req.telegramInitData());
         return new AuthResponse(jwtService.generate(user), MeDto.of(user));
     }
 

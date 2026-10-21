@@ -35,7 +35,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(c -> c.configurationSource(corsSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .headers(h -> h.frameOptions(f -> f.sameOrigin()))
+                // Telegram Web (web.telegram.org) Mini App'ni iframe ichida ochadi: X-Frame-Options o'rniga CSP
+                // frame-ancestors — faqat o'zimiz va Telegram veb-versiyalari joylashtira oladi (clickjacking himoyasi qoladi)
+                .headers(h -> h
+                        .frameOptions(f -> f.disable())
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org")))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/auth/**", "/api/locations/**", "/api/config").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders", "/api/orders/estimate",

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1F2A30">
+  <title>Maxfiylik siyosati — YukGo</title>
+  <meta name="description" content="YukGo qanday ma'lumotlarni yig'adi, nima uchun ishlatadi va qanday himoya qiladi.">
+  <link rel="icon" href="/icons/icon-192.png">
+  <style>
+    :root { --bg: #EEF1F0; --surface: #fff; --ink: #17202A; --muted: #5D6B73; --line: #D9E0E3; --signal: #F2B705; --asphalt: #1F2A30; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #12181B; --surface: #1A2227; --ink: #E8EDEF; --muted: #9AA8AF; --line: #2C373D; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    header { background: var(--asphalt); color: #fff; padding: calc(18px + env(safe-area-inset-top, 0px)) 16px 18px; }
+    header a { color: #fff; text-decoration: none; font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
+    header a span { color: var(--signal); }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 56px; }
+    article { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 24px clamp(18px, 4vw, 36px); }
+    h1 { font-size: clamp(24px, 5vw, 32px); line-height: 1.2; margin: 0 0 6px; }
+    h2 { font-size: 19px; margin: 28px 0 8px; }
+    p, li { color: var(--ink); }
+    ul { padding-left: 22px; }
+    li { margin: 4px 0; }
+    .muted { color: var(--muted); font-size: 14px; }
+    a { color: #1F6FB2; }
+    @media (prefers-color-scheme: dark) { a { color: #6FB3EE; } }
+    .back { display: inline-block; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <header><a href="/">Yuk<span>Go</span></a></header>
+  <main>
+    <article>
+      <h1>Maxfiylik siyosati</h1>
+      <p class="muted">Oxirgi yangilanish: 2026-yil 21-oktabr</p>
+
+      <p>YukGo — yuk egalari va haydovchilarni bog'laydigan xizmat: veb-sayt, Telegram bot (@YukGoobot), Telegram ichidagi ilova va Android ilova.
+        Bu sahifa qanday ma'lumotlar yig'ilishi, nima uchun ishlatilishi, kimga ko'rinishi va qanday o'chirilishini tushuntiradi.</p>
+
+      <h2>1. Qanday ma'lumotlarni yig'amiz</h2>
+      <ul>
+        <li><b>Hisob:</b> ism, familiya, telefon raqam, parol (faqat shifrlangan ko'rinishda saqlanadi), viloyat, tuman, mahalla va uy manzili, profil rasmi va o'zingiz haqingizdagi matn.</li>
+        <li><b>Telegram:</b> raqamingizni bot orqali tasdiqlaganingizda yoki YukGo'ni Telegram ichida ochganingizda — Telegram ID raqamingiz (xabar yuborish va avtomatik kirish uchun).</li>
+        <li><b>Haydovchilar:</b> mashina markasi, modeli, davlat raqami, rangi, yuk ko'tarish hajmi va mashina rasmi, ishlaydigan viloyatlar.</li>
+        <li><b>Buyurtmalar:</b> yuk tavsifi va rasmi, olish va topshirish manzillari, qabul qiluvchining ismi va telefoni, narx, takliflar, buyurtma bo'yicha yozishmalar, baholar va sharhlar.</li>
+        <li><b>Joylashuv (faqat haydovchilar):</b> buyurtmani yetkazayotganda navigatsiya sahifasi ochiq bo'lsa, GPS joylashuvingiz yuboruvchiga ko'rsatish uchun serverga yuboriladi.
+          Android ilovada ekran o'chiq bo'lsa ham kuzatuv davom etadi — bu vaqtda telefoningizda doim bildirishnoma ko'rinib turadi va navigatsiyadan chiqishingiz bilan kuzatuv to'xtaydi.
+          Boshqa paytlarda joylashuvingiz yig'ilmaydi.</li>
+        <li><b>Balans:</b> balans to'ldirish va komissiya kabi harakatlar (bu imkoniyat yoqilgan bo'lsa).</li>
+        <li><b>Texnik ma'lumotlar:</b> server jurnallari (IP manzil, so'rov vaqti) — xavfsizlik va nosozliklarni tuzatish uchun.</li>
+      </ul>
+
+      <h2>2. Nima uchun ishlatamiz</h2>
+      <ul>
+        <li>Xizmatni ko'rsatish: e'lon joylash, haydovchi topish, narx kelishish, yukni kuzatish va topshirishni tasdiqlash.</li>
+        <li>Yangi takliflar, buyurtma holati va xabarlar haqida bildirishnoma yuborish (saytda va Telegramda).</li>
+        <li>Xavfsizlik: firibgarlikka qarshi kurash, shikoyatlarni ko'rib chiqish, qoidabuzarlarni bloklash.</li>
+        <li>Komissiya va balans hisob-kitobi (yoqilgan bo'lsa).</li>
+      </ul>
+      <p>Ma'lumotlaringizni sotmaymiz va reklama maqsadida boshqalarga bermaymiz.</p>
+
+      <h2>3. Ma'lumotlaringiz kimga ko'rinadi</h2>
+      <ul>
+        <li><b>Boshqa foydalanuvchilar:</b> ismingiz, reytingingiz, baholaringiz va (haydovchi bo'lsangiz) mashina ma'lumotlari profil sahifangizda ko'rinadi.</li>
+        <li><b>Telefon raqam:</b> yuboruvchining raqami faqat buyurtma unga biriktirilgan haydovchiga ko'rinadi, haydovchining raqami esa shu yuboruvchiga.
+          Haydovchilar ro'yxati va reyslarda haydovchi raqami ochiq turadi — bu bo'limlar aynan haydovchi bilan bog'lanish uchun.</li>
+        <li><b>Qabul qiluvchi:</b> u Telegram botga ulangan bo'lsa, unga yuk yo'lga chiqqani, haydovchi ismi va raqami hamda topshirish kodi yuboriladi.</li>
+        <li><b>Xizmat ko'rsatuvchilar:</b> server va ma'lumotlar bazasi (Railway, serverlar AQShda), Telegram (xabarlar), Yandex Xaritalar (xarita, manzilni topish va marshrut — manzil va koordinatalar Yandex'ga yuboriladi), Google Fonts (shriftlar).</li>
+        <li><b>Davlat organlari:</b> faqat qonunda belgilangan hollarda.</li>
+      </ul>
+
+      <h2>4. Qancha vaqt saqlaymiz</h2>
+      <p>Ma'lumotlar hisobingiz faol bo'lguncha saqlanadi. Hisobni o'chirsangiz, shaxsiy ma'lumotlaringiz o'chiriladi: ism, telefon, manzil, rasmlar, mashina,
+        Telegram ulanishi, joylashuv va haydovchi sifatidagi GPS yo'llari, reys e'lonlari, bildirishnomalar.
+        Buyurtmalar, baholar, yozishmalar va balans harakatlari tarixi nizolar va hisob-kitob uchun «O'chirilgan foydalanuvchi» nomi bilan, sizga bog'lanmagan holda qoladi
+        (siz yozgan xabar va sharhlar matni ikkinchi tomonda ko'rinib turadi). Boshqa foydalanuvchilarga avval kelgan bildirishnomalardan telefon raqamingiz
+        olib tashlanadi, ismingiz esa ularda qolishi mumkin; ularning Telegramiga avval yuborilgan xabarlar o'sha yerda qoladi.
+        Telefonni tasdiqlash so'rovlari 2 kundan keyin o'z-o'zidan o'chiriladi.</p>
+
+      <h2>5. Sizning huquqlaringiz</h2>
+      <ul>
+        <li>Profilingizdagi ma'lumotlarni istalgan vaqtda ko'rish va tahrirlash.</li>
+        <li>Telegram bildirishnomalari va yangi buyurtmalar haqidagi xabarlarni profil sozlamalarida o'chirish yoki hisobni Telegramdan butunlay uzish:
+          <b>Profil → Telegram → «Telegramdan uzish»</b>. Telegram ichida «Chiqish» bosilsa, keyingi safar YukGo o'zi kirmaydi — parol so'raladi.</li>
+        <li>Hisobni o'chirish: <b>Profil → Hisobni o'chirish</b>. Batafsil: <a href="/delete-account.html">hisobni o'chirish sahifasi</a>.</li>
+      </ul>
+
+      <h2>6. Xavfsizlik</h2>
+      <p>Barcha aloqa HTTPS orqali shifrlanadi, parollar qaytarib bo'lmaydigan ko'rinishda (BCrypt) saqlanadi. Ma'lumotlarga faqat vakolatli adminlar kira oladi va ularning amallari jurnalga yoziladi.
+        Parolingizni o'zgartirsangiz yoki tiklasangiz, boshqa qurilmalardagi barcha kirishlar bekor bo'ladi.</p>
+
+      <h2>7. Yosh cheklovi</h2>
+      <p>YukGo 18 yoshdan katta foydalanuvchilar uchun mo'ljallangan.</p>
+
+      <h2>8. O'zgartirishlar</h2>
+      <p>Siyosat o'zgarsa, shu sahifa yangilanadi va yuqoridagi sana o'zgaradi. Muhim o'zgarishlar haqida ilovada xabar beramiz.</p>
+
+      <h2>9. Aloqa</h2>
+      <p>Savol yoki so'rovlaringizni ilovadagi <b>«Shikoyat qilish»</b> tugmasi orqali yuboring — ular adminlarga yetib boradi.
+        <span id="support-email" hidden> Elektron pochta: <a href=""></a>.</span></p>
+
+      <a class="back" href="/">← YukGo'ga qaytish</a>
+    </article>
+  </main>
+  <script>
+    // Aloqa emaili serverdagi SUPPORT_EMAIL sozlamasidan olinadi (berilmagan bo'lsa qator ko'rinmaydi)
+    fetch('/api/config').then(r => r.json()).then(c => {
+      if (!c || !c.supportEmail) return;
+      const el = document.getElementById('support-email');
+      const a = el.querySelector('a');
+      a.href = 'mailto:' + c.supportEmail;
+      a.textContent = c.supportEmail;
+      el.hidden = false;
+    }).catch(() => {});
+  </script>
+</body>
+</html>

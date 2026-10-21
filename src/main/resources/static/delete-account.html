@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1F2A30">
+  <title>Hisobni o'chirish — YukGo</title>
+  <meta name="description" content="YukGo hisobingizni va shaxsiy ma'lumotlaringizni qanday o'chirish mumkin.">
+  <link rel="icon" href="/icons/icon-192.png">
+  <style>
+    :root { --bg: #EEF1F0; --surface: #fff; --ink: #17202A; --muted: #5D6B73; --line: #D9E0E3; --signal: #F2B705; --asphalt: #1F2A30; --danger: #C0392B; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #12181B; --surface: #1A2227; --ink: #E8EDEF; --muted: #9AA8AF; --line: #2C373D; --danger: #F07A6B; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    header { background: var(--asphalt); color: #fff; padding: calc(18px + env(safe-area-inset-top, 0px)) 16px 18px; }
+    header a { color: #fff; text-decoration: none; font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
+    header a span { color: var(--signal); }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 56px; }
+    article { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 24px clamp(18px, 4vw, 36px); }
+    h1 { font-size: clamp(24px, 5vw, 32px); line-height: 1.2; margin: 0 0 12px; }
+    h2 { font-size: 19px; margin: 26px 0 8px; }
+    ol, ul { padding-left: 22px; }
+    li { margin: 5px 0; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .btn { display: inline-block; background: var(--danger); color: #fff; text-decoration: none; font-weight: 700; padding: 11px 18px; border-radius: 10px; margin-top: 6px; }
+    a { color: #1F6FB2; }
+    @media (prefers-color-scheme: dark) { a { color: #6FB3EE; } }
+  </style>
+</head>
+<body>
+  <header><a href="/">Yuk<span>Go</span></a></header>
+  <main>
+    <article>
+      <h1>YukGo hisobini o'chirish</h1>
+      <p>Hisobingizni istalgan vaqtda o'zingiz o'chirishingiz mumkin — saytda, Telegram ichidagi ilovada yoki Android ilovada.</p>
+
+      <h2>Qanday o'chiriladi</h2>
+      <ol>
+        <li>YukGo'ga kiring.</li>
+        <li><b>Profil</b> bo'limini oching.</li>
+        <li>Pastdagi <b>«Hisobni o'chirish»</b> tugmasini bosing.</li>
+        <li>Tasdiqlash uchun parolingizni kiriting.</li>
+      </ol>
+      <a class="btn" href="/#/profile">Profilni ochish</a>
+      <p class="muted">Parolni unutgan bo'lsangiz, kirish sahifasidagi «Parolni unutdingizmi?» orqali Telegram kod bilan yangisini o'rnating.</p>
+
+      <h2>Nimalar o'chiriladi</h2>
+      <ul>
+        <li>Ism, familiya, telefon raqam va parol</li>
+        <li>Manzil (viloyat, tuman, mahalla va uy), profil va mashina rasmlari, mashina ma'lumotlari</li>
+        <li>Telegram ulanishi, saqlangan joylashuv va haydovchi sifatidagi GPS yo'llari (kuzatuv tarixi)</li>
+        <li>Reys e'lonlaringiz, bildirishnomalaringiz va telefonni tasdiqlash so'rovlari</li>
+        <li>Ochiq e'lonlaringiz yopiladi, kutilayotgan takliflaringiz qaytarib olinadi</li>
+      </ul>
+
+      <h2>Nimalar qoladi</h2>
+      <p>Buyurtmalar, baholar, yozishmalar va balans harakatlari tarixi boshqa foydalanuvchilar va hisob-kitob uchun kerak bo'lgani sababli
+        «O'chirilgan foydalanuvchi» nomi bilan, sizga bog'lanmagan holda saqlanadi: tarixdagi ismingiz ham shu nomga almashtiriladi.
+        Siz yozgan xabar va sharhlar matni ikkinchi tomonda qoladi. Telefon raqamingiz bo'shaydi — keyinchalik u bilan qayta ro'yxatdan o'tishingiz mumkin.</p>
+      <p class="muted">Boshqa foydalanuvchilarga sayt ichida avval kelgan bildirishnomalardan telefon raqamingiz olib tashlanadi, lekin ismingiz
+        ularda qolishi mumkin. Ularning Telegramiga avval yuborilgan xabarlar (masalan, «haydovchi tayinlandi») o'sha yerda qoladi — ularni biz o'chira olmaymiz.</p>
+
+      <h2>Qachon o'chirib bo'lmaydi</h2>
+      <ul>
+        <li>Haydovchiga berilgan yoki yo'ldagi buyurtmangiz bo'lsa — avval uni yakunlang yoki bekor qiling.</li>
+        <li>Balansingizda mablag' bo'lsa — avval uni qaytarib olish uchun admin bilan bog'laning.</li>
+      </ul>
+
+      <h2>Kira olmayapsizmi?</h2>
+      <p>Hisobingizga kira olmasangiz va uni o'chirmoqchi bo'lsangiz, ro'yxatdan o'tgan telefon raqamingizni ko'rsatib murojaat qiling
+        <span id="support-email" hidden>: <a href=""></a></span>. So'rovingiz 30 kun ichida bajariladi.</p>
+
+      <p class="muted"><a href="/privacy.html">Maxfiylik siyosati</a> · <a href="/">YukGo'ga qaytish</a></p>
+    </article>
+  </main>
+  <script>
+    fetch('/api/config').then(r => r.json()).then(c => {
+      if (!c || !c.supportEmail) return;
+      const el = document.getElementById('support-email');
+      const a = el.querySelector('a');
+      a.href = 'mailto:' + c.supportEmail + '?subject=' + encodeURIComponent("YukGo hisobini o'chirish");
+      a.textContent = c.supportEmail;
+      el.hidden = false;
+    }).catch(() => {});
+  </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 package uz.yukgo.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.env.Environment;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,6 +26,7 @@ public class PublicController {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final WalletService wallet;
+    private final Environment env;
 
     @GetMapping("/api/config")
     public Map<String, Object> config() {
@@ -37,6 +39,9 @@ public class PublicController {
         m.put("bodyTypes", BodyType.values());
         // Komissiya va shoshilinch narxi (tizim o'chiq bo'lsa enabled=false — frontend hech narsa ko'rsatmaydi)
         m.put("pricing", PricingDto.of(wallet.current()));
+        // Maxfiylik siyosati va "hisobni o'chirish" sahifalaridagi aloqa (Railway: SUPPORT_EMAIL o'zgaruvchisi)
+        String email = env.getProperty("SUPPORT_EMAIL");
+        if (email != null && !email.isBlank()) m.put("supportEmail", email.trim());
         return m;
     }
 

@@ -25,7 +25,8 @@ export class ApiError extends Error {
 let onUnauthorized = () => {};
 export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
 
-export async function api(path, { method = 'GET', body, form, query } = {}) {
+/** silent — 401/403 da kirish sahifasiga o'tkazmaydi (ilova ishga tushayotganda: Telegram ichida avval avtomatik kirib ko'ramiz) */
+export async function api(path, { method = 'GET', body, form, query, silent = false } = {}) {
   let url = '/api' + path;
   if (query) {
     const qs = new URLSearchParams();
@@ -58,12 +59,12 @@ export async function api(path, { method = 'GET', body, form, query } = {}) {
     if (res.status === 401 && auth.token) {
       auth.token = null;
       auth.user = null;
-      onUnauthorized(msg);
+      if (!silent) onUnauthorized(msg);
     }
     if (res.status === 403 && data && data.code && data.code.startsWith('ACCOUNT_')) {
       auth.token = null;
       auth.user = null;
-      onUnauthorized(msg);
+      if (!silent) onUnauthorized(msg);
     }
     throw new ApiError(res.status, msg, data);
   }
@@ -96,10 +97,10 @@ export function districts(regionId) {
   return districtCache.get(regionId);
 }
 
-export async function loadMe() {
+export async function loadMe({ silent = false } = {}) {
   if (!auth.token) { auth.user = null; return null; }
   try {
-    auth.user = await get('/users/me');
+    auth.user = await api('/users/me', { silent });
   } catch (e) {
     if (e.status === 401 || e.status === 403) { auth.token = null; auth.user = null; }
   }

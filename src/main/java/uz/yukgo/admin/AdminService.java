@@ -122,6 +122,7 @@ public class AdminService {
     public AdminUserDto unblock(Long id) {
         User me = currentUser.get();
         User t = manageable(me, id);
+        requireNotSelfDeleted(t);
         t.setStatus(UserStatus.ACTIVE);
         t.setBlockReason(null);
         log(me, "UNBLOCK", t, null);
@@ -151,6 +152,7 @@ public class AdminService {
     public AdminUserDto restore(Long id) {
         User me = currentUser.get();
         User t = manageable(me, id);
+        requireNotSelfDeleted(t);
         t.setStatus(UserStatus.ACTIVE);
         t.setBlockReason(null);
         log(me, "RESTORE", t, null);
@@ -169,6 +171,8 @@ public class AdminService {
         if (t.getStatus() != UserStatus.ACTIVE) throw ApiException.badRequest("Faol bo'lmagan foydalanuvchiga rol berib bo'lmaydi");
         Role old = t.getRole();
         t.setRole(role);
+        // Admin bo'lgan odam keyingi safar parol bilan kirsin: Telegram orqali (parolsiz) olingan eski token admin huquqini olmasin
+        if (role == Role.ADMIN && old != Role.ADMIN) t.revokeTokens();
         log(me, role == Role.ADMIN ? "MAKE_ADMIN" : "REVOKE_ADMIN", t, old + " → " + role);
         notifyTelegram(t, role == Role.ADMIN ? "🛡 Sizga YukGo admin huquqi berildi." : "Admin huquqingiz olib tashlandi.");
         return toDto(t, me);
@@ -183,6 +187,7 @@ public class AdminService {
         if (t.getId().equals(me.getId())) throw ApiException.badRequest("Siz allaqachon egasiz");
         if (t.getStatus() != UserStatus.ACTIVE) throw ApiException.badRequest("Foydalanuvchi faol emas");
         t.setRole(Role.OWNER);
+        t.revokeTokens();   // yangi ega parol bilan qayta kiradi
         me.setRole(Role.ADMIN);
         log(me, "TRANSFER_OWNERSHIP", t, null);
         notifyTelegram(t, "👑 Sizga YukGo platformasi egaligi topshirildi.");
@@ -261,6 +266,14 @@ public class AdminService {
         if (target.getRole() == Role.OWNER) return false;
         if (actor.getRole() == Role.OWNER) return true;
         return actor.getRole() == Role.ADMIN && target.getRole() == Role.USER;
+    }
+
+    /** Foydalanuvchi o'zi o'chirgan hisobda ism, telefon va parol yo'q — uni faollashtirish ma'nosiz va xavfli */
+    private static void requireNotSelfDeleted(User t) {
+        if (UserService.isSelfDeleted(t)) {
+            throw ApiException.badRequest("Bu hisobni foydalanuvchining o'zi o'chirgan — uni tiklab bo'lmaydi. "
+                    + "Foydalanuvchi qaytmoqchi bo'lsa, qayta ro'yxatdan o'tadi");
+        }
     }
 
     private User manageable(User actor, Long targetId) {

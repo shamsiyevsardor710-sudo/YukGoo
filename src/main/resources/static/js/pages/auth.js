@@ -2,6 +2,7 @@
 import { auth, post, get } from '../api.js';
 import { $, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt } from '../ui.js';
 import { afterLogin, go } from '../app.js';
+import { tg, telegramInitData, telegramLoggedIn } from '../telegram.js';
 
 function shell(main, inner) {
   main.innerHTML = `<div class="auth-wrap"><div class="auth-card">${inner}</div></div>`;
@@ -15,6 +16,7 @@ export function loginPage(main) {
   const card = shell(main, `
     <h1>Kirish</h1>
     <p class="muted" style="margin-bottom:20px">Ism, familiya va parolingizni kiriting.</p>
+    ${tg.active ? `<p class="tg-note">${icon('telegram')}<span>${esc(tg.loginHint || "Bir marta parol bilan kiring — keyingi safar YukGo sizni Telegram orqali o'zi taniydi.")}</span></p>` : ''}
     <form class="stack" id="login-form" novalidate>
       <div class="form-grid" id="by-name">
         <label class="field"><span>Ism</span><input class="input" name="firstName" autocomplete="given-name" required></label>
@@ -45,12 +47,15 @@ export function loginPage(main) {
     const d = formData(form);
     const body = byPhone ? { phone: d.phone, password: d.password }
       : { firstName: d.firstName, lastName: d.lastName, password: d.password };
+    // Telegram ichida: parol shu so'rovda tekshiriladi va hisob shu Telegramga ulanadi (keyingi safar o'zi kiradi)
+    body.telegramInitData = telegramInitData();
     try {
       await busy(form.querySelector('[type=submit]'), async () => {
         const res = await post('/auth/login', body);
         auth.token = res.token;
         auth.user = res.user;
       });
+      telegramLoggedIn();
       toast(`Xush kelibsiz, ${auth.user.firstName}!`, 'ok');
       afterLogin();
     } catch (err) {
@@ -189,7 +194,8 @@ export function registerPage(main) {
     <h1>Ro'yxatdan o'tish</h1>
     <p class="muted" id="step-text" style="margin-bottom:20px">Telefon raqamingizni tasdiqlaymiz.</p>
     <div id="step"></div>
-    <p class="small muted" style="margin-top:22px;text-align:center">Hisobingiz bormi? <a href="#/login">Kirish</a></p>`);
+    <p class="small muted" style="margin-top:22px;text-align:center">Hisobingiz bormi? <a href="#/login">Kirish</a></p>
+    <p class="tiny muted" style="margin-top:10px;text-align:center">Ro'yxatdan o'tib, <a href="/privacy.html">maxfiylik siyosati</a>ga rozilik bildirasiz.</p>`);
   const steps = card.querySelectorAll('.steps i');
   const setStep = (n, text) => {
     steps.forEach((s, i) => s.classList.toggle('on', i < n));
@@ -233,10 +239,11 @@ export function registerPage(main) {
         const res = await busy(form.querySelector('[type=submit]'), () => post('/auth/register/complete', {
           requestId, firstName: d.firstName, lastName: d.lastName, password: d.password,
           regionId: Number(d.regionId) || null, districtId: Number(d.districtId) || null,
-          village: d.village, house: d.house,
+          village: d.village, house: d.house, telegramInitData: telegramInitData(),
         }));
         auth.token = res.token;
         auth.user = res.user;
+        telegramLoggedIn();
         toast("Ro'yxatdan o'tdingiz! Xush kelibsiz", 'ok');
         go('#/profile');
       } catch (err) { showError(form, err); }
@@ -270,9 +277,10 @@ export function forgotPage(main) {
         if (form.p1.value !== form.p2.value) return showError(form, { message: 'Parollar bir xil emas' });
         try {
           const res = await busy(form.querySelector('[type=submit]'), () =>
-            post('/auth/reset/complete', { requestId, newPassword: form.p1.value }));
+            post('/auth/reset/complete', { requestId, newPassword: form.p1.value, telegramInitData: telegramInitData() }));
           auth.token = res.token;
           auth.user = res.user;
+          telegramLoggedIn();
           toast('Parol yangilandi', 'ok');
           go('#/');
         } catch (err) { showError(form, err); }

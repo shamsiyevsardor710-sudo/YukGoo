@@ -77,7 +77,9 @@ p { margin: 0; }
 /* ---------- Yuqori panel ---------- */
 .topbar {
   position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 20px;
-  padding: 10px max(16px, calc((100vw - 1120px) / 2)); background: var(--asphalt);
+  /* Android ilovada sahifa holat paneli ostigacha chiziladi (viewport-fit=cover) — yuqoridan joy qoldiramiz */
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, calc((100vw - 1120px) / 2)) 10px;
+  background: var(--asphalt);
   color: #fff;
 }
 :root[data-theme="dark"] .topbar, .topbar { --tb-fg: #fff; }
@@ -141,9 +143,10 @@ p { margin: 0; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-head p { margin-top: 6px; }
 .grid-2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
-.stack { display: grid; gap: 16px; }
-.stack-sm { display: grid; gap: 10px; }
+/* minmax(0, 1fr): uzun matn yoki marshrut qatori ustunni ekrandan kengaytirib yubormasin (360px telefonlar) */
+@media (max-width: 900px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.stack-sm { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
@@ -478,6 +481,11 @@ tr:last-child td { border-bottom: 0; }
 .tx-amt { font-weight: 700; white-space: nowrap; }
 .amt-neg { color: var(--danger); }
 .amt-pos { color: var(--ok); }
+
+/* ---- Telegram Mini App va hisobni o'chirish ---- */
+.tg-note { display: flex; gap: 10px; align-items: flex-start; margin: -6px 0 18px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); font-size: 14px; line-height: 1.45; }
+.tg-note svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: #2AABEE; }
+.danger-link { color: var(--danger); align-self: center; font-size: 14px; margin-top: 4px; }
 
 /* ---- Yashirin telefon raqami ---- */
 .phone-lock { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 1.35; color: var(--muted); }

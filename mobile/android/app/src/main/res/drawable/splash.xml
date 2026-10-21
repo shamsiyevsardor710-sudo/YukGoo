@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ishga tushish ekrani (Android 11 va eskilar): to'q fon va markazda YukGo belgisi -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:width="180dp"
+        android:height="180dp"
+        android:drawable="@mipmap/ic_launcher_foreground"
+        android:gravity="center" />
+</layer-list>

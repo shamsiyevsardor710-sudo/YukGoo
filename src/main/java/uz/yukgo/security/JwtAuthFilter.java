@@ -33,9 +33,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            Long userId = jwtService.parseUserId(header.substring(7));
-            if (userId != null) {
-                User user = userRepository.findById(userId).orElse(null);
+            JwtService.TokenInfo token = jwtService.parse(header.substring(7));
+            if (token != null) {
+                User user = userRepository.findById(token.userId()).orElse(null);
                 if (user != null) {
                     if (user.getStatus() != UserStatus.ACTIVE) {
                         String msg = user.getStatus() == UserStatus.BLOCKED
@@ -49,10 +49,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                 "message", msg, "code", "ACCOUNT_" + user.getStatus().name()));
                         return;
                     }
-                    var principal = new AuthPrincipal(user.getId(), user.getRole());
-                    var auth = new UsernamePasswordAuthenticationToken(principal, null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())));
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    // Parol almashgan yoki admin qilingan — eski token yaroqsiz: so'rov mehmon sifatida davom etadi (401)
+                    if (token.tokenVersion() == user.currentTokenVersion()) {
+                        var principal = new AuthPrincipal(user.getId(), user.getRole());
+                        var auth = new UsernamePasswordAuthenticationToken(principal, null,
+                                List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())));
+                        SecurityContextHolder.getContext().setAuthentication(auth);
+                    }
                 }
             }
         }

@@ -7,6 +7,7 @@ import { navigationPage } from './pages/navigation.js';
 import { profilePage, publicProfilePage, notificationsPage, driversPage } from './pages/profile.js';
 import { tripsPage } from './pages/trips.js';
 import { adminPage } from './pages/admin.js';
+import { tg, initTelegram, telegramRoute, telegramAutoLogin, telegramLogout } from './telegram.js';
 
 const routes = [
   { path: '/', page: marketPage, nav: 'market' },
@@ -27,6 +28,8 @@ const routes = [
 
 let cleanup = null;
 let unreadTimer = null;
+/** Har bir render raqami: sahifa yuklanayotganda boshqasiga o'tilsa, eskisi darhol tozalanadi (GPS kuzatuvi qolib ketmasin) */
+let renderSeq = 0;
 
 function match(hash) {
   const path = (hash.replace(/^#/, '') || '/').split('?')[0];
@@ -49,8 +52,16 @@ export function go(hash) {
   else location.hash = hash;
 }
 
+/** Tarixga yangi qadam qo'shmasdan o'tish (yo'naltirishlar uchun: "Orqaga" bosilganda yana shu yerga qaytib kelmasin) */
+export function redirect(hash) {
+  history.replaceState(history.state, '', hash);
+  return render();
+}
+
 async function render() {
+  const seq = ++renderSeq;
   if (cleanup) { try { cleanup(); } catch { /* */ } cleanup = null; }
+  telegramRoute((location.hash.replace(/^#/, '') || '/').split('?')[0]);
   const main = $('#main');
   const m = match(location.hash || '#/');
   if (!m) {
@@ -60,10 +71,10 @@ async function render() {
   const { route, params, query } = m;
   if (route.auth && !auth.loggedIn) {
     sessionStorageSafe('yukgo_after_login', location.hash);
-    return go('#/login');
+    return redirect('#/login');
   }
-  if (route.guest && auth.loggedIn) return go('#/');
-  if (route.staff && !auth.isStaff) return go('#/');
+  if (route.guest && auth.loggedIn) return redirect('#/');
+  if (route.staff && !auth.isStaff) return redirect('#/');
 
   document.body.classList.toggle('bare', !!route.bare);
   $('#topbar').classList.toggle('hidden', !!route.bare);
@@ -72,8 +83,14 @@ async function render() {
   main.innerHTML = '';
   window.scrollTo(0, 0);
   try {
-    cleanup = await route.page(main, params, query) || null;
+    const c = await route.page(main, params, query) || null;
+    if (seq !== renderSeq) {   // yuklanayotganda boshqa sahifaga o'tildi
+      if (typeof c === 'function') { try { c(); } catch { /* */ } }
+      return;
+    }
+    cleanup = c;
   } catch (e) {
+    if (seq !== renderSeq) return;
     console.error(e);
     main.innerHTML = `<div class="page"><div class="empty"><h3>Sahifani ochib bo'lmadi</h3><p class="muted">${esc(e.message || e)}</p><a class="btn" href="#/">Bosh sahifa</a></div></div>`;
   }
@@ -137,22 +154,55 @@ function sessionStorageSafe(k, v) {
 
 export function afterLogin() {
   const back = sessionStorageSafe('yukgo_after_login');
-  go(back && !back.includes('login') ? back : '#/');
+  redirect(back && !back.includes('login') ? back : '#/');
 }
 
-export function logout() {
+/**
+ * @param {{server?: boolean}} opts server=false — hisob o'chirilgandan keyin (serverga so'rov yubormaymiz)
+ */
+export async function logout({ server = true } = {}) {
+  if (server) await telegramLogout();   // Telegram ichida: keyingi ochilishda o'zi kirib qolmasin
   auth.token = null;
   auth.user = null;
-  go('#/login');
+  redirect('#/login');
 }
 
-setUnauthorizedHandler((msg) => {
+setUnauthorizedHandler(async (msg) => {
+  // Telegram ichida sessiya tugagan bo'lsa — parolsiz qayta kirib ko'ramiz
+  if (await telegramAutoLogin()) {
+    render();
+    return;
+  }
   toast(msg, 'err');
-  go('#/login');
+  redirect('#/login');
 });
 
+/**
+ * Android ilova (Capacitor): telefonning "Orqaga" tugmasi — avval ochiq oynani yopadi, keyin sahifalar bo'yicha orqaga
+ * qaytadi, birinchi sahifada esa ilovani yig'ib qo'yadi (qayta ochilganda shu joydan davom etadi).
+ */
+function nativeBackButton() {
+  let App = null;
+  try {
+    const cap = window.Capacitor;
+    App = cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins ? cap.Plugins.App : null;
+  } catch { /* */ }
+  if (!App || typeof App.addListener !== 'function') return;
+  try {
+    App.addListener('backButton', (ev) => {
+      const closers = document.querySelectorAll('#modal-root [data-close]');
+      if (closers.length) { closers[closers.length - 1].click(); return; }
+      if (ev && ev.canGoBack) history.back();
+      else App.minimizeApp?.();
+    });
+  } catch { /* eski ilova versiyasi — Android o'zi boshqaradi */ }
+}
+
 (async function boot() {
-  await loadMe();
+  nativeBackButton();
+  await initTelegram();   // oddiy brauzerda hech narsa qilmaydi
+  await loadMe({ silent: true });
+  if (tg.active && !auth.user) await telegramAutoLogin();   // Telegram ichida: hisob ulangan bo'lsa parolsiz kiradi
   window.addEventListener('hashchange', render);
   await render();
   unreadTimer = setInterval(refreshUnread, 30000);

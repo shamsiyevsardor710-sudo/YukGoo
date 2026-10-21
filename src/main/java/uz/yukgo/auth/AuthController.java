@@ -14,6 +14,13 @@ import java.util.Map;
 public class AuthController {
     private final AuthService authService;
     private final VerificationService verificationService;
+    private final TelegramAuthService telegramAuthService;
+
+    @Operation(summary = "Telegram Mini App ichida avtomatik kirish (initData imzosi bot tokeni bilan tekshiriladi)")
+    @PostMapping("/telegram")
+    public AuthResponse telegram(@Valid @RequestBody TelegramInitRequest req) {
+        return telegramAuthService.login(req.initData());
+    }
 
     @Operation(summary = "1-qadam: telefon raqam kiritish — kod Telegram bot orqali keladi")
     @PostMapping("/register/start")

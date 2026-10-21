@@ -90,6 +90,19 @@ public class User {
     // ---- Telegram ----
     private Long telegramChatId;
 
+    /**
+     * Mini App ochilganda parolsiz avtomatik kirish. Mini App ichida "Chiqish" bosilsa false bo'ladi (bildirishnomalar
+     * esa kelaveradi), keyingi safar parol bilan kirilganda yana yoqiladi. null — eski hisoblar, yoqilgan deb hisoblanadi.
+     * (Boolean — mavjud qatorlarga ustun qo'shilganda NOT NULL xatosi bo'lmasin.)
+     */
+    private Boolean telegramAutoLogin;
+
+    /**
+     * Kirish tokenlari versiyasi: parol almashganda yoki admin qilinganda oshadi — boshqa qurilmalardagi (va begona
+     * qo'ldagi) eski tokenlar yaroqsiz bo'ladi. null — eski qatorlar, 0 deb hisoblanadi.
+     */
+    private Integer tokenVersion;
+
     // ---- Haydovchi sozlamalari ----
     /** "Hozir bo'shman, buyurtma olaman" */
     private boolean available = true;
@@ -115,6 +128,15 @@ public class User {
         this.lastName = last.trim();
         this.firstNameLower = this.firstName.toLowerCase();
         this.lastNameLower = this.lastName.toLowerCase();
+    }
+
+    public int currentTokenVersion() {
+        return tokenVersion == null ? 0 : tokenVersion;
+    }
+
+    /** Hozirgacha berilgan barcha kirish tokenlarini bekor qiladi (yangisi yangi versiya bilan beriladi). */
+    public void revokeTokens() {
+        tokenVersion = currentTokenVersion() + 1;
     }
 
     public String getFullName() {

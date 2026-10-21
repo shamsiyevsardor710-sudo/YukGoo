@@ -99,4 +99,6 @@ public final class UserDtos {
     public record ChangePhoneConfirm(@NotBlank String requestId, @NotBlank String code) {}
 
     public record LocationUpdate(@NotNull Double lat, @NotNull Double lng) {}
+
+    public record DeleteAccountRequest(@NotBlank(message = "Parolni kiriting") String password) {}
 }

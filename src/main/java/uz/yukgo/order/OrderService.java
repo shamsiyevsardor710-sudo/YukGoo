@@ -430,6 +430,11 @@ public class OrderService {
             o.setFinalPrice(null);
             o.setAcceptedAt(null);
             o.setCommission(null);   // haydovchi o'zi voz kechdi — komissiya qaytarilmaydi
+            // Uning yo'li va oxirgi joylashuvi keyingi haydovchinikiga aralashmasin (va endi yuboruvchiga ko'rinmasin)
+            o.setDriverLat(null);
+            o.setDriverLng(null);
+            o.setDriverLocationAt(null);
+            trackRepository.deleteByOrder(o.getId());
             o.setStatus(OrderStatus.NEW);
             me.setCancelledAsDriver(me.getCancelledAsDriver() + 1);
             event(o, OrderStatus.NEW, "Haydovchi voz kechdi" + (reason != null ? ": " + reason : "") + ". Buyurtma qayta e'lon qilindi", me);
@@ -460,6 +465,65 @@ public class OrderService {
         if (driver != null) {
             notifications.notify(driver, "Buyurtma bekor qilindi", text, "#/orders/" + o.getId());
             if (beforePickup) refundCommission(o, driver, "Admin buyurtmani bekor qildi (#" + o.getId() + ")");
+        }
+    }
+
+    /**
+     * Foydalanuvchi hisobini o'chirganda: ochiq e'lonlari yopiladi, kutilayotgan takliflari qaytarib olinadi.
+     * Har bir buyurtma bloklanib, holati qayta tekshiriladi: shu soniyada kimdir e'lonni olgan yoki taklifni qabul
+     * qilgan bo'lsa, o'chirish to'xtatiladi (aks holda faol buyurtmada "o'chirilgan", telefonsiz tomon qolardi).
+     * Chaqiruvchining (UserService.deleteAccount) tranzaksiyasiga qo'shiladi — xato bo'lsa hammasi bekor bo'ladi.
+     */
+    @Transactional
+    public void closeForDeletedAccount(User u) {
+        Set<Long> own = new HashSet<>(orderRepository.findOpenOrderIdsBySender(u.getId()));
+        Set<Long> offered = new HashSet<>(offerRepository.findOrderIdsWithPendingOffer(u.getId()));
+        // Hammasi bitta ID tartibida bloklanadi — bir vaqtda ikki hisob o'chirilsa ham bir-birini kutib qolmasin (deadlock)
+        List<Long> ids = new ArrayList<>(own);
+        ids.addAll(offered);
+        for (Long id : ids.stream().distinct().sorted().toList()) {
+            Order o = findForUpdate(id);
+            if (own.contains(id)) {
+                if (o.getStatus() == OrderStatus.NEW) {
+                    closeAsCancelled(o, "Yuboruvchi hisobini o'chirdi", null);
+                } else if (o.getStatus().isActive()) {
+                    throw ApiException.conflict("\"" + o.getTitle() + "\" ni hozirgina haydovchi oldi. Avval shu buyurtmani yakunlang yoki bekor qiling");
+                }
+            }
+            if (offered.contains(id)) {
+                if (o.getStatus().isActive() && o.getDriver() != null && o.getDriver().getId().equals(u.getId())) {
+                    throw ApiException.conflict("\"" + o.getTitle() + "\" bo'yicha taklifingiz hozirgina qabul qilindi. "
+                            + "Avval shu buyurtmani yakunlang yoki undan voz keching");
+                }
+                offerRepository.findFirstByOrderIdAndDriverIdAndStatus(id, u.getId(), OfferStatus.PENDING)
+                        .ifPresent(f -> f.setStatus(OfferStatus.WITHDRAWN));
+                o.setOffersCount((int) offerRepository.countByOrderIdAndStatus(id, OfferStatus.PENDING));
+            }
+        }
+    }
+
+    /**
+     * Hisob o'chirilganda buyurtmalar tarixidan shaxsiy ma'lumotlarni olib tashlaydi: haydovchi sifatidagi GPS
+     * yo'llari va oxirgi joylashuvi o'chiriladi, tarixdagi (timeline) ismi {@code newName} ga almashtiriladi.
+     * Buyurtmalarning o'zi (narx, yo'nalish, holat) ikkinchi tomon va hisob-kitob uchun qoladi.
+     */
+    @Transactional
+    public void anonymizeHistory(User u, String oldName, String newName) {
+        trackRepository.deleteByDriver(u.getId());
+        orderRepository.clearDriverLocation(u.getId());
+        eventRepository.renameActor(u.getId(), newName);
+        if (oldName == null || oldName.isBlank()) return;
+        // "Haydovchi tanlandi: <ism>, narx ..." — faqat aynan shu yozuv va faqat u taklif bergan buyurtmalarda
+        // (boshqa haydovchining "Aziz Karimov" ismi "Aziz Karim" o'chirilganda buzilmasin)
+        String prefix = "Haydovchi tanlandi: " + oldName + ", ";
+        List<Long> ids = offerRepository.findOrderIdsOfferedBy(u.getId());
+        for (int i = 0; i < ids.size(); i += 500) {
+            for (OrderEvent e : eventRepository.findByOrderIdIn(ids.subList(i, Math.min(ids.size(), i + 500)))) {
+                if (e.getText() != null && e.getText().startsWith(prefix)) {
+                    String text = "Haydovchi tanlandi: " + newName + ", " + e.getText().substring(prefix.length());
+                    e.setText(text.length() > 300 ? text.substring(0, 300) : text);
+                }
+            }
         }
     }
 

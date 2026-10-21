@@ -2,7 +2,9 @@ package uz.yukgo.user;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,6 +20,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** Bir chat bir nechta hisobga biriktirilgan bo'lishi mumkin (raqam almashtirilganda) — shuning uchun First */
     Optional<User> findFirstByTelegramChatIdOrderByIdDesc(Long chatId);
+
+    List<User> findByTelegramChatId(Long chatId);
 
     boolean existsByRole(Role role);
 
@@ -62,4 +66,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("select distinct u.telegramChatId from User u where u.telegramChatId is not null and u.status = uz.yukgo.user.UserStatus.ACTIVE")
     List<Long> findAllActiveChatIds();
+
+    /** Hisobni o'chirish kabi amallar uchun: qator tranzaksiya oxirigacha bloklanadi (ikki marta bosilsa ham bir marta bajariladi) */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> lockById(@Param("id") Long id);
 }

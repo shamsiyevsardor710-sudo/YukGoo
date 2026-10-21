@@ -1,5 +1,5 @@
 // Boshqaruv paneli: admin va ega (owner)
-import { auth, get, post, put, del } from '../api.js';
+import { auth, get, post, put, del, config } from '../api.js';
 import {
   $, $$, esc, avatar, toast, confirmDialog, busy, showError, clearError, money, phoneFmt, dateTime, ago, num,
   options, statusPill, emptyState, skeletons, ROLE, USTATUS, STATUS,
@@ -289,7 +289,16 @@ function broadcast(pane) {
     <p class="small muted">Xabar Telegram botga ulangan barcha faol foydalanuvchilarga yuboriladi.</p>
     <form class="stack" novalidate>
       <textarea class="textarea" name="text" maxlength="3000" style="min-height:160px" placeholder="Masalan: Ertadan Toshkent — Samarqand yo'lida ta'mirlash ishlari boshlanadi…" required></textarea>
-      <button class="btn btn-primary" type="submit">Yuborish</button></form></section>`;
+      <button class="btn btn-primary" type="submit">Yuborish</button></form>
+    <p class="small muted" id="bc-media">📷 <b>Rasm, video yoki dumaloq video</b> yubormoqchimisiz? Uni o'z Telegramingizdan
+      botga yuboring — bot «Hammaga yuborilsinmi?» deb so'raydi, tasdiqlasangiz hamma foydalanuvchiga boradi.
+      Albom, ovozli xabar va fayl ham bo'ladi.</p></section>`;
+  config().then((c) => {
+    const el = $('#bc-media', pane);
+    if (el && c.botUsername) {
+      el.insertAdjacentHTML('beforeend', ` <a href="https://t.me/${encodeURIComponent(c.botUsername)}" target="_blank" rel="noopener">@${esc(c.botUsername)} ni ochish</a>`);
+    }
+  });
   const form = $('form', pane);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

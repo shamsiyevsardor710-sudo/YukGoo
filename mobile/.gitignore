@@ -1,0 +1,5 @@
+node_modules/
+# Imzo kaliti (keystore) — HECH QACHON GitHub'ga yuklamang
+*.jks
+*.keystore
+keystore.properties

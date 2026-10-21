@@ -10,6 +10,8 @@ import uz.yukgo.config.AppProperties;
 import uz.yukgo.telegram.TelegramClient;
 import uz.yukgo.user.User;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 
 /** Sayt ichidagi bildirishnoma + Telegram xabari. */
@@ -38,7 +40,7 @@ public class NotificationService {
         if (user.getTelegramChatId() != null) {
             String html = "<b>" + TelegramClient.esc(title) + "</b>\n" + TelegramClient.esc(body);
             if (link != null) {
-                telegram.sendWithButton(user.getTelegramChatId(), html, "Ochish", siteUrl(link));
+                telegram.sendWithAppButton(user.getTelegramChatId(), html, "Ochish", appUrl(link), siteUrl(link));
             } else {
                 telegram.send(user.getTelegramChatId(), html);
             }
@@ -48,7 +50,7 @@ public class NotificationService {
     /** Faqat Telegram (masalan, yangi buyurtmalar haqida haydovchilarga). */
     public void telegramOnly(User user, String html, String link) {
         if (user.getTelegramChatId() == null) return;
-        if (link != null) telegram.sendWithButton(user.getTelegramChatId(), html, "Ko'rish", siteUrl(link));
+        if (link != null) telegram.sendWithAppButton(user.getTelegramChatId(), html, "Ko'rish", appUrl(link), siteUrl(link));
         else telegram.send(user.getTelegramChatId(), html);
     }
 
@@ -58,8 +60,22 @@ public class NotificationService {
     }
 
     public String siteUrl(String hashLink) {
-        String base = props.publicUrl().endsWith("/") ? props.publicUrl().substring(0, props.publicUrl().length() - 1) : props.publicUrl();
-        return base + "/" + hashLink;
+        return baseUrl() + "/" + hashLink;
+    }
+
+    /**
+     * Mini App uchun manzil: sahifa "?r=" parametrida beriladi, chunki Telegram o'z ma'lumotlarini (#tgWebAppData)
+     * aynan "#" dan keyin qo'shadi. Masalan "#/orders/5" → https://sayt/?r=%2Forders%2F5
+     */
+    public String appUrl(String hashLink) {
+        String route = hashLink == null ? "/" : hashLink.startsWith("#") ? hashLink.substring(1) : hashLink;
+        if (!route.startsWith("/")) route = "/" + route;
+        return baseUrl() + "/?r=" + URLEncoder.encode(route, StandardCharsets.UTF_8);
+    }
+
+    private String baseUrl() {
+        String url = props.publicUrl() == null ? "" : props.publicUrl().trim();
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     @Transactional(readOnly = true)

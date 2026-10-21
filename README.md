@@ -47,6 +47,11 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 - Tasdiqlash kodlarini yuboradi.
 - Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yozishma, yangi buyurtmalar.
 - Menyu: 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam.
+- Pastdagi **«YukGo»** tugmasi saytni Telegram ichida (Mini App) ochadi: bir marta parol bilan kirilgach, keyingi safar o'zi kiradi.
+- **Adminlar uchun ommaviy xabar:** admin yoki ega o'z Telegramidan botga rasm, video, dumaloq video, ovozli xabar, fayl,
+  albom yoki matn yuboradi → bot «Hammaga yuborilsinmi?» deb so'raydi → «✅ Hammaga yuborish» bosilsa, xabar botga ulangan
+  barcha faol foydalanuvchilarga xuddi shu ko'rinishda boradi, oxirida nechta odamga yetgani yoziladi. Oddiy foydalanuvchilar
+  yuborgan rasm hech kimga tarqalmaydi. Matnli xabarni boshqaruv panelidagi «Ommaviy xabar» bo'limidan ham yuborish mumkin.
 
 ### Admin va ega (owner)
 | Amal | Admin | Ega |
@@ -54,7 +59,7 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 | Statistika, buyurtmalarni ko'rish va bekor qilish | ✅ | ✅ |
 | Oddiy foydalanuvchini bloklash / blokdan chiqarish / chiqarib yuborish / tiklash | ✅ | ✅ |
 | Murojaatlarni hal qilish, nomaqbul sharhni o'chirish | ✅ | ✅ |
-| Telegram orqali ommaviy xabar | ✅ | ✅ |
+| Telegram orqali ommaviy xabar (matn — paneldan; rasm, video, dumaloq video — botga yuborib) | ✅ | ✅ |
 | Foydalanuvchini admin qilish / adminlikdan olish | ❌ | ✅ |
 | **Adminni** bloklash va chiqarib yuborish | ❌ | ✅ |
 | Egalikni boshqa odamga topshirish | ❌ | ✅ |

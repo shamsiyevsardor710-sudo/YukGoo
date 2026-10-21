@@ -128,7 +128,8 @@ export async function profilePage(main, _p, query) {
         <section class="panel stack-sm">
           <h2>Telegram</h2>
           ${u.telegramLinked
-            ? `<p class="small">Hisobingiz botga ulangan. Takliflar, holat o'zgarishlari va xabarlar Telegramga keladi.</p>`
+            ? `<p class="small">Hisobingiz botga ulangan. Takliflar, holat o'zgarishlari va xabarlar Telegramga keladi.</p>
+               <button class="link-btn danger-link" id="tg-unlink" style="justify-self:start">Telegramdan uzish</button>`
             : `<p class="small muted">Botni ulang — yangi takliflar va buyurtmalar haqida darhol xabar olasiz. Botda «Telefon raqamni yuborish» tugmasini bosing.</p>
                <a class="btn btn-route" target="_blank" rel="noopener" href="https://t.me/${esc(cfg.botUsername)}?start=link">${icon('telegram')}@${esc(cfg.botUsername)} ni ulash</a>`}
         </section>
@@ -151,7 +152,9 @@ export async function profilePage(main, _p, query) {
         <section class="panel stack-sm">
           <a class="btn btn-ghost" href="#/u/${u.id}">Profilim boshqalarga qanday ko'rinadi</a>
           <button class="btn btn-ghost" id="theme">Mavzu: ${themeLabel()}</button>
+          <a class="btn btn-ghost" href="/privacy.html">Maxfiylik siyosati</a>
           <button class="btn btn-danger" id="logout">${icon('logout')}Chiqish</button>
+          <button class="link-btn danger-link" id="delete-account">Hisobni o'chirish</button>
         </section>
       </div>
     </div></div>`;
@@ -167,7 +170,20 @@ export async function profilePage(main, _p, query) {
   });
   $('#edit-profile', main).addEventListener('click', () => editProfileModal(() => profilePage(main, _p, query)));
   bindVehicle(main, () => profilePage(main, _p, query));
-  $('#logout', main).addEventListener('click', logout);
+  $('#logout', main).addEventListener('click', () => logout());
+  $('#tg-unlink', main)?.addEventListener('click', async () => {
+    const ok = await confirmDialog('Telegramdan uzilsinmi?',
+      "Buyurtmalar va takliflar haqidagi xabarlar Telegramga kelmay qoladi, YukGo Telegram ichida o'zi kirmaydi. "
+      + "Qayta ulash uchun botda «Telefon raqamni yuborish» tugmasini bosing yoki Telegram ichida parol bilan kiring.",
+      { okText: 'Uzish' });
+    if (!ok) return;
+    try {
+      auth.user = await post('/users/me/telegram/unlink');
+      toast('Telegramdan uzildi', 'ok');
+      profilePage(main, _p, query);
+    } catch (err) { toast(err.message, 'err'); }
+  });
+  $('#delete-account', main).addEventListener('click', deleteAccountModal);
   $('#theme', main).addEventListener('click', (e) => { cycleTheme(); e.target.textContent = 'Mavzu: ' + themeLabel(); });
 
   if (u.driver) {
@@ -313,8 +329,10 @@ function editProfileModal(onSaved) {
         e.preventDefault();
         clearError(pass);
         try {
-          await busy(pass.querySelector('[type=submit]'), () => put('/users/me/password', formData(pass)));
-          toast("Parol o'zgartirildi", 'ok');
+          const res = await busy(pass.querySelector('[type=submit]'), () => put('/users/me/password', formData(pass)));
+          // Boshqa qurilmalardagi kirishlar bekor bo'ldi — shu qurilma yangi token bilan davom etadi
+          if (res && res.token) { auth.token = res.token; auth.user = res.user; }
+          toast("Parol o'zgartirildi. Boshqa qurilmalardagi kirishlar yopildi", 'ok');
           close();
         } catch (err) { showError(pass, err); }
       });
@@ -323,6 +341,33 @@ function editProfileModal(onSaved) {
 }
 
 // ---------- Mavzu (yorug'/qorong'i) ----------
+// Google Play talabi: foydalanuvchi hisobini ilovaning o'zida o'chira olishi kerak
+function deleteAccountModal() {
+  modal("Hisobni o'chirish", `<form class="stack" novalidate>
+      <p>Ismingiz, telefon raqamingiz, manzilingiz, rasmlar, mashina ma'lumotlari va Telegram ulanishi o'chiriladi.
+        Buyurtmalar va baholar tarixi «O'chirilgan foydalanuvchi» nomi bilan qoladi.</p>
+      <p class="small muted">Bu amalni ortga qaytarib bo'lmaydi. Keyinroq shu raqam bilan qaytadan ro'yxatdan o'tishingiz mumkin.
+        <a href="/delete-account.html">Batafsil</a></p>
+      <label class="field"><span>Tasdiqlash uchun parolingiz</span>
+        <input class="input" name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn btn-danger" type="submit">Hisobni butunlay o'chirish</button></form>`, {
+    onMount: ({ el, close }) => {
+      const f = $('form', el);
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearError(f);
+        if (!f.password.value) return showError(f, { message: 'Parolni kiriting' });
+        try {
+          await busy(f.querySelector('[type=submit]'), () => post('/users/me/delete', { password: f.password.value }));
+          close();
+          toast("Hisobingiz o'chirildi", 'ok');
+          logout({ server: false });   // hisob endi yo'q — serverga chiqish so'rovi yuborilmaydi
+        } catch (err) { showError(f, err); }
+      });
+    },
+  });
+}
+
 function themeLabel() {
   const t = safeGet('yukgo_theme');
   return t === 'dark' ? "qorong'i" : t === 'light' ? "yorug'" : 'avtomatik';
