@@ -202,7 +202,7 @@ public class AdminService {
     @Transactional
     public void cancelOrder(Long id, String reason) {
         User me = currentUser.get();
-        Order o = orderService.find(id);
+        Order o = orderService.findForUpdate(id);   // bir vaqtdagi "olish" bilan to'qnashmasligi uchun qator bloklanadi
         orderService.adminCancel(o, blankToNull(reason), me);
         logRepository.save(newLog(me, "CANCEL_ORDER", null, "#" + id + (reason != null ? ": " + reason : "")));
     }

@@ -3,6 +3,7 @@ import { auth, get, post, put, del, upload, config, regions } from '../api.js';
 import {
   $, $$, esc, icon, avatar, stars, toast, modal, confirmDialog, formData, showError, clearError, busy,
   bindRegionDistrict, regionOptions, options, phoneFmt, date, ago, num, emptyState, skeletons, BODY, ROLE,
+  money, dateTime,
 } from '../ui.js';
 import { phoneVerification } from './auth.js';
 import { reportDialog } from './orders.js';
@@ -67,7 +68,9 @@ function heroBlock(u, editable) {
         ${u.bio ? `<p class="small">${esc(u.bio)}</p>` : ''}
       </div>
       <div class="actions row">
-        <a class="btn btn-route" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>
+        ${u.phone
+          ? `<a class="btn btn-route" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>`
+          : `<p class="phone-lock">${icon('shield')}Raqam yashirin — buyurtma orqali bog'langanlarga ko'rinadi</p>`}
         ${editable ? `<button class="btn" id="edit-profile">${icon('edit')}Tahrirlash</button>` : ''}
       </div>
     </div>
@@ -77,6 +80,34 @@ function heroBlock(u, editable) {
       <div><b>${num(u.deliveriesCompleted)}</b><span>Yetkazgan yuklari</span></div>
     </div>
   </section>`;
+}
+
+// ---------- balans (daromad tizimi yoqilgan yoki balans bor bo'lsagina ko'rinadi) ----------
+async function walletBlock(el) {
+  try {
+    const w = await get('/wallet');
+    const p = w.pricing || {};
+    if (!p.enabled && !w.balance) { el.innerHTML = ''; return; }
+    el.innerHTML = `<section class="panel stack-sm">
+      <div class="row-between"><h2>Balans</h2><span class="balance num">${esc(money(w.balance))}</span></div>
+      ${p.enabled ? `<p class="small muted">Haydovchiga buyurtma berilganda komissiya yechiladi: narxning ${esc(num(p.commissionPercent, 1))}%${p.commissionMin ? `, kamida ${esc(money(p.commissionMin))}` : ''}${p.commissionMax ? `, ko'pi bilan ${esc(money(p.commissionMax))}` : ''}.${p.urgentFee ? ` Shoshilinch e'lon — ${esc(money(p.urgentFee))}.` : ''}</p>` : ''}
+      ${p.topupInfo ? `<div class="panel-sunk small" style="white-space:pre-line"><b>Balansni to'ldirish</b><br>${esc(p.topupInfo)}</div>` : ''}
+      <div><button class="btn btn-sm" id="wallet-history">Balans tarixi</button></div>
+    </section>`;
+    $('#wallet-history', el).addEventListener('click', walletHistoryModal);
+  } catch { el.innerHTML = ''; }
+}
+
+async function walletHistoryModal() {
+  const data = await get('/wallet/transactions').catch(() => ({ items: [] }));
+  const html = data.items.length
+    ? `<div>${data.items.map(t => `<div class="tx-row">
+        <div style="min-width:0"><b>${esc(t.typeLabel)}</b>${t.orderId ? ` · <a href="#/orders/${t.orderId}">#${t.orderId}</a>` : ''}
+          <div class="tiny muted">${esc(dateTime(t.createdAt))}${t.note ? ' — ' + esc(t.note) : ''}</div></div>
+        <div class="num tx-amt ${t.amount < 0 ? 'amt-neg' : 'amt-pos'}">${t.amount > 0 ? '+' : '−'}${esc(money(Math.abs(t.amount)))}</div>
+      </div>`).join('')}</div>`
+    : `<p class="muted small">Hali harakat yo'q.</p>`;
+  modal('Balans tarixi', html, { onMount: ({ el, close }) => $$('a', el).forEach(a => a.addEventListener('click', close)) });
 }
 
 // =====================================================================
@@ -101,6 +132,7 @@ export async function profilePage(main, _p, query) {
             : `<p class="small muted">Botni ulang — yangi takliflar va buyurtmalar haqida darhol xabar olasiz. Botda «Telefon raqamni yuborish» tugmasini bosing.</p>
                <a class="btn btn-route" target="_blank" rel="noopener" href="https://t.me/${esc(cfg.botUsername)}?start=link">${icon('telegram')}@${esc(cfg.botUsername)} ni ulash</a>`}
         </section>
+        <div id="wallet-slot"></div>
         ${u.driver ? `<section class="panel stack">
           <h2>Haydovchi sozlamalari</h2>
           <label class="setting"><span><b>Hozir bo'shman</b><br><span class="small muted">O'chirsangiz, yangi buyurtmalar haqida xabar kelmaydi</span></span>
@@ -125,6 +157,7 @@ export async function profilePage(main, _p, query) {
     </div></div>`;
 
   reviewsBlock($('#reviews', main), u.id);
+  walletBlock($('#wallet-slot', main));
 
   $('#avatar-input', main).addEventListener('change', async (e) => {
     const f = e.target.files[0];
@@ -365,7 +398,7 @@ export async function driversPage(main) {
       $('#list', main).innerHTML = data.items.length ? `<div class="orders">${data.items.map(u => `<div class="order-row">
           <div class="row-between"><a class="person" href="#/u/${u.id}">${avatar(u.avatarUrl, u.fullName)}
             <div style="min-width:0"><div class="person-name">${esc(u.fullName)}</div><div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
-            <a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a></div>
+            ${u.phone ? `<a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>` : ''}</div>
           <div class="meta">
             ${u.vehicle ? `<span><b>${esc(u.vehicle.brand)} ${esc(u.vehicle.model || '')}</b></span><span>${esc(BODY[u.vehicle.bodyType] || '')}</span>
               ${u.vehicle.capacityKg ? `<span>${num(u.vehicle.capacityKg)} kg gacha</span>` : ''}` : ''}

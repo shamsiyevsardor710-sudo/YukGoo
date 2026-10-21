@@ -75,7 +75,7 @@ export async function marketPage(main, _p, query) {
       const data = await get('/orders', { ...f, page });
       items = items.concat(data.items);
       res.innerHTML = items.length
-        ? `<div class="orders">${items.map(orderRow).join('')}</div>`
+        ? groupedByDay(items)
         : emptyState("Bu yo'nalishda hozircha buyurtma yo'q", "Filtrlarni o'zgartiring yoki birinchi bo'lib buyurtma bering.",
           `<a class="btn btn-primary" href="#/new">Buyurtma berish</a>`);
       $('#more', main).classList.toggle('hidden', data.page + 1 >= data.totalPages);
@@ -137,13 +137,63 @@ function intro(stats) {
   </section>`;
 }
 
+// ---- Olib ketish sanasi bo'yicha guruhlar: Shoshilinch → Bugun → Ertaga → Indinga → sanalar → muddati o'tgan → sanasiz ----
+// (backenddagi OrderRepository.market tartibi bilan bir xil, shuning uchun "Yana ko'rsatish" guruhlarni buzmaydi)
+const WEEKDAYS = ['yakshanba', 'dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba'];
+
+/** Brauzerning mahalliy sanasi YYYY-MM-DD ko'rinishida (toISOString UTC beradi — tunda bir kun orqada qoladi). */
+export function localISO(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function addDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return localISO(d);
+}
+/** Guruh kaliti: 'urgent' | 'today' | 'YYYY-MM-DD' (kelgusi kunlar) | 'late' (sanasi o'tgan) | 'nodate' */
+export function dayKey(o, today) {
+  if (o.urgent) return 'urgent';
+  if (!o.pickupDate) return 'nodate';
+  // ISO sanalar matn sifatida ham to'g'ri solishtiriladi
+  if (o.pickupDate < today) return 'late';
+  return o.pickupDate === today ? 'today' : o.pickupDate;
+}
+export function dayLabel(key, today) {
+  if (key === 'urgent') return 'Shoshilinch';
+  if (key === 'today') return 'Bugun';
+  if (key === 'late') return "Muddati o'tgan";
+  if (key === 'nodate') return 'Sana kelishiladi';
+  if (key === addDays(today, 1)) return 'Ertaga';
+  if (key === addDays(today, 2)) return 'Indinga';
+  const d = new Date(key + 'T00:00:00');
+  return `${date(key + 'T00:00:00')}, ${WEEKDAYS[d.getDay()]}`;
+}
+const dayRank = (k) => (k === 'urgent' ? '0' : k === 'today' ? '1' : k === 'late' ? '8' : k === 'nodate' ? '9' : '2' + k);
+
+export function groupedByDay(items) {
+  const today = localISO();
+  const groups = new Map();
+  for (const o of items) {
+    const k = dayKey(o, today);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(o);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => dayRank(a[0]).localeCompare(dayRank(b[0])))
+    .map(([k, list]) => `<section class="day-group">
+        <h2 class="day-head${k === 'urgent' ? ' is-urgent' : k === 'late' ? ' is-late' : ''}">${k === 'urgent' ? '🔥 ' : ''}${esc(dayLabel(k, today))}<span>${list.length} ta</span></h2>
+        <div class="orders">${list.map(orderRow).join('')}</div></section>`)
+    .join('');
+}
+
 export function orderRow(o) {
+  const late = o.status === 'NEW' && o.pickupDate && o.pickupDate < localISO();
   const meta = [
     o.distanceKm ? `<span class="only-mobile"><b>${esc(km(o.distanceKm))}</b></span>` : '',
     `<span>${esc(CARGO[o.cargoType] || o.cargoType)}</span>`,
     o.weightKg ? `<span><b>${num(o.weightKg, 1)}</b> kg</span>` : '',
     o.volumeM3 ? `<span><b>${num(o.volumeM3, 1)}</b> m³</span>` : '',
-    o.pickupDate ? `<span>Olib ketish: <b>${esc(date(o.pickupDate))}</b></span>` : '',
+    o.pickupDate ? `<span>Olib ketish: <b>${esc(date(o.pickupDate + 'T00:00:00'))}</b>${late ? ' <em class="late">kechikkan</em>' : ''}</span>` : '',
     o.requiredBodyType ? `<span>${esc(BODY[o.requiredBodyType])}</span>` : '',
     o.status === 'NEW' && o.offersCount ? `<span><b>${o.offersCount}</b> ta taklif</span>` : '',
     `<span>${esc(ago(o.createdAt))}</span>`,
@@ -164,8 +214,9 @@ export function orderRow(o) {
 // Yangi buyurtma
 // =====================================================================
 export async function createOrderPage(main) {
-  const cfg = await config();
-  const today = new Date().toISOString().slice(0, 10);
+  const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
+  const today = localISO();
+  const urgentFee = cfg.pricing?.enabled && cfg.pricing.urgentFee > 0 ? cfg.pricing.urgentFee : 0;
   main.innerHTML = `<div class="page">
     <div class="page-head"><div><h1>Yangi buyurtma</h1><p class="muted">Yukingiz haqida yozing — mos haydovchilarga Telegram orqali darhol xabar boradi.</p></div></div>
     <form id="order-form" class="grid-2" novalidate>
@@ -214,7 +265,8 @@ export async function createOrderPage(main) {
             <label class="field"><span>Kim to'laydi</span><select class="select" name="payer">${options(PAYER, 'SENDER')}</select></label>
           </div>
           <label class="field"><span>Yukni olish sanasi</span><input class="input" name="pickupDate" type="date" min="${today}" value="${today}"></label>
-          <label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda yuqorida ko'rinadi</label>
+          <label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda doim eng yuqorida turadi${urgentFee ? ` <b class="fee">${esc(money(urgentFee))}</b>` : ''}</label>
+          ${urgentFee ? `<p class="tiny muted">Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi.</p>` : ''}
         </section>
         <section class="panel stack">
           <h2>Qabul qiluvchi</h2>
@@ -343,8 +395,19 @@ export async function createOrderPage(main) {
 // =====================================================================
 // Buyurtma sahifasi
 // =====================================================================
+/** Backenddagi WalletService.calcCommission bilan bir xil hisob (faqat ko'rsatish uchun, yechish — serverda). */
+export function commissionFor(pr, price) {
+  if (!pr?.enabled || !price) return 0;
+  let c = Math.max(Math.round(price * pr.commissionPercent / 100), pr.commissionMin || 0);
+  if (pr.commissionMax > 0) c = Math.min(c, pr.commissionMax);
+  return Math.max(0, Math.round(c / 100) * 100);
+}
+
 export async function orderPage(main, { id }) {
   let o, timer = null, chatTimer = null, mapCtx = null, driverMark = null, lastMsgId = 0, routeDrawn = false;
+  const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
+  const pr = cfg.pricing?.enabled ? cfg.pricing : null;   // daromad tizimi o'chiq bo'lsa — null, hech narsa ko'rsatilmaydi
+  const urgentFee = pr && pr.urgentFee > 0 ? pr.urgentFee : 0;
 
   async function load() {
     o = await get('/orders/' + id);
@@ -412,12 +475,18 @@ export async function orderPage(main, { id }) {
   }
 
   function personCard(u, withVehicle) {
+    // Server raqamni faqat buyurtma tomonlariga yuboradi; boshqalarga sababini tushuntiramiz
+    const lockText = o.status === 'NEW' && auth.user?.driver
+      ? "Raqam buyurtma sizga berilgach ko'rinadi"
+      : "Raqam faqat buyurtma tomonlariga ko'rinadi";
     return `<a class="person" href="#/u/${u.id}">${avatar(u.avatarUrl, u.fullName)}
       <div style="min-width:0"><div class="person-name">${esc(u.fullName)}</div>
         <div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
       ${withVehicle && u.vehicle ? `<div class="small muted">${esc(u.vehicle.brand)} ${esc(u.vehicle.model || '')}, ${esc(BODY[u.vehicle.bodyType] || '')}
         <span class="plate" style="font-size:13px;margin-left:6px"><span>${esc(u.vehicle.plateNumber)}</span></span></div>` : ''}
-      <a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>`;
+      ${u.phone
+        ? `<a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>`
+        : `<p class="phone-lock">${icon('shield')}${esc(lockText)}</p>`}`;
   }
 
   function renderActions() {
@@ -429,6 +498,15 @@ export async function orderPage(main, { id }) {
     if (role === 'SENDER') {
       if (o.status === 'NEW') {
         html += `<section class="panel"><div class="row-between"><h2>Takliflar</h2><span class="muted small">${o.offersCount} ta</span></div><div id="offers">${skeletons(2)}</div></section>`;
+        const late = o.pickupDate && o.pickupDate < localISO();   // sanasi o'tgan e'lonni server shoshilinch qilmaydi
+        if (late) {
+          html += `<section class="panel stack-sm"><h2>Olib ketish sanasi o'tdi</h2>
+            <p class="small muted">Sanasi o'tganiga 7 kun bo'lgach e'lon avtomatik yopiladi. Yuk hali jo'natilmagan bo'lsa, bu e'lonni bekor qilib, yangi sana bilan qayta joylang.</p></section>`;
+        } else if (!o.urgent) {
+          html += `<section class="panel stack-sm"><h2>Tezroq haydovchi topish</h2>
+            <p class="small muted">Shoshilinch e'lon ro'yxatda doim eng yuqorida turadi va haydovchilarga qayta xabar boradi.</p>
+            <button class="btn btn-primary btn-block" id="make-urgent">🔥 Shoshilinch qilish${urgentFee ? ' — ' + esc(money(urgentFee)) : ''}</button></section>`;
+        }
       }
       if (o.status === 'ACCEPTED' || o.status === 'IN_TRANSIT') {
         html += `<div class="code-card"><p>Topshirish kodi</p><span class="code">${esc(o.deliveryCode)}</span>
@@ -443,7 +521,8 @@ export async function orderPage(main, { id }) {
           <p class="small muted">Navigatsiya yuk olish manziligacha yo'l ko'rsatadi, yuboruvchi esa sizni xaritada kuzatadi.</p>
           <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiyani boshlash</a>
           <button class="btn btn-primary btn-lg btn-block" id="pickup">Yukni oldim, yo'lga chiqdim</button>
-          <button class="btn btn-danger btn-block" id="cancel">Voz kechish</button></section>`;
+          <button class="btn btn-danger btn-block" id="cancel">Voz kechish</button>
+          ${o.commission ? `<p class="tiny muted">Bu buyurtma uchun balansingizdan ${esc(money(o.commission))} komissiya yechilgan.</p>` : ''}</section>`;
       }
       if (o.status === 'IN_TRANSIT') {
         html += `<section class="panel stack-sm"><h2>Yuk yo'lda</h2>
@@ -497,7 +576,9 @@ export async function orderPage(main, { id }) {
         <label class="field"><span>Qachon olib keta olasiz?</span><select class="select" name="pickupInHours">
           <option value="1">1 soat ichida</option><option value="3">3 soat ichida</option><option value="24" selected>Bugun-ertaga</option><option value="72">3 kun ichida</option></select></label>
         <label class="field"><span>Izoh</span><textarea class="textarea" name="comment" maxlength="500" placeholder="Masalan: yuklashga yordam beraman, tentli Isuzu">${esc(existing?.comment || '')}</textarea></label>
-        <button class="btn ${o.price && !existing ? '' : 'btn-primary'} btn-block" type="submit">Taklif yuborish</button></form></section>`;
+        <button class="btn ${o.price && !existing ? '' : 'btn-primary'} btn-block" type="submit">Taklif yuborish</button></form>
+      ${pr ? `<p class="tiny muted">Buyurtma sizga berilsa, balansingizdan komissiya yechiladi: narxning ${esc(num(pr.commissionPercent, 1))}%${pr.commissionMin ? `, kamida ${esc(money(pr.commissionMin))}` : ''}${o.price ? ` — shu narxda ${esc(money(commissionFor(pr, o.price)))}` : ''}.
+        Yuboruvchi bekor qilsa, komissiya qaytariladi.</p>` : ''}</section>`;
   }
 
   function bindActions() {
@@ -505,7 +586,9 @@ export async function orderPage(main, { id }) {
     on('#cancel', async () => {
       const isDriver = o.viewerRole === 'DRIVER';
       const r = await confirmDialog(isDriver ? 'Buyurtmadan voz kechasizmi?' : 'Buyurtmani bekor qilasizmi?',
-        isDriver ? "Buyurtma qayta e'lon qilinadi. Tez-tez voz kechish reytingingizga ta'sir qiladi." : "Haydovchilar va takliflar bekor bo'ladi.",
+        isDriver ? "Buyurtma qayta e'lon qilinadi. Tez-tez voz kechish reytingingizga ta'sir qiladi."
+            + (o.commission ? ` Yechilgan komissiya (${money(o.commission)}) qaytarilmaydi.` : '')
+          : "Haydovchilar va takliflar bekor bo'ladi.",
         { danger: true, okText: isDriver ? 'Voz kechish' : 'Bekor qilish', withReason: true });
       if (!r) return;
       try { o = await post(`/orders/${id}/cancel`, { reason: r.reason }); toast('Bajarildi'); render(); } catch (e) { toast(e.message, 'err'); }
@@ -518,8 +601,18 @@ export async function orderPage(main, { id }) {
     on('#pickup', async (e) => {
       try { o = await busy(e.currentTarget, () => post(`/orders/${id}/pickup`)); toast("Yo'lingiz bexatar bo'lsin!", 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
     });
+    on('#make-urgent', async (e) => {
+      const btn = e.currentTarget;   // await dan keyin currentTarget null bo'lib qoladi
+      const r = await confirmDialog("E'lonni shoshilinch qilasizmi?",
+        urgentFee ? `${money(urgentFee)} balansingizdan yechiladi. E'lon ro'yxatda eng yuqoriga chiqadi.` : "E'lon ro'yxatda eng yuqoriga chiqadi va haydovchilarga qayta xabar boradi.",
+        { okText: 'Shoshilinch qilish' });
+      if (!r) return;
+      try { o = await busy(btn, () => post(`/orders/${id}/urgent`)); toast("E'lon shoshilinch qilindi", 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
+    });
     on('#take', async (e) => {
-      const r = await confirmDialog('Buyurtmani olasizmi?', `${money(o.price)} narxda. Yuboruvchiga darhol xabar boradi.`, { okText: 'Olaman' });
+      const fee = commissionFor(pr, o.price);
+      const r = await confirmDialog('Buyurtmani olasizmi?', `${money(o.price)} narxda. Yuboruvchiga darhol xabar boradi.`
+        + (fee ? ` Balansingizdan ${money(fee)} komissiya yechiladi.` : ''), { okText: 'Olaman' });
       if (!r) return;
       try { o = await busy($('#take', main), () => post(`/orders/${id}/take`)); toast('Buyurtma sizniki! Yuboruvchiga qo\'ng\'iroq qiling', 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
     });

@@ -461,3 +461,24 @@ tr:last-child td { border-bottom: 0; }
   .filters > * { flex: none; }
 }
 #main:focus { outline: none; }
+
+/* ---- Bozor: olib ketish sanasi bo'yicha guruhlar ---- */
+.day-group + .day-group { margin-top: 22px; }
+.day-head { display: flex; align-items: baseline; gap: 10px; margin: 0 4px 10px; font-size: 17px; }
+.day-head span { font: 500 13px/1 var(--font); color: var(--muted); }
+.day-head.is-urgent { color: var(--danger); }
+.day-head.is-late { color: var(--muted); }
+.late { font-style: normal; font-size: 12px; font-weight: 700; color: var(--warn); margin-left: 4px; }
+.fee { display: inline-block; white-space: nowrap; background: var(--signal-soft); color: var(--asphalt); padding: 1px 8px; border-radius: 6px; font-size: 13px; margin-left: 4px; }
+
+/* ---- Balans va tranzaksiyalar ---- */
+.balance { font: 600 24px/1.1 var(--display); }
+.tx-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.tx-row:last-child { border-bottom: 0; }
+.tx-amt { font-weight: 700; white-space: nowrap; }
+.amt-neg { color: var(--danger); }
+.amt-pos { color: var(--ok); }
+
+/* ---- Yashirin telefon raqami ---- */
+.phone-lock { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 1.35; color: var(--muted); }
+.phone-lock svg { width: 16px; height: 16px; flex: none; }

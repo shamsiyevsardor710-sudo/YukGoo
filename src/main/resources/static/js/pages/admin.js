@@ -1,5 +1,5 @@
 // Boshqaruv paneli: admin va ega (owner)
-import { auth, get, post, del } from '../api.js';
+import { auth, get, post, put, del } from '../api.js';
 import {
   $, $$, esc, avatar, toast, confirmDialog, busy, showError, clearError, money, phoneFmt, dateTime, ago, num,
   options, statusPill, emptyState, skeletons, ROLE, USTATUS, STATUS,
@@ -14,11 +14,12 @@ export async function adminPage(main) {
     <div class="seg" id="tabs" style="margin-bottom:18px">
       <button data-t="stats" class="on">Statistika</button><button data-t="users">Foydalanuvchilar</button>
       <button data-t="orders">Buyurtmalar</button><button data-t="reports">Murojaatlar</button>
+      <button data-t="revenue">Daromad</button>
       <button data-t="broadcast">Ommaviy xabar</button><button data-t="logs">Jurnal</button>
     </div>
     <div id="pane"></div></div>`;
   const pane = $('#pane', main);
-  const show = () => ({ stats, users, orders, reports, broadcast, logs })[tab](pane, owner);
+  const show = () => ({ stats, users, orders, reports, revenue, broadcast, logs })[tab](pane, owner);
   $$('#tabs button', main).forEach(b => b.addEventListener('click', () => {
     tab = b.dataset.t;
     $$('#tabs button', main).forEach(x => x.classList.toggle('on', x === b));
@@ -41,6 +42,112 @@ async function stats(pane) {
     <div class="kpis">
       ${k(num(s.usersActive), 'Faol hisoblar')}${k(num(s.usersBlocked), 'Bloklangan')}${k(num(s.usersRemoved), 'Chiqarilgan')}${k(num(s.admins), 'Adminlar')}
     </div></div>`;
+}
+
+// ---------------- Daromad: komissiya, shoshilinch narxi, balanslar ----------------
+async function revenue(pane, owner) {
+  pane.innerHTML = skeletons(2);
+  let s;
+  try { s = await get('/admin/monetization'); } catch (e) { pane.innerHTML = emptyState("Yuklab bo'lmadi", e.message); return; }
+  const st = s.settings, can = s.canEdit;
+  const dis = can ? '' : 'disabled';
+  const k = (v, l) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`;
+  pane.innerHTML = `<div class="stack">
+    <div class="kpis">${k(money(s.revenueToday), 'Bugungi daromad')}${k(money(s.revenueMonth), 'Shu oy')}${k(money(s.revenueTotal), 'Jami daromad')}${k(money(s.walletsTotal), 'Foydalanuvchilar balanslari')}</div>
+    <div class="grid-2">
+      <section class="panel stack">
+        <h2>Daromad sozlamalari</h2>
+        <form id="mon-form" class="stack" novalidate>
+          <label class="setting"><span><b>Daromad tizimi ${st.enabled ? 'yoqilgan' : "o'chiq"}</b><br><span class="small muted">O'chiq bo'lsa hech kimdan pul yechilmaydi va narxlar ko'rsatilmaydi</span></span>
+            <span class="switch"><input type="checkbox" name="enabled" ${st.enabled ? 'checked' : ''} ${dis}><span></span></span></label>
+          <div class="form-grid">
+            <label class="field"><span>Komissiya, %</span><input class="input" name="commissionPercent" type="number" min="0" max="50" step="0.5" value="${esc(st.commissionPercent)}" ${dis}></label>
+            <label class="field"><span>Eng kam komissiya, so'm</span><input class="input" name="commissionMin" type="number" min="0" step="500" value="${esc(st.commissionMin)}" ${dis}></label>
+            <label class="field"><span>Eng ko'p komissiya, so'm (0 — cheklovsiz)</span><input class="input" name="commissionMax" type="number" min="0" step="500" value="${esc(st.commissionMax)}" ${dis}></label>
+            <label class="field"><span>Shoshilinch e'lon narxi, so'm (0 — bepul)</span><input class="input" name="urgentFee" type="number" min="0" step="500" value="${esc(st.urgentFee)}" ${dis}></label>
+            <label class="field full"><span>Balansni to'ldirish yo'riqnomasi (foydalanuvchilar profilida ko'rinadi)</span>
+              <textarea class="textarea" name="topupInfo" maxlength="1000" placeholder="Masalan: Balansni to'ldirish uchun Telegramda @admin ga yozing" ${dis}>${esc(st.topupInfo || '')}</textarea></label>
+          </div>
+          <p class="tiny muted">Komissiya haydovchiga buyurtma berilganda yechiladi: u «Olish» tugmasini bosganda yoki yuboruvchi uning taklifini tanlaganda.
+            Yuboruvchi bekor qilsa yoki admin yuk olinmasdan oldin bekor qilsa — qaytariladi, haydovchi o'zi voz kechsa — qaytarilmaydi.
+            Taklif yuborish uchun haydovchi balansida komissiyaga yetadigan mablag' bo'lishi kerak.</p>
+          ${can ? `<div><button class="btn btn-primary" type="submit">Saqlash</button></div>` : `<p class="small muted">Sozlamalarni faqat ega o'zgartira oladi.</p>`}
+          ${s.updatedBy ? `<p class="tiny muted">Oxirgi o'zgartirish: ${esc(s.updatedBy)}, ${esc(dateTime(s.updatedAt))}</p>` : ''}
+        </form>
+      </section>
+      <section class="panel stack">
+        <h2>Balansni to'ldirish</h2>
+        ${can ? `<form id="adj-form" class="stack-sm" novalidate>
+            <label class="field"><span>Foydalanuvchi telefoni</span><input class="input" name="phone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" required></label>
+            <label class="field"><span>Summa, so'm (yechish uchun minus bilan, masalan -5000)</span><input class="input" name="amount" type="number" step="500" required></label>
+            <label class="field"><span>Izoh</span><input class="input" name="note" maxlength="300" placeholder="Masalan: kartaga o'tkazma, 20-oktabr"></label>
+            <div><button class="btn btn-primary" type="submit">Bajarish</button></div></form>
+          <p class="tiny muted">Pul sizga kelganini tekshirib, keyin balansga qo'shing. Har bir amal jurnalga yoziladi va foydalanuvchiga xabar boradi.</p>`
+          : `<p class="small muted">Balanslarni faqat ega o'zgartira oladi.</p>`}
+      </section>
+    </div>
+    <section class="panel"><h2>So'nggi harakatlar</h2><div id="tx-list" style="margin-top:12px">${skeletons(2)}</div></section>
+  </div>`;
+
+  const mf = $('#mon-form', pane);
+  if (can) mf.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearError(mf);
+    const body = {
+      enabled: mf.enabled.checked,
+      commissionPercent: Number(mf.commissionPercent.value || 0),
+      commissionMin: Math.round(Number(mf.commissionMin.value || 0)),
+      commissionMax: Math.round(Number(mf.commissionMax.value || 0)),
+      urgentFee: Math.round(Number(mf.urgentFee.value || 0)),
+      topupInfo: mf.topupInfo.value.trim() || null,
+    };
+    if (body.enabled && !st.enabled) {
+      const ok = await confirmDialog('Daromad tizimini yoqasizmi?',
+        "Haydovchilardan komissiya va shoshilinch e'lon uchun to'lov olina boshlaydi. Balansi yetmagan haydovchilar taklif yubora olmaydi — avval ularni ogohlantiring.",
+        { okText: 'Yoqish' });
+      if (!ok) return;
+    }
+    try {
+      await busy(mf.querySelector('[type=submit]'), () => put('/admin/monetization', body));
+      toast('Saqlandi. Foydalanuvchilar yangi narxlarni sahifani yangilaganda ko\'radi', 'ok');
+      revenue(pane, owner);
+    } catch (err) { showError(mf, err); }
+  });
+
+  const af = $('#adj-form', pane);
+  if (af) af.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearError(af);
+    const phone = af.phone.value.trim(), amount = Math.round(Number(af.amount.value)), note = af.note.value.trim() || null;
+    if (!phone || !amount) return showError(af, { message: 'Telefon raqam va summani kiriting' });
+    const ok = await confirmDialog(amount > 0 ? "Balansni to'ldirasizmi?" : 'Balansdan yechasizmi?',
+      `${phone}: ${amount > 0 ? '+' : '−'}${money(Math.abs(amount))}`, { okText: 'Bajarish', danger: amount < 0 });
+    if (!ok) return;
+    try {
+      const r = await busy(af.querySelector('[type=submit]'), () => post('/admin/wallet/adjust', { phone, amount, note }));
+      toast(`${r.userName}: balans ${money(r.balance)}`, 'ok');
+      af.reset();
+      loadTx();
+    } catch (err) { showError(af, err); }
+  });
+
+  async function loadTx() {
+    const box = $('#tx-list', pane);
+    try {
+      const data = await get('/admin/wallet/transactions');
+      box.innerHTML = data.items.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Vaqt</th><th>Foydalanuvchi</th><th>Turi</th><th>Summa</th><th>Qoldiq</th><th>Izoh</th></tr></thead>
+        <tbody>${data.items.map(t => `<tr>
+          <td class="small">${esc(dateTime(t.createdAt))}</td>
+          <td class="small"><a href="#/u/${t.userId}">${esc(t.userName || '#' + t.userId)}</a>${t.userPhone ? `<br><span class="muted">${esc(phoneFmt(t.userPhone))}</span>` : ''}</td>
+          <td class="small">${esc(t.typeLabel)}${t.orderId ? ` <a href="#/orders/${t.orderId}">#${t.orderId}</a>` : ''}</td>
+          <td class="num tx-amt ${t.amount < 0 ? 'amt-neg' : 'amt-pos'}">${t.amount > 0 ? '+' : '−'}${esc(money(Math.abs(t.amount)))}</td>
+          <td class="num small">${esc(money(t.balanceAfter))}</td>
+          <td class="small">${esc(t.note || '')}${t.actorName ? `<br><span class="tiny muted">${esc(t.actorName)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+        : `<p class="muted small">Hali harakat yo'q.</p>`;
+    } catch (err) { box.innerHTML = `<p class="muted small">${esc(err.message)}</p>`; }
+  }
+  loadTx();
 }
 
 async function users(pane, owner) {
@@ -204,6 +311,8 @@ async function logs(pane) {
     BLOCK: 'blokladi', UNBLOCK: 'blokdan chiqardi', REMOVE: 'chiqarib yubordi', RESTORE: 'qayta tikladi',
     MAKE_ADMIN: 'admin qildi', REVOKE_ADMIN: 'adminlikdan oldi', TRANSFER_OWNERSHIP: 'egalikni topshirdi',
     CANCEL_ORDER: 'buyurtmani bekor qildi', DELETE_REVIEW: "sharhni o'chirdi", BROADCAST: 'ommaviy xabar yubordi',
+    MONETIZATION_ON: 'daromad tizimini yoqdi', MONETIZATION_OFF: "daromad tizimini o'chirdi",
+    MONETIZATION_UPDATE: "narxlarni o'zgartirdi", BALANCE_TOPUP: "balansni to'ldirdi", BALANCE_DEBIT: 'balansdan yechdi',
   };
   pane.innerHTML = data.items.length ? `<div class="table-wrap"><table><thead><tr><th>Vaqt</th><th>Kim</th><th>Amal</th><th>Kimga</th><th>Tafsilot</th></tr></thead>
     <tbody>${data.items.map(l => `<tr><td class="small">${esc(dateTime(l.createdAt))}</td><td class="small">${esc(l.actorName)}</td>

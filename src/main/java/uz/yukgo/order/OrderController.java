@@ -96,6 +96,12 @@ public class OrderController {
         return orderService.take(id);
     }
 
+    @Operation(summary = "Yuboruvchi e'lonni shoshilinch qiladi (daromad tizimi yoqilgan bo'lsa — pullik)")
+    @PostMapping("/{id}/urgent")
+    public OrderDto urgent(@PathVariable Long id) {
+        return orderService.makeUrgent(id);
+    }
+
     // ---- Holat ----
 
     @PostMapping("/{id}/pickup")

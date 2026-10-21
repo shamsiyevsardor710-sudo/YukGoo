@@ -10,6 +10,8 @@ import uz.yukgo.order.OrderStatus;
 import uz.yukgo.telegram.TelegramClient;
 import uz.yukgo.user.BodyType;
 import uz.yukgo.user.UserRepository;
+import uz.yukgo.wallet.WalletDtos.PricingDto;
+import uz.yukgo.wallet.WalletService;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -22,6 +24,7 @@ public class PublicController {
     private final TelegramClient telegram;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
+    private final WalletService wallet;
 
     @GetMapping("/api/config")
     public Map<String, Object> config() {
@@ -32,6 +35,8 @@ public class PublicController {
         m.put("devMode", props.devMode());
         m.put("cargoTypes", CargoType.values());
         m.put("bodyTypes", BodyType.values());
+        // Komissiya va shoshilinch narxi (tizim o'chiq bo'lsa enabled=false — frontend hech narsa ko'rsatmaydi)
+        m.put("pricing", PricingDto.of(wallet.current()));
         return m;
     }
 

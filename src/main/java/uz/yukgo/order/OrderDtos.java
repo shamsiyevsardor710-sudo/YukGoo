@@ -54,7 +54,9 @@ public final class OrderDtos {
             String viewerRole,
             OfferDto myOffer,
             Boolean reviewedByMe,
-            Double driverLat, Double driverLng, Instant driverLocationAt) {}
+            Double driverLat, Double driverLng, Instant driverLocationAt,
+            /** Haydovchidan yechilgan komissiya — faqat shu haydovchi va adminlarga ko'rinadi */
+            Long commission) {}
 
     public record OfferRequest(
             @NotNull(message = "Narxni kiriting") @Min(value = 1000, message = "Narx kamida 1 000 so'm") Long price,

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.DynamicUpdate;
 import uz.yukgo.location.District;
 import uz.yukgo.location.Region;
 
@@ -11,6 +12,8 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
+/** DynamicUpdate: masalan, GPS yangilanishi (lastLat) bir vaqtda qo'yilgan blokni (status) qaytarib yubormasligi uchun. */
+@DynamicUpdate
 @Entity
 @Table(name = "users", indexes = {
         @Index(name = "idx_users_name", columnList = "firstNameLower,lastNameLower")

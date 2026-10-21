@@ -15,12 +15,15 @@ import uz.yukgo.common.Phones;
 import uz.yukgo.file.FileStorageService;
 import uz.yukgo.location.LocationService;
 import uz.yukgo.location.Region;
+import uz.yukgo.order.OrderRepository;
+import uz.yukgo.order.OrderStatus;
 import uz.yukgo.security.CurrentUser;
 import uz.yukgo.telegram.TelegramLinkRepository;
 import uz.yukgo.user.UserDtos.*;
 
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +35,10 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final VerificationService verificationService;
     private final TelegramLinkRepository linkRepository;
+    private final OrderRepository orderRepository;
+
+    /** Shu holatdagi umumiy buyurtma bo'lsa, ikki tomon bir-birining telefonini ko'radi */
+    private static final List<OrderStatus> DEAL_STATUSES = List.of(OrderStatus.ACCEPTED, OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED);
 
     @Transactional(readOnly = true)
     public MeDto me() {
@@ -42,7 +49,24 @@ public class UserService {
     public PublicUserDto publicProfile(Long id) {
         User u = userRepository.findById(id).orElseThrow(() -> ApiException.notFound("Foydalanuvchi topilmadi"));
         if (u.getStatus() == UserStatus.REMOVED) throw ApiException.notFound("Foydalanuvchi topilmadi");
-        return PublicUserDto.of(u);
+        return PublicUserDto.of(u, canSeePhone(u));
+    }
+
+    /**
+     * Ochiq profilda telefon kimga ko'rinadi:
+     *  • haydovchilarniki — hammaga (haydovchilar ro'yxati va reyslar aynan to'g'ridan-to'g'ri bog'lanish uchun);
+     *  • qolganlarniki (yuboruvchilar) — faqat o'ziga, adminlarga va u bilan buyurtma bo'yicha bog'langan odamga.
+     * Aks holda haydovchi yuboruvchi raqamini profildan olib, platformani chetlab kelishib olishi mumkin bo'lardi.
+     */
+    private boolean canSeePhone(User target) {
+        if (target.isDriver()) return true;
+        Long viewerId = currentUser.idOrNull();
+        if (viewerId == null) return false;
+        if (viewerId.equals(target.getId())) return true;
+        User viewer = userRepository.findById(viewerId).orElse(null);
+        if (viewer == null) return false;
+        if (viewer.getRole().isStaff()) return true;
+        return orderRepository.countDealsBetween(viewerId, target.getId(), DEAL_STATUSES) > 0;
     }
 
     @Transactional

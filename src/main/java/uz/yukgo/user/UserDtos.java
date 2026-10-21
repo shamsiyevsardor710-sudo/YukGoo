@@ -27,14 +27,19 @@ public final class UserDtos {
         }
     }
 
-    /** Hammaga ko'rinadigan profil */
+    /** Hammaga ko'rinadigan profil (phone — null bo'lishi mumkin: yashirilgan) */
     public record PublicUserDto(
             Long id, String firstName, String lastName, String fullName, String phone, String avatarUrl,
             String bio, Role role, boolean driver, boolean available, VehicleDto vehicle,
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
             RegionDto region, DistrictDto district, Instant memberSince, boolean telegramLinked) {
         public static PublicUserDto of(User u) {
-            return new PublicUserDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), u.getPhone(),
+            return of(u, true);
+        }
+
+        /** @param withPhone false — telefon raqami javobga qo'shilmaydi */
+        public static PublicUserDto of(User u, boolean withPhone) {
+            return new PublicUserDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), withPhone ? u.getPhone() : null,
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
                     VehicleDto.of(u.getVehicle()), u.getRatingAvg(), u.getRatingCount(), u.getOrdersCreated(),
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
@@ -42,12 +47,17 @@ public final class UserDtos {
         }
     }
 
-    /** Ro'yxatlar uchun qisqa ko'rinish */
+    /** Ro'yxatlar uchun qisqa ko'rinish (phone — null bo'lishi mumkin: yashirilgan) */
     public record UserBrief(Long id, String fullName, String phone, String avatarUrl, double rating,
                             int ratingCount, int deliveriesCompleted, boolean driver, VehicleDto vehicle) {
         public static UserBrief of(User u) {
+            return of(u, true);
+        }
+
+        /** @param withPhone false — telefon raqami javobga qo'shilmaydi (masalan, buyurtma hali bu haydovchiga berilmagan) */
+        public static UserBrief of(User u, boolean withPhone) {
             if (u == null) return null;
-            return new UserBrief(u.getId(), u.getFullName(), u.getPhone(), u.getAvatarUrl(), u.getRatingAvg(),
+            return new UserBrief(u.getId(), u.getFullName(), withPhone ? u.getPhone() : null, u.getAvatarUrl(), u.getRatingAvg(),
                     u.getRatingCount(), u.getDeliveriesCompleted(), u.isDriver(), VehicleDto.of(u.getVehicle()));
         }
     }

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.DynamicUpdate;
 import uz.yukgo.location.District;
 import uz.yukgo.location.Region;
 import uz.yukgo.user.BodyType;
@@ -12,7 +13,12 @@ import uz.yukgo.user.User;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/** Yetkazib berish buyurtmasi (yuk e'loni). */
+/**
+ * Yetkazib berish buyurtmasi (yuk e'loni).
+ * DynamicUpdate: UPDATE faqat o'zgargan ustunlarni yozadi — ko'rishlar soni yoki GPS yangilanishi
+ * bir vaqtda bo'lgan "olish"/"bekor qilish" natijasini eski qiymat bilan ustidan yozib yubormaydi.
+ */
+@DynamicUpdate
 @Entity(name = "Shipment") // "Order" HQL kalit so'zi bilan to'qnashmasligi uchun
 @Table(name = "orders", indexes = {
         @Index(name = "idx_orders_status", columnList = "status,createdAt"),
@@ -94,6 +100,9 @@ public class Order {
 
     /** Kelishilgan yakuniy narx */
     private Long finalPrice;
+
+    /** Haydovchidan yechilgan komissiya (bekor qilinganda qaytarish uchun); null — yechilmagan */
+    private Long commission;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 10)

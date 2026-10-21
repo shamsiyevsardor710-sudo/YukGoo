@@ -25,11 +25,15 @@ import uz.yukgo.user.BodyType;
 import uz.yukgo.user.User;
 import uz.yukgo.user.UserDtos.UserBrief;
 import uz.yukgo.user.UserRepository;
+import uz.yukgo.wallet.TxType;
+import uz.yukgo.wallet.WalletService;
 
 import java.security.SecureRandom;
 import java.text.NumberFormat;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 
 @Slf4j
@@ -38,6 +42,8 @@ import java.util.*;
 public class OrderService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final List<OrderStatus> ALL = List.of(OrderStatus.values());
+    /** "Bugun" doim Toshkent vaqti bo'yicha (server UTC'da ishlaydi). */
+    private static final ZoneId TZ = ZoneId.of("Asia/Tashkent");
 
     private final OrderRepository orderRepository;
     private final OfferRepository offerRepository;
@@ -53,6 +59,7 @@ public class OrderService {
     private final FileStorageService files;
     private final CurrentUser currentUser;
     private final AppProperties props;
+    private final WalletService wallet;
 
     // =====================================================================
     // Yaratish va ko'rish
@@ -65,8 +72,8 @@ public class OrderService {
         Region toRegion = locationService.region(req.to().regionId());
         District fromDistrict = req.from().districtId() == null ? null : locationService.district(req.from().districtId(), fromRegion);
         District toDistrict = req.to().districtId() == null ? null : locationService.district(req.to().districtId(), toRegion);
-        if (req.pickupDate() != null && req.pickupDate().isBefore(java.time.LocalDate.now().minusDays(1))) {
-            throw ApiException.badRequest("Yukni olish sanasi o'tib ketgan");
+        if (req.pickupDate() != null && req.pickupDate().isBefore(LocalDate.now(TZ))) {
+            throw ApiException.badRequest("Yukni olish sanasi o'tib ketgan — bugungi yoki keyingi sanani tanlang");
         }
 
         Order o = new Order();
@@ -99,6 +106,7 @@ public class OrderService {
         o.setReceiverPhone(Phones.normalize(req.receiverPhone()));
         o.setDeliveryCode(String.format("%04d", RANDOM.nextInt(10_000)));
         orderRepository.save(o);
+        if (o.isUrgent()) chargeUrgentFee(o, me);
 
         me.setOrdersCreated(me.getOrdersCreated() + 1);
         event(o, OrderStatus.NEW, "Buyurtma e'lon qilindi", me);
@@ -124,7 +132,7 @@ public class OrderService {
         User viewer = currentUserOrNull();
         String like = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase() + "%";
         var result = orderRepository.market(fromRegion, toRegion, cargoType, scope, bodyType, maxWeight, like,
-                PageRequest.of(page, 20));
+                LocalDate.now(TZ), PageRequest.of(Math.max(0, page), 20));
         return PageResponse.of(result, o -> toDto(o, viewer));
     }
 
@@ -169,6 +177,8 @@ public class OrderService {
         requireDriverProfile(me);
         if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizga taklif bera olmaysiz");
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Bu buyurtma endi taklif qabul qilmaydi");
+        // Daromad tizimi yoqilgan bo'lsa: qabul qilinganda komissiyani to'lay olishini oldindan tekshiramiz
+        wallet.requireBalanceForCommission(me, req.price());
 
         Offer offer = offerRepository.findFirstByOrderIdAndDriverIdAndStatus(orderId, me.getId(), OfferStatus.PENDING)
                 .orElse(null);
@@ -208,7 +218,7 @@ public class OrderService {
     @Transactional
     public OrderDto acceptOffer(Long orderId, Long offerId) {
         User me = currentUser.get();
-        Order o = find(orderId);
+        Order o = findForUpdate(orderId);
         requireSender(o, me);
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Buyurtma allaqachon band qilingan");
         Offer offer = offerRepository.findById(offerId)
@@ -224,7 +234,7 @@ public class OrderService {
     @Transactional
     public OrderDto take(Long orderId) {
         User me = currentUser.get();
-        Order o = find(orderId);
+        Order o = findForUpdate(orderId);
         requireDriverProfile(me);
         if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizni ola olmaysiz");
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Buyurtma allaqachon band qilingan");
@@ -239,6 +249,35 @@ public class OrderService {
         offerRepository.save(offer);
         assignDriver(o, offer, me);
         return toDto(o, me);
+    }
+
+    /** Yuboruvchi e'lonni shoshilinch qiladi: ro'yxatda eng yuqoriga chiqadi va haydovchilarga qayta xabar boradi. */
+    @Transactional
+    public OrderDto makeUrgent(Long orderId) {
+        User me = currentUser.get();
+        Order o = findForUpdate(orderId);
+        requireSender(o, me);
+        if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Faqat haydovchi kutayotgan e'lonni shoshilinch qilish mumkin");
+        if (o.isUrgent()) return toDto(o, me);
+        if (o.getPickupDate() != null && o.getPickupDate().isBefore(LocalDate.now(TZ))) {
+            throw ApiException.badRequest("Olib ketish sanasi o'tib ketgan e'lonni shoshilinch qilib bo'lmaydi. Yangi sana bilan qayta joylang.");
+        }
+        long fee = chargeUrgentFee(o, me);
+        o.setUrgent(true);
+        event(o, OrderStatus.NEW, "E'lon shoshilinch qilindi" + (fee > 0 ? " (" + money(fee) + ")" : ""), me);
+        notifyDriversAboutNewOrder(o, me);
+        return toDto(o, me);
+    }
+
+    /** Daromad tizimi yoqilgan bo'lsa shoshilinch narxini yuboruvchidan yechadi. @return yechilgan summa */
+    private long chargeUrgentFee(Order o, User sender) {
+        long fee = wallet.urgentFee();
+        if (fee > 0) {
+            wallet.charge(sender, fee, TxType.URGENT_FEE, o.getId(), "Shoshilinch e'lon #" + o.getId() + ": " + o.getTitle(),
+                    "Shoshilinch e'lon narxi " + money(fee) + ". Balansingizda mablag' yetarli emas — balansni to'ldiring"
+                            + " yoki \"Shoshilinch\" belgisini olib tashlang.");
+        }
+        return fee;
     }
 
     @Transactional
@@ -270,6 +309,11 @@ public class OrderService {
     }
 
     private void assignDriver(Order o, Offer accepted, User actor) {
+        // Daromad tizimi yoqilgan bo'lsa — haydovchidan komissiya (yetmasa xato, hech narsa o'zgarmaydi)
+        boolean byDriver = actor.getId().equals(accepted.getDriver().getId());
+        long fee = wallet.chargeCommission(accepted.getDriver(), o.getId(), accepted.getPrice(), o.getTitle(), byDriver);
+        o.setCommission(fee > 0 ? fee : null);
+
         accepted.setStatus(OfferStatus.ACCEPTED);
         o.setDriver(accepted.getDriver());
         o.setFinalPrice(accepted.getPrice());
@@ -288,7 +332,8 @@ public class OrderService {
         notifications.notify(driver, "✅ Buyurtma sizga berildi!",
                 "\"" + o.getTitle() + "\" — " + o.getFromRegion().getName() + " → " + o.getToRegion().getName()
                         + ", narx " + money(accepted.getPrice()) + ". Yuboruvchi: " + o.getSender().getFullName()
-                        + ", " + o.getSender().getPhone(),
+                        + ", " + o.getSender().getPhone()
+                        + (fee > 0 ? ". Balansingizdan " + money(fee) + " komissiya yechildi" : ""),
                 "#/orders/" + o.getId());
         if (!actor.getId().equals(o.getSender().getId())) {
             notifications.notify(o.getSender(), "Haydovchi buyurtmangizni oldi",
@@ -305,7 +350,7 @@ public class OrderService {
     @Transactional
     public OrderDto pickUp(Long orderId) {
         User me = currentUser.get();
-        Order o = find(orderId);
+        Order o = findForUpdate(orderId);
         requireDriver(o, me);
         if (o.getStatus() != OrderStatus.ACCEPTED) throw ApiException.badRequest("Buyurtma holati mos emas");
         o.setStatus(OrderStatus.IN_TRANSIT);
@@ -333,7 +378,7 @@ public class OrderService {
     @Transactional
     public OrderDto deliver(Long orderId, DeliverRequest req) {
         User me = currentUser.get();
-        Order o = find(orderId);
+        Order o = findForUpdate(orderId);
         requireDriver(o, me);
         if (o.getStatus() != OrderStatus.IN_TRANSIT) throw ApiException.badRequest("Avval yukni olganingizni belgilang");
         if (!o.getDeliveryCode().equals(req.code().trim())) {
@@ -354,7 +399,7 @@ public class OrderService {
     @Transactional
     public OrderDto cancel(Long orderId, CancelRequest req) {
         User me = currentUser.get();
-        Order o = find(orderId);
+        Order o = findForUpdate(orderId);
         String reason = req == null ? null : trimToNull(req.reason());
         boolean sender = o.getSender().getId().equals(me.getId());
         boolean driver = o.getDriver() != null && o.getDriver().getId().equals(me.getId());
@@ -372,6 +417,7 @@ public class OrderService {
                 notifications.notify(assigned, "Buyurtma bekor qilindi",
                         "Yuboruvchi \"" + o.getTitle() + "\" ni bekor qildi" + (reason != null ? ": " + reason : ""),
                         "#/orders/" + o.getId());
+                refundCommission(o, assigned, "Yuboruvchi buyurtmani bekor qildi (#" + o.getId() + ")");
             }
         } else if (driver) {
             if (o.getStatus() != OrderStatus.ACCEPTED) {
@@ -383,6 +429,7 @@ public class OrderService {
             o.setDriver(null);
             o.setFinalPrice(null);
             o.setAcceptedAt(null);
+            o.setCommission(null);   // haydovchi o'zi voz kechdi — komissiya qaytarilmaydi
             o.setStatus(OrderStatus.NEW);
             me.setCancelledAsDriver(me.getCancelledAsDriver() + 1);
             event(o, OrderStatus.NEW, "Haydovchi voz kechdi" + (reason != null ? ": " + reason : "") + ". Buyurtma qayta e'lon qilindi", me);
@@ -405,10 +452,25 @@ public class OrderService {
             throw ApiException.badRequest("Buyurtma allaqachon yakunlangan");
         }
         User driver = o.getDriver();
+        // Komissiya faqat yuk olinmasdan oldin qaytariladi: yo'ldagi buyurtma bo'yicha nizoda admin o'zi qaror qiladi
+        boolean beforePickup = o.getStatus() == OrderStatus.ACCEPTED;
         closeAsCancelled(o, "Admin tomonidan" + (reason != null ? ": " + reason : ""), admin);
         String text = "\"" + o.getTitle() + "\" admin tomonidan bekor qilindi" + (reason != null ? ": " + reason : "");
         notifications.notify(o.getSender(), "Buyurtma bekor qilindi", text, "#/orders/" + o.getId());
-        if (driver != null) notifications.notify(driver, "Buyurtma bekor qilindi", text, "#/orders/" + o.getId());
+        if (driver != null) {
+            notifications.notify(driver, "Buyurtma bekor qilindi", text, "#/orders/" + o.getId());
+            if (beforePickup) refundCommission(o, driver, "Admin buyurtmani bekor qildi (#" + o.getId() + ")");
+        }
+    }
+
+    /** Bekor qilingan buyurtma uchun haydovchidan yechilgan komissiyani qaytaradi (bo'lsa). */
+    private void refundCommission(Order o, User driver, String reason) {
+        Long fee = o.getCommission();
+        if (driver == null || fee == null || fee <= 0) return;
+        wallet.refundCommission(driver.getId(), o.getId(), fee, reason);
+        o.setCommission(null);
+        notifications.notify(driver, "Komissiya qaytarildi",
+                money(fee) + " balansingizga qaytarildi: \"" + o.getTitle() + "\"", "#/profile");
     }
 
     private void closeAsCancelled(Order o, String reason, User actor) {
@@ -526,6 +588,20 @@ public class OrderService {
             closeAsCancelled(o, "30 kun ichida haydovchi topilmadi (avtomatik)", null);
         }
         if (!stale.isEmpty()) log.info("{} ta eskirgan buyurtma yopildi", stale.size());
+
+        // Olib ketish sanasidan bir haftadan ko'p o'tgan va hali hech kim olmagan e'lonlar — bozorni toza saqlash uchun
+        LocalDate limit = LocalDate.now(TZ).minusDays(7);
+        int closed = 0;
+        for (Order o : orderRepository.findByStatusAndPickupDateBefore(OrderStatus.NEW, limit)) {
+            if (o.getStatus() != OrderStatus.NEW) continue;   // yuqorida 30 kunlik qoida bilan yopilgan
+            closeAsCancelled(o, "Olib ketish sanasi o'tib ketdi (avtomatik)", null);
+            notifications.notify(o.getSender(), "E'loningiz yopildi",
+                    "\"" + o.getTitle() + "\" — olib ketish sanasi o'tgani uchun e'lon avtomatik yopildi. "
+                            + "Yuk hali jo'natilmagan bo'lsa, yangi sana bilan qayta joylang.",
+                    "#/orders/" + o.getId());
+            closed++;
+        }
+        if (closed > 0) log.info("{} ta muddati o'tgan e'lon yopildi", closed);
     }
 
     // =====================================================================
@@ -534,6 +610,15 @@ public class OrderService {
 
     public Order find(Long id) {
         return orderRepository.findById(id).orElseThrow(() -> ApiException.notFound("Buyurtma topilmadi"));
+    }
+
+    /**
+     * Holatni o'zgartiruvchi amallar uchun: qatorni tranzaksiya oxirigacha bloklaydi, shuning uchun ikki haydovchi
+     * bir vaqtda "olish"ni bossa ham buyurtma bittasiga beriladi va komissiya faqat undan yechiladi.
+     * Faqat yozuvchi (readOnly bo'lmagan) tranzaksiyalarda chaqiring.
+     */
+    public Order findForUpdate(Long id) {
+        return orderRepository.lockById(id).orElseThrow(() -> ApiException.notFound("Buyurtma topilmadi"));
     }
 
     private void notifyDriversAboutNewOrder(Order o, User sender) {
@@ -613,6 +698,8 @@ public class OrderService {
         boolean isDriver = viewer != null && o.getDriver() != null && o.getDriver().getId().equals(viewer.getId());
         boolean isStaff = viewer != null && viewer.getRole().isStaff();
         String viewerRole = isSender ? "SENDER" : isDriver ? "DRIVER" : isStaff ? "STAFF" : "GUEST";
+        // Telefonlar faqat buyurtma tomonlariga: yuboruvchi raqami haydovchiga buyurtma unga berilgandagina ochiladi
+        // (aks holda platformani chetlab, komissiyasiz kelishib olish mumkin bo'lardi)
         boolean seeContacts = isSender || isDriver || isStaff;
         boolean seeExactPlace = seeContacts || o.getStatus() == OrderStatus.NEW;
 
@@ -634,7 +721,7 @@ public class OrderService {
                         seeExactPlace ? o.getToLat() : null, seeExactPlace ? o.getToLng() : null),
                 o.getDistanceKm(), o.getDurationMin(), o.getScope(), o.getPickupDate(),
                 o.getPrice(), o.getFinalPrice(), o.getPaymentMethod(), o.getPayer(), o.isUrgent(),
-                o.getStatus(), UserBrief.of(o.getSender()), UserBrief.of(o.getDriver()),
+                o.getStatus(), UserBrief.of(o.getSender(), seeContacts), UserBrief.of(o.getDriver(), seeContacts),
                 seeContacts ? o.getReceiverName() : null,
                 seeContacts ? o.getReceiverPhone() : null,
                 isSender || isStaff ? o.getDeliveryCode() : null,
@@ -643,7 +730,8 @@ public class OrderService {
                 o.getCancelledAt(), o.getCancelReason(),
                 viewerRole, myOffer, reviewed,
                 seeContacts ? o.getDriverLat() : null, seeContacts ? o.getDriverLng() : null,
-                seeContacts ? o.getDriverLocationAt() : null);
+                seeContacts ? o.getDriverLocationAt() : null,
+                isDriver || isStaff ? o.getCommission() : null);
     }
 
     private static PlaceDto place(Region r, District d, String address, Double lat, Double lng) {
