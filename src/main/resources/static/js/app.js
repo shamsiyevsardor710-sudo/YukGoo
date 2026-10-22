@@ -8,6 +8,7 @@ import { profilePage, publicProfilePage, notificationsPage, driversPage } from '
 import { tripsPage } from './pages/trips.js';
 import { adminPage } from './pages/admin.js';
 import { tg, initTelegram, telegramRoute, telegramAutoLogin, telegramLogout } from './telegram.js';
+import { captureAttribution } from './attribution.js';
 
 const routes = [
   { path: '/', page: marketPage, nav: 'market' },
@@ -152,9 +153,10 @@ function sessionStorageSafe(k, v) {
   try { if (v === undefined) { const x = sessionStorage.getItem(k); sessionStorage.removeItem(k); return x; } sessionStorage.setItem(k, v); } catch { return null; }
 }
 
-export function afterLogin() {
+/** Kirish yoki ro'yxatdan o'tishdan keyin: oldin ochmoqchi bo'lgan sahifaga (masalan, botdan kelgan to'ldirilgan forma) */
+export function afterLogin(fallback = '#/') {
   const back = sessionStorageSafe('yukgo_after_login');
-  redirect(back && !back.includes('login') ? back : '#/');
+  redirect(back && !back.includes('login') && !back.includes('register') ? back : fallback);
 }
 
 /**
@@ -200,6 +202,7 @@ function nativeBackButton() {
 
 (async function boot() {
   nativeBackButton();
+  captureAttribution();   // ?src=KOD / ?ref=ID — qaysi kanal, hamkor yoki do'st havolasidan kelgani
   await initTelegram();   // oddiy brauzerda hech narsa qilmaydi
   await loadMe({ silent: true });
   if (tg.active && !auth.user) await telegramAutoLogin();   // Telegram ichida: hisob ulangan bo'lsa parolsiz kiradi

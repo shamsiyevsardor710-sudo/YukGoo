@@ -68,9 +68,28 @@ public class NotificationService {
      * aynan "#" dan keyin qo'shadi. Masalan "#/orders/5" → https://sayt/?r=%2Forders%2F5
      */
     public String appUrl(String hashLink) {
+        return appUrl(hashLink, null, null);
+    }
+
+    /**
+     * Mini App manzili + kelgan manba va taklif (src, ref): ilova ularni birinchi ochilishda eslab qoladi
+     * va ro'yxatdan o'tishda yuboradi. Qiymatlar oldindan tozalangan bo'lishi kerak (faqat [a-z0-9_-]).
+     */
+    public String appUrl(String hashLink, String src, String ref) {
         String route = hashLink == null ? "/" : hashLink.startsWith("#") ? hashLink.substring(1) : hashLink;
         if (!route.startsWith("/")) route = "/" + route;
-        return baseUrl() + "/?r=" + URLEncoder.encode(route, StandardCharsets.UTF_8);
+        return baseUrl() + "/?r=" + URLEncoder.encode(route, StandardCharsets.UTF_8)
+                + (src != null && !src.isBlank() ? "&src=" + URLEncoder.encode(src, StandardCharsets.UTF_8) : "")
+                + (ref != null && !ref.isBlank() ? "&ref=" + URLEncoder.encode(ref, StandardCharsets.UTF_8) : "");
+    }
+
+    /** Oddiy brauzer uchun sayt havolasi + manba/taklif ("https://sayt/?src=ch3#/orders/5") */
+    public String siteUrl(String hashLink, String src, String ref) {
+        StringBuilder q = new StringBuilder();
+        if (src != null && !src.isBlank()) q.append("src=").append(URLEncoder.encode(src, StandardCharsets.UTF_8));
+        if (ref != null && !ref.isBlank()) q.append(q.isEmpty() ? "" : "&").append("ref=").append(URLEncoder.encode(ref, StandardCharsets.UTF_8));
+        String h = hashLink == null ? "" : hashLink;
+        return baseUrl() + "/" + (q.isEmpty() ? "" : "?" + q) + h;
     }
 
     private String baseUrl() {

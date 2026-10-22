@@ -27,7 +27,11 @@ public final class AuthDtos {
             @NotBlank(message = "Qishloq/mahallani kiriting") @Size(max = 120) String village,
             @NotBlank(message = "Uy manzilini kiriting") @Size(max = 120) String house,
             /** Telegram Mini App ichida bo'lsa — Telegram.WebApp.initData (hisob shu Telegramga ulanadi) */
-            @Size(max = 8192) String telegramInitData) {}
+            @Size(max = 8192) String telegramInitData,
+            /** Qaysi havoladan keldi (kanal, hamkor, dala xodimi kodi) — ixtiyoriy */
+            @Size(max = 64) String source,
+            /** Kim taklif qildi (taklif havolasidagi foydalanuvchi ID si) — ixtiyoriy */
+            @Size(max = 24) String ref) {}
 
     /** Ism + familiya + parol bilan kirish. Bir xil ismli bir nechta odam bo'lsa telefon ham so'raladi. */
     public record LoginRequest(String firstName, String lastName, String phone,

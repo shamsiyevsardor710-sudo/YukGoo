@@ -121,6 +121,18 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     long countByStatus(OrderStatus status);
 
+    /** Haydovchida hozir nechta buyurtma bor (yangi haydovchi bonusi hisobi uchun) */
+    long countByDriverIdAndStatusIn(Long driverId, Collection<OrderStatus> statuses);
+
+    /** Foydalanuvchi avval shoshilinch e'lon bergan(mi) — "birinchi shoshilinch bepul" uchun */
+    boolean existsBySenderIdAndUrgentTrueAndIdNot(Long senderId, Long excludeOrderId);
+
+    /** Taklif bonusi: haydovchi sifatida yakunlangan buyurtmalar (taklif qilgan odam bilan qilinganlari hisobga olinmaydi) */
+    long countByDriverIdAndStatusAndSenderIdNot(Long driverId, OrderStatus status, Long excludeSenderId);
+
+    /** Taklif bonusi: yuk egasi sifatida yakunlangan buyurtmalar (taklif qilgan odam bilan qilinganlari hisobga olinmaydi) */
+    long countBySenderIdAndStatusAndDriverIdNot(Long senderId, OrderStatus status, Long excludeDriverId);
+
     long countByCreatedAtAfter(Instant after);
 
     @Query("select coalesce(sum(o.finalPrice), 0) from Shipment o where o.status = uz.yukgo.order.OrderStatus.DELIVERED")

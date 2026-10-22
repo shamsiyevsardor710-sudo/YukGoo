@@ -12,7 +12,9 @@ import uz.yukgo.admin.AdminLog;
 import uz.yukgo.admin.AdminLogRepository;
 import uz.yukgo.auth.VerificationRequest;
 import uz.yukgo.auth.VerificationService;
+import uz.yukgo.channel.OrderCard;
 import uz.yukgo.common.Phones;
+import uz.yukgo.growth.GrowthService;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.Order;
 import uz.yukgo.order.OrderRepository;
@@ -20,19 +22,28 @@ import uz.yukgo.order.OrderStatus;
 import uz.yukgo.user.User;
 import uz.yukgo.user.UserRepository;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static uz.yukgo.telegram.TelegramClient.esc;
 
 /**
  * YukGo Telegram boti (long polling).
  *  • /start TOKEN — saytdan kelgan foydalanuvchi: kontakt so'raladi va tasdiqlash kodi yuboriladi
+ *  • /start o123_ch3 — kanal postidagi "Taklif berish": buyurtma kartasi va uni ochish tugmasi
+ *  • /start new — "Yuk e'lon qilish"; /start src_KOD, /start ref_ID — manba va taklif havolalari
+ *  • oddiy matn ("Toshkent - Samarqand, 5 tonna, ertaga, 3 mln") — e'lon tushuniladi va to'ldirilgan forma ochiladi
  *  • kontakt ulashish — raqam botga bog'lanadi
  *  • 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam
  *  • adminlar uchun ommaviy xabar: botga yuborilgan matn, rasm, video, dumaloq video, ovozli xabar, fayl yoki albom
@@ -50,6 +61,18 @@ public class TelegramBot {
     private final NotificationService notifications;
     private final AdminLogRepository adminLogs;
     private final org.springframework.transaction.support.TransactionTemplate tx;
+    private final PlaceIndex places;
+    private final GrowthService growth;
+
+    private static final ZoneId TZ = ZoneId.of("Asia/Tashkent");
+    private static final Pattern ORDER_START = Pattern.compile("o(\\d{1,18})(?:_([a-z0-9_-]{1,40}))?");
+    private static final Pattern NEW_START = Pattern.compile("new(?:_([a-z0-9_-]{1,40}))?");
+    private static final Pattern SRC_START = Pattern.compile("src_([a-z0-9_-]{1,40})");
+    private static final Pattern REF_START = Pattern.compile("ref_(\\d{1,18})");
+    /** To'ldirilgan forma havolasi shundan uzun bo'lsa — tavsif qisqartiriladi (Telegram juda uzun tugma havolasini rad etadi) */
+    private static final int MAX_BUTTON_URL = 2000;
+    private static final String LOAD_HINT = "📦 Yuk e'lon qilmoqchi bo'lsangiz — qayerdan va qayerga ekanini bitta xabarda yozing, "
+            + "masalan: <i>Toshkent - Samarqand, 5 tonna, ertaga, 3 mln</i>";
 
     private volatile boolean running;
     private Thread worker;
@@ -213,9 +236,83 @@ public class TelegramBot {
             onHelp(chatId);
         } else if (broadcastKind(msg) != null && staffByChat(chatId) != null) {
             onBroadcastDraft(chatId, msg);
+        } else if (!text.isEmpty() && !text.startsWith("/")) {
+            onFreeText(chatId, text);
         } else {
             client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇", TelegramClient.mainMenu());
         }
+    }
+
+    // =====================================================================
+    // Matn bilan e'lon: "Toshkent - Samarqand, 5 tonna, ertaga, 3 mln" → to'ldirilgan forma
+    // =====================================================================
+
+    void onFreeText(long chatId, String text) {
+        LoadTextParser.Parsed p = null;
+        try {
+            p = places.parser().parse(text, LocalDate.now(TZ));
+        } catch (Exception e) {
+            log.warn("E'lon matnini tushunib bo'lmadi: {}", e.getMessage());
+        }
+        if (p == null || !p.isLoad()) {
+            client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇\n\n" + LOAD_HINT, TelegramClient.mainMenu());
+            return;
+        }
+        // Uzun matn: tavsif tugma havolasiga sig'guncha qisqartiriladi; Telegram baribir rad etsa — qisqa variant
+        String desc = p.description() != null && !p.description().equals(p.title()) ? p.description() : null;
+        String route = prefillRoute(p, p.title(), desc);
+        while (desc != null && notifications.appUrl(route).length() > MAX_BUTTON_URL) {
+            desc = desc.length() > 60 ? desc.substring(0, desc.length() * 2 / 3) + "…" : null;
+            route = prefillRoute(p, p.title(), desc);
+        }
+        String brief = prefillRoute(p, p.title().length() > 60 ? p.title().substring(0, 60) : p.title(), null);
+        List<Object> buttons = new ArrayList<>();
+        buttons.add(TelegramClient.appButton("✅ Formani ochish", notifications.appUrl(route)));
+        buttons.add(TelegramClient.appButton("✅ Formani ochish", notifications.appUrl(brief)));
+        buttons.add(TelegramClient.linkButton("✅ Formani ochish", notifications.siteUrl("#" + brief)));
+        client.sendNowWithFallbacks(chatId, loadSummary(p), buttons);
+    }
+
+    static String loadSummary(LoadTextParser.Parsed p) {
+        StringBuilder sb = new StringBuilder("📝 <b>Yuk e'lon qilmoqchimisiz?</b> Men shunday tushundim:\n\n");
+        sb.append("📍 <b>Qayerdan:</b> ").append(esc(p.from().name())).append('\n');
+        sb.append("🏁 <b>Qayerga:</b> ").append(esc(p.to().name())).append('\n');
+        List<String> parts = new ArrayList<>();
+        if (p.cargoType() != null && p.cargoType() != uz.yukgo.order.CargoType.GENERAL) parts.add("📦 " + OrderCard.cargoLabel(p.cargoType()));
+        if (p.weightKg() != null) parts.add("⚖️ " + OrderCard.weight(p.weightKg()));
+        if (p.bodyType() != null) parts.add("🚚 " + OrderCard.bodyLabel(p.bodyType()));
+        if (!parts.isEmpty()) sb.append(String.join(" · ", parts)).append('\n');
+        if (p.pickupDate() != null) sb.append("📅 ").append(OrderCard.dateLabel(p.pickupDate())).append('\n');
+        sb.append("💰 ").append(p.price() != null ? OrderCard.money(p.price()) : p.negotiable() ? "Narx kelishiladi" : "Narxni formada kiriting")
+                .append("\n\n");
+        sb.append("👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring, qabul qiluvchini yozing va «E'lon qilish» ni bosing. "
+                + "Telefon raqamingiz e'londa ko'rinmaydi.");
+        return sb.toString();
+    }
+
+    /** Ilovadagi forma manzili: "/new?bot=1&fr=..&tr=..&w=..&t=.." (qiymatlar %20 bilan kodlanadi — "+" emas) */
+    static String prefillRoute(LoadTextParser.Parsed p, String title, String description) {
+        StringBuilder q = new StringBuilder("/new?bot=1");
+        q.append("&fr=").append(p.from().regionId());
+        if (p.from().districtId() != null) q.append("&fd=").append(p.from().districtId());
+        q.append("&tr=").append(p.to().regionId());
+        if (p.to().districtId() != null) q.append("&td=").append(p.to().districtId());
+        if (p.weightKg() != null) {
+            double w = p.weightKg();
+            q.append("&w=").append(w == Math.floor(w) ? String.valueOf((long) w) : String.valueOf(w));
+        }
+        if (p.price() != null) q.append("&p=").append(p.price());
+        if (p.negotiable()) q.append("&n=1");
+        if (p.pickupDate() != null) q.append("&d=").append(p.pickupDate());
+        if (p.bodyType() != null) q.append("&b=").append(p.bodyType().name());
+        if (p.cargoType() != null) q.append("&c=").append(p.cargoType().name());
+        if (title != null && !title.isBlank()) q.append("&t=").append(enc(title));
+        if (description != null && !description.isBlank()) q.append("&x=").append(enc(description));
+        return q.toString();
+    }
+
+    private static String enc(String s) {
+        return URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20").replace("*", "%2A");
     }
 
     // =====================================================================
@@ -347,9 +444,9 @@ public class TelegramBot {
         client.broadcastCopy(chats, chatId, d.messageIds(), chatId, promptId);
     }
 
-    private void onStart(long chatId, String token) {
-        if (!token.isEmpty()) {
-            VerificationRequest vr = verificationService.findByToken(token);
+    private void onStart(long chatId, String param) {
+        if (!param.isEmpty()) {
+            VerificationRequest vr = verificationService.findByToken(param);
             if (vr != null && !vr.isConsumed()) {
                 client.sendNow(chatId,
                         "👋 <b>YukGo</b>ga xush kelibsiz!\n\nSaytda <b>" + mask(vr.getPhone()) + "</b> raqami kiritildi. "
@@ -358,15 +455,80 @@ public class TelegramBot {
                         TelegramClient.contactKeyboard());
                 return;
             }
+            Matcher m;
+            if ((m = ORDER_START.matcher(param)).matches()) {
+                onOrderStart(chatId, Long.parseLong(m.group(1)), m.group(2));
+                return;
+            }
+            if ((m = NEW_START.matcher(param)).matches()) {
+                onNewStart(chatId, m.group(1));
+                return;
+            }
+            if ((m = SRC_START.matcher(param)).matches()) {
+                onWelcome(chatId, m.group(1), null);
+                return;
+            }
+            if ((m = REF_START.matcher(param)).matches()) {
+                onWelcome(chatId, null, m.group(1));
+                return;
+            }
         }
+        onWelcome(chatId, null, null);
+    }
+
+    private void onWelcome(long chatId, String src, String ref) {
         boolean linked = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isPresent();
-        client.sendNow(chatId,
-                "👋 <b>YukGo</b> — viloyatdan viloyatga va shahar ichida yuk yetkazib berish xizmati.\n\n"
-                        + "🚚 Haydovchilar — buyurtma topadi va daromad qiladi\n"
-                        + "📦 Yuk egalari — ishonchli haydovchi topadi va yukini xaritada kuzatadi\n\n"
+        String about = "👋 <b>YukGo</b> — viloyatdan viloyatga va shahar ichida yuk yetkazib berish xizmati.\n\n"
+                + "🚚 Haydovchilar — buyurtma topadi va daromad qiladi\n"
+                + "📦 Yuk egalari — ishonchli haydovchi topadi va yukini xaritada kuzatadi\n\n";
+        if (!linked && (src != null || ref != null)) {
+            // Havola bilan kelgan yangi foydalanuvchi: ilovani manba bilan ochadigan tugma, keyin raqamni ulash
+            growth.rememberStart(chatId, src, ref);
+            client.sendNowWithFallbacks(chatId, (ref != null ? "🤝 Sizni YukGo'ga taklif qilishdi!\n\n" : "") + about
+                            + "📱 Boshlash uchun pastdagi tugmani bosing — ro'yxatdan o'tish 1 daqiqa.",
+                    appButtons("🚀 YukGo'ni ochish", "#/register", src, ref));
+            client.sendNow(chatId, "Telefon raqamingizni yuborsangiz, buyurtmalar haqidagi xabarlar shu yerga keladi 👇",
+                    TelegramClient.contactKeyboard());
+            return;
+        }
+        client.sendNow(chatId, about
                         + "📱 Ilovani shu yerning o'zida ochish uchun pastdagi <b>«YukGo»</b> tugmasini bosing.\n\n"
                         + (linked ? "Hisobingiz botga ulangan ✅" : "Hisobni ulash uchun telefon raqamingizni yuboring 👇"),
                 linked ? TelegramClient.mainMenu() : TelegramClient.contactKeyboard());
+    }
+
+    /** Kanal postidagi "📩 Taklif berish": buyurtma kartasi (ism-telefonsiz) va uni ilovada ochish tugmasi */
+    void onOrderStart(long chatId, long orderId, String src) {
+        boolean linked = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isPresent();
+        if (!linked) growth.rememberStart(chatId, src, null);
+        Order o = orderRepository.findById(orderId).orElse(null);
+        if (o == null || o.getStatus() != OrderStatus.NEW) {
+            client.sendNowWithFallbacks(chatId, "😔 Bu yuk uchun haydovchi allaqachon topilgan yoki e'lon yopilgan.\n\n"
+                    + "Boshqa ochiq buyurtmalarni ko'ring 👇", appButtons("📦 Ochiq buyurtmalar", "#/", src, null));
+            return;
+        }
+        String html = OrderCard.text(o) + "\n\n" + (linked
+                ? "👇 Narxingizni taklif qiling yoki yuk egasi narxiga rozi bo'ling."
+                : "👇 Taklif berish uchun ilovani oching. Birinchi marta — 1 daqiqada ro'yxatdan o'tasiz.");
+        client.sendNowWithFallbacks(chatId, html, appButtons("📩 Taklif berish", "#/orders/" + o.getId(), src, null));
+    }
+
+    /** Kanal postidagi "➕ Yuk e'lon qilish" */
+    private void onNewStart(long chatId, String src) {
+        if (userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isEmpty()) growth.rememberStart(chatId, src, null);
+        client.sendNowWithFallbacks(chatId, "📦 <b>Yuk e'lon qilish</b>\n\n"
+                        + "Eng tezi — yukingizni shu yerga <b>bitta xabarda</b> yozing, formani o'zim to'ldirib beraman. Masalan:\n"
+                        + "<i>Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln</i>\n\n"
+                        + "Yoki formani hozir oching 👇",
+                appButtons("➕ Formani ochish", "#/new", src, null));
+    }
+
+    /** Mini App tugmasi (manba bilan), Telegram rad etsa — oddiy havola */
+    private List<Object> appButtons(String text, String hashLink, String src, String ref) {
+        List<Object> list = new ArrayList<>();
+        list.add(TelegramClient.appButton(text, notifications.appUrl(hashLink, src, ref)));
+        list.add(TelegramClient.linkButton(text, notifications.siteUrl(hashLink, src, ref)));
+        return list;
     }
 
     private void onContact(long chatId, long fromId, String username, JsonNode contact) {
@@ -468,6 +630,8 @@ public class TelegramBot {
                 2. Yangi buyurtmalar shu botga keladi
                 3. Taklif yuboring yoki narxga rozi bo'lib darhol oling
                 4. Ilova ichidagi Yandex xarita bilan yo'lni toping
+
+                <b>Tez e'lon:</b> botga shunchaki yozing — <i>Toshkent - Samarqand, 5 tonna, ertaga, 3 mln</i> — forma o'zi to'ladi.
 
                 Savollar bo'lsa — saytdagi "Shikoyat/murojaat" bo'limi orqali yozing.""",
                 TelegramClient.mainMenu());

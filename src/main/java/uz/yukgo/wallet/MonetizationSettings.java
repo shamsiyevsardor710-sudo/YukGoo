@@ -44,7 +44,30 @@ public class MonetizationSettings {
     @Column(length = 1000)
     private String topupInfo;
 
+    // ---- Yangi foydalanuvchilarni jalb qilish bonuslari (null — o'chiq; ustunlar mavjud qatorga xatosiz qo'shilsin) ----
+
+    /** Taklif bonusi, so'm: taklif qilgan va taklif qilinganga — taklif qilingan odamning birinchi buyurtmasi yetkazilganda */
+    private Long referralBonus;
+
+    /** Yangi haydovchining shuncha birinchi buyurtmasidan komissiya olinmaydi */
+    private Integer freeFirstDeliveries;
+
+    /** Har bir foydalanuvchining birinchi shoshilinch e'loni bepul */
+    private Boolean firstUrgentFree;
+
     private Instant updatedAt = Instant.now();
 
     private String updatedBy;
+
+    public long referralBonusAmount() {
+        return referralBonus == null ? 0 : Math.max(0, referralBonus);
+    }
+
+    public int freeDeliveries() {
+        return freeFirstDeliveries == null ? 0 : Math.max(0, freeFirstDeliveries);
+    }
+
+    public boolean isFirstUrgentFreeOn() {
+        return Boolean.TRUE.equals(firstUrgentFree);
+    }
 }

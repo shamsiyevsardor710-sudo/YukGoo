@@ -32,7 +32,7 @@ public final class UserDtos {
             Long id, String firstName, String lastName, String fullName, String phone, String avatarUrl,
             String bio, Role role, boolean driver, boolean available, VehicleDto vehicle,
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
-            RegionDto region, DistrictDto district, Instant memberSince, boolean telegramLinked) {
+            RegionDto region, DistrictDto district, Instant memberSince, boolean telegramLinked, boolean verified) {
         public static PublicUserDto of(User u) {
             return of(u, true);
         }
@@ -43,13 +43,14 @@ public final class UserDtos {
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
                     VehicleDto.of(u.getVehicle()), u.getRatingAvg(), u.getRatingCount(), u.getOrdersCreated(),
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
-                    u.getCreatedAt(), u.getTelegramChatId() != null);
+                    u.getCreatedAt(), u.getTelegramChatId() != null, u.isVerifiedDriver());
         }
     }
 
     /** Ro'yxatlar uchun qisqa ko'rinish (phone — null bo'lishi mumkin: yashirilgan) */
     public record UserBrief(Long id, String fullName, String phone, String avatarUrl, double rating,
-                            int ratingCount, int deliveriesCompleted, boolean driver, VehicleDto vehicle) {
+                            int ratingCount, int deliveriesCompleted, boolean driver, VehicleDto vehicle,
+                            boolean verified) {
         public static UserBrief of(User u) {
             return of(u, true);
         }
@@ -58,7 +59,8 @@ public final class UserDtos {
         public static UserBrief of(User u, boolean withPhone) {
             if (u == null) return null;
             return new UserBrief(u.getId(), u.getFullName(), withPhone ? u.getPhone() : null, u.getAvatarUrl(), u.getRatingAvg(),
-                    u.getRatingCount(), u.getDeliveriesCompleted(), u.isDriver(), VehicleDto.of(u.getVehicle()));
+                    u.getRatingCount(), u.getDeliveriesCompleted(), u.isDriver(), VehicleDto.of(u.getVehicle()),
+                    u.isVerifiedDriver());
         }
     }
 
@@ -68,14 +70,15 @@ public final class UserDtos {
             String bio, Role role, boolean driver, boolean available, VehicleDto vehicle,
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
             RegionDto region, DistrictDto district, String village, String house,
-            boolean telegramLinked, boolean notifyNewOrders, Set<Long> workRegionIds, Instant memberSince) {
+            boolean telegramLinked, boolean notifyNewOrders, Set<Long> workRegionIds, Instant memberSince,
+            boolean verified) {
         public static MeDto of(User u) {
             return new MeDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), u.getPhone(),
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
                     VehicleDto.of(u.getVehicle()), u.getRatingAvg(), u.getRatingCount(), u.getOrdersCreated(),
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
                     u.getVillage(), u.getHouse(), u.getTelegramChatId() != null, u.isNotifyNewOrders(),
-                    Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt());
+                    Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt(), u.isVerifiedDriver());
         }
     }
 

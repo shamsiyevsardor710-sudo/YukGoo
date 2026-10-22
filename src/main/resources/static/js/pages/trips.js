@@ -2,7 +2,7 @@
 import { auth, get, post, put, del } from '../api.js';
 import {
   $, $$, esc, icon, avatar, stars, toast, modal, confirmDialog, formData, showError, clearError, busy,
-  bindRegionDistrict, regionOptions, phoneFmt, dateTime, num, emptyState, skeletons, BODY,
+  bindRegionDistrict, regionOptions, phoneFmt, dateTime, num, emptyState, skeletons, BODY, verifiedBadge,
 } from '../ui.js';
 
 function tripRow(t, mine) {
@@ -23,7 +23,7 @@ function tripRow(t, mine) {
     </div>
     ${t.comment ? `<p class="small">${esc(t.comment)}</p>` : ''}
     <div class="row-between">
-      <a class="person" href="#/u/${d.id}">${avatar(d.avatarUrl, d.fullName)}<div><div class="person-name">${esc(d.fullName)}</div><div class="person-sub">${stars(d.rating, d.ratingCount)}</div></div></a>
+      <a class="person" href="#/u/${d.id}">${avatar(d.avatarUrl, d.fullName)}<div><div class="person-name">${esc(d.fullName)} ${verifiedBadge(d.verified)}</div><div class="person-sub">${stars(d.rating, d.ratingCount)}</div></div></a>
       ${mine
         ? `<div class="row"><button class="btn btn-sm" data-edit="${t.id}">${icon('edit')}O'zgartirish</button>
             <button class="btn btn-sm" data-toggle="${t.id}">${t.active ? 'Yopish' : 'Qayta ochish'}</button>

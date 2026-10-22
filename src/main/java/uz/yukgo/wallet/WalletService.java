@@ -13,6 +13,8 @@ import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.common.Phones;
 import uz.yukgo.notification.NotificationService;
+import uz.yukgo.order.OrderRepository;
+import uz.yukgo.order.OrderStatus;
 import uz.yukgo.security.CurrentUser;
 import uz.yukgo.user.Role;
 import uz.yukgo.user.User;
@@ -61,6 +63,12 @@ public class WalletService {
     private final AdminLogRepository logRepository;
     private final NotificationService notifications;
     private final CurrentUser currentUser;
+    private final OrderRepository orderRepository;
+    private final uz.yukgo.common.RowLocks locks;
+
+    /** Haydovchidagi hali tugamagan buyurtmalar (bonus hisobida "ishlatilgan" deb sanaladi) */
+    /** Bepul buyurtmalar hisobi: hozir qo'lidagi va yetkazib bo'lgan buyurtmalari (bitta so'rovda — bir lahzadagi holat) */
+    private static final List<OrderStatus> USED = List.of(OrderStatus.ACCEPTED, OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED);
 
     // =====================================================================
     // Sozlamalar va narxlar
@@ -84,6 +92,32 @@ public class WalletService {
         return s.isEnabled() ? Math.max(0, s.getUrgentFee()) : 0;
     }
 
+    /**
+     * Yangi haydovchi bonusi: yana nechta buyurtmadan komissiya olinmaydi. Bajarilgan yetkazishlar va hozir qo'lidagi
+     * buyurtmalar hisobga olinadi (bir vaqtda ko'p buyurtma olib, bonusni ko'paytirib bo'lmaydi).
+     */
+    @Transactional(readOnly = true)
+    public int freeDeliveriesLeft(User driver) {
+        int free = current().freeDeliveries();
+        if (free <= 0 || driver == null) return 0;
+        long used = orderRepository.countByDriverIdAndStatusIn(driver.getId(), USED);
+        return (int) Math.max(0, free - used);
+    }
+
+    /** "Birinchi shoshilinch e'lon bepul" bonusi shu foydalanuvchi uchun hali amaldami (excludeOrderId — joriy buyurtma) */
+    @Transactional(readOnly = true)
+    public boolean urgentFreeAvailable(User sender, Long excludeOrderId) {
+        return current().isFirstUrgentFreeOn() && sender != null
+                && !orderRepository.existsBySenderIdAndUrgentTrueAndIdNot(sender.getId(), excludeOrderId == null ? -1L : excludeOrderId);
+    }
+
+    /** Profil va buyurtma sahifalari uchun: balans, narxlar va shaxsiy bonuslar */
+    @Transactional(readOnly = true)
+    public WalletDtos.WalletDto walletOf(User u) {
+        return new WalletDtos.WalletDto(balance(u.getId()), PricingDto.of(current()), freeDeliveriesLeft(u),
+                urgentFreeAvailable(u, null));
+    }
+
     /** Foiz, eng kam va eng ko'p chegaralar bo'yicha; 100 so'mga yaxlitlanadi. Frontenddagi hisob bilan bir xil. */
     static long calcCommission(MonetizationSettings s, Long price) {
         long base = price == null ? 0 : Math.round(price * s.getCommissionPercent() / 100.0);
@@ -99,6 +133,37 @@ public class WalletService {
     @Transactional(readOnly = true)
     public long balance(Long userId) {
         return walletRepository.findById(userId).map(Wallet::getBalance).orElse(0L);
+    }
+
+    /**
+     * Balansdagi foydalanuvchining o'z puli: olingan taklif bonuslari chegirilgan qoldiq (bonus oxirida ishlatiladi deb
+     * hisoblanadi). Hisobni o'chirishda faqat shu pul to'xtatadi — bonus qoldig'i o'chirishga xalal bermaydi.
+     */
+    @Transactional(readOnly = true)
+    public long ownMoney(Long userId) {
+        long bonuses = Math.max(0, txRepository.sumForUser(userId, List.of(TxType.REFERRAL_BONUS)));
+        return Math.max(0, balance(userId) - bonuses);
+    }
+
+    /**
+     * Hisob o'chirilganda: qolgan (bonus) mablag' bekor qilinadi — harakat jurnalda ko'rinadi. Hamyon bloklanib qayta
+     * o'qiladi: shu orada to'ldirilgan pul bo'lsa — o'chirish to'xtatiladi (pul yo'qolmaydi).
+     */
+    @Transactional
+    public void forfeitBalance(Long userId, String note) {
+        if (walletRepository.findById(userId).isEmpty()) return;
+        Wallet w = lockOrCreate(userId);
+        long bonuses = Math.max(0, txRepository.sumForUser(userId, List.of(TxType.REFERRAL_BONUS)));
+        if (w.getBalance() - bonuses > 0) {
+            throw ApiException.badRequest("Balansingizda mablag' bor. Hisobni o'chirishdan oldin uni qaytarib olish uchun admin bilan bog'laning");
+        }
+        if (w.getBalance() > 0) apply(w, -w.getBalance(), TxType.BONUS_FORFEIT, null, note, null);
+    }
+
+    /** Foydalanuvchining hamyon qatorini tranzaksiya oxirigacha bloklaydi (bonuslarni sanashda parallel so'rovlar navbatda turadi) */
+    @Transactional
+    public void lockWallet(Long userId) {
+        lockOrCreate(userId);
     }
 
     @Transactional(readOnly = true)
@@ -180,6 +245,7 @@ public class WalletService {
         m.put("revenueMonth", -txRepository.sumAmounts(REVENUE_TYPES, today.withDayOfMonth(1).atStartOfDay(TZ).toInstant()));
         m.put("revenueTotal", -txRepository.sumAmounts(REVENUE_TYPES, Instant.EPOCH));
         m.put("walletsTotal", walletRepository.sumBalances());
+        m.put("bonusesTotal", txRepository.sumAmounts(List.of(TxType.REFERRAL_BONUS), Instant.EPOCH));
         m.put("updatedAt", s.getUpdatedAt());
         m.put("updatedBy", s.getUpdatedBy());
         return m;
@@ -199,12 +265,17 @@ public class WalletService {
         s.setCommissionMax(req.commissionMax());
         s.setUrgentFee(req.urgentFee());
         s.setTopupInfo(blankToNull(req.topupInfo()));
+        s.setReferralBonus(req.referralBonus() == null ? null : Math.max(0, req.referralBonus()));
+        s.setFreeFirstDeliveries(req.freeFirstDeliveries() == null ? null : Math.max(0, req.freeFirstDeliveries()));
+        s.setFirstUrgentFree(Boolean.TRUE.equals(req.firstUrgentFree()));
         s.setUpdatedAt(Instant.now());
         s.setUpdatedBy(me.getFullName());
         settingsRepository.save(s);
         String action = wasEnabled == req.enabled() ? "MONETIZATION_UPDATE" : req.enabled() ? "MONETIZATION_ON" : "MONETIZATION_OFF";
         log(me, action, null, "Komissiya " + req.commissionPercent() + "% (" + money(req.commissionMin()) + " – "
-                + (req.commissionMax() > 0 ? money(req.commissionMax()) : "cheklovsiz") + "), shoshilinch " + money(req.urgentFee()));
+                + (req.commissionMax() > 0 ? money(req.commissionMax()) : "cheklovsiz") + "), shoshilinch " + money(req.urgentFee())
+                + "; bonuslar: taklif " + money(s.referralBonusAmount()) + ", komissiyasiz " + s.freeDeliveries()
+                + " ta, birinchi shoshilinch " + (s.isFirstUrgentFreeOn() ? "bepul" : "pullik"));
         return PricingDto.of(s);
     }
 
@@ -258,14 +329,16 @@ public class WalletService {
     /** Hamyon qatorini bloklab oladi; bo'lmasa (alohida tranzaksiyada) yaratib, keyin bloklaydi. */
     private Wallet lockOrCreate(Long userId) {
         Optional<Wallet> locked = walletRepository.lockByUserId(userId);
-        if (locked.isPresent()) return locked.get();
+        // Shu tranzaksiyada hamyon avval (masalan, balans ko'rsatish uchun) yuklangan bo'lsa, so'rov o'sha eski nusxani
+        // qaytaradi — bloklangandan keyin bazadagi joriy balans qayta o'qiladi
+        if (locked.isPresent()) return locks.lockFresh(locked.get());
         try {
             walletInitializer.createIfMissing(userId);
         } catch (DataIntegrityViolationException e) {
             // parallel so'rov hamyonni shu lahzada yaratib bo'ldi — davom etamiz
         }
-        return walletRepository.lockByUserId(userId)
-                .orElseThrow(() -> ApiException.conflict("Hamyonni ochib bo'lmadi, qayta urinib ko'ring"));
+        return locks.lockFresh(walletRepository.lockByUserId(userId)
+                .orElseThrow(() -> ApiException.conflict("Hamyonni ochib bo'lmadi, qayta urinib ko'ring")));
     }
 
     private void apply(Wallet w, long delta, TxType type, Long orderId, String note, String actorName) {

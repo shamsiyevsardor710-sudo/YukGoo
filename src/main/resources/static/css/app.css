@@ -490,3 +490,64 @@ tr:last-child td { border-bottom: 0; }
 /* ---- Yashirin telefon raqami ---- */
 .phone-lock { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 1.35; color: var(--muted); }
 .phone-lock svg { width: 16px; height: 16px; flex: none; }
+
+/* ---- Yangi foydalanuvchi imtiyozlari, botdan to'ldirilgan forma ---- */
+.perk { padding: 10px 12px; border-radius: 10px; background: var(--ok-soft); font-size: 14px; line-height: 1.45; }
+#perks:not(:empty) { margin: -4px 0 14px; }
+.prefill-note { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 16px; border-radius: 12px; background: var(--ok-soft); font-size: 14px; line-height: 1.45; }
+.prefill-note svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--ok); }
+.fee-free { background: var(--ok-soft); color: var(--ok); }
+
+/* ---- "Tekshirilgan haydovchi" belgisi ---- */
+.vbadge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 5px; border-radius: 999px; background: var(--route-soft); color: var(--route); font-size: 12px; font-weight: 700; line-height: 1.6; white-space: nowrap; vertical-align: 1px; }
+.vbadge svg { width: 14px; height: 14px; flex: none; }
+.vbadge:not(:has(span)) { padding: 1px 3px; }
+
+/* ---- Taklif va tekshiruv (profil) ---- */
+.link-box { display: flex; gap: 8px; align-items: center; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.link-box code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.doc-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 520px) { .doc-pick { grid-template-columns: 1fr; } }
+.doc-slot { display: grid; gap: 8px; padding: 12px; border: 1.5px dashed var(--line); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.doc-slot.has { border-style: solid; border-color: var(--ok); }
+.doc-slot img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; }
+.doc-slot input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.doc-slot b { font-size: 14px; }
+.doc-slot span { font-size: 12px; color: var(--muted); }
+.ver-state { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); font-size: 14px; line-height: 1.45; }
+.ver-state svg { width: 22px; height: 22px; flex: none; }
+.ver-state.ok { background: var(--route-soft); }
+.ver-state.ok svg { color: var(--route); }
+.ver-state.wait svg { color: var(--warn); }
+.ver-state.bad { background: var(--danger-soft); }
+.ver-state.bad svg { color: var(--danger); }
+
+/* ---- Admin: kanallar, manbalar, tekshiruv ---- */
+.feed-row, .src-row { display: grid; gap: 6px 14px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.feed-row:last-child, .src-row:last-child { border-bottom: 0; }
+.feed-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.feed-row .actions, .src-row .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.src-row { grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(56px, auto)) auto; align-items: center; }
+.src-row .n { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.src-row.head { font-size: 12px; color: var(--muted); padding-top: 0; }
+.src-row.head .n { font-weight: 500; }
+@media (max-width: 760px) {
+  .src-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .src-row > :first-child, .src-row .actions { grid-column: 1 / -1; }
+  .src-row .actions { justify-content: flex-start; }
+  .src-row .n { text-align: left; }
+  .src-row .n::before { content: attr(data-label) " "; font-weight: 500; color: var(--muted); font-size: 12px; display: block; }
+  .src-row.head { display: none; }
+}
+@media (max-width: 560px) {
+  .feed-row { grid-template-columns: minmax(0, 1fr); }
+  .feed-row .actions { justify-content: flex-start; }
+}
+.ver-card { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface); }
+.ver-docs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ver-docs button { display: grid; place-items: center; min-height: 140px; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--muted); font: inherit; font-size: 13px; cursor: zoom-in; overflow: hidden; }
+.ver-docs img { width: 100%; height: 160px; object-fit: cover; }
+.doc-view { max-width: 100%; max-height: 75vh; margin: 0 auto; border-radius: 8px; }
+.qr-box { display: grid; place-items: center; padding: 14px; background: #fff; border-radius: 12px; }
+.qr-box svg, .qr-box img { width: 180px; height: 180px; }
+.tab-count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }

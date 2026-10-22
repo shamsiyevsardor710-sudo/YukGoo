@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.yukgo.auth.AuthDtos.*;
 import uz.yukgo.common.ApiException;
+import uz.yukgo.growth.GrowthService;
 import uz.yukgo.common.Phones;
 import uz.yukgo.location.District;
 import uz.yukgo.location.LocationService;
@@ -31,6 +32,7 @@ public class AuthService {
     private final TelegramLinkRepository linkRepository;
     private final LoginAttemptGuard guard;
     private final TelegramAuthService telegramAuth;
+    private final GrowthService growth;
 
     // ---------- Ro'yxatdan o'tish ----------
 
@@ -64,6 +66,8 @@ public class AuthService {
         linkRepository.findById(vr.getPhone()).ifPresent(l -> u.setTelegramChatId(l.getChatId()));
         userRepository.save(u);
         telegramAuth.bindAfterPasswordProof(u, req.telegramInitData());
+        // Qaysi kanal/hamkor/taklif orqali keldi (so'rovda bo'lmasa — botga qaysi havola bilan kirgani)
+        growth.attribute(u, req.source(), req.ref());
         return new AuthResponse(jwtService.generate(u), MeDto.of(u));
     }
 

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>YukGo varaqa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;800&display=swap" rel="stylesheet">
+  <style>
+    /* Chop etiladigan varaqa va stiker: A4 dan 2 ta varaqa (A5) yoki 6 ta stiker. QR — bot havolasi manba kodi bilan. */
+    :root {
+      --asphalt: #1F2A30; --asphalt-2: #3A4850; --muted: #5E6C73; --signal: #F2B705; --signal-soft: #FDF3CF;
+      --paper: #FFFFFF; --bg: #E6EAE9; --line: #C9D1D3;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: var(--bg); color: var(--asphalt); font: 400 15px/1.45 "Onest", system-ui, sans-serif; }
+    .toolbar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px;
+      background: var(--asphalt); color: #fff; }
+    .toolbar b { font: 600 15px "Unbounded", sans-serif; letter-spacing: .01em; }
+    .toolbar .seg { display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px; background: rgba(255,255,255,.08); }
+    .toolbar .seg a { color: #C9D3D7; text-decoration: none; padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 14px; }
+    .toolbar .seg a.on { background: #fff; color: var(--asphalt); }
+    .toolbar button { margin-left: auto; border: 0; border-radius: 10px; padding: 9px 16px; background: var(--signal); color: #2A2100;
+      font: 700 14px "Onest", sans-serif; cursor: pointer; }
+    .toolbar .hint { flex-basis: 100%; font-size: 13px; color: #C9D3D7; }
+    .toolbar code { background: rgba(255,255,255,.12); padding: 1px 6px; border-radius: 6px; }
+    .warn { margin: 16px; padding: 12px 14px; border-radius: 10px; background: #FBE7E3; color: #8A2A1B; }
+
+    .stage { padding: 16px; overflow-x: auto; }
+    .sheet { width: 210mm; height: 297mm; margin: 0 auto; background: var(--paper); box-shadow: 0 10px 30px -12px rgba(0,0,0,.35);
+      display: grid; position: relative; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .sheet.flyers { grid-template-rows: 1fr 1fr; }
+    .sheet.stickers { grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); }
+    .cut { position: relative; overflow: hidden; }
+    .sheet.flyers .cut + .cut { border-top: 1px dashed var(--line); }
+    .sheet.stickers .cut { border-right: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
+    .sheet.stickers .cut:nth-child(2n) { border-right: 0; }
+    .sheet.stickers .cut:nth-last-child(-n + 2) { border-bottom: 0; }
+
+    /* ---- Varaqa (A5, yotiq) ---- */
+    .flyer { position: absolute; inset: 9mm; display: grid; grid-template-columns: 1fr 58mm; gap: 8mm; }
+    .brand { display: flex; align-items: center; gap: 3mm; }
+    .brand svg { width: 10mm; height: 10mm; flex: none; }
+    .brand span { font: 800 7mm/1 "Unbounded", sans-serif; letter-spacing: -.01em; }
+    .kicker { display: inline-block; margin-top: 6mm; padding: 1.2mm 3mm; border-radius: 2mm; background: var(--signal); color: #2A2100;
+      font: 700 3.3mm/1.2 "Onest", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+    .flyer h1 { margin: 3.5mm 0 4mm; font: 800 9.4mm/1.08 "Unbounded", sans-serif; letter-spacing: -.02em; }
+    .flyer ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 2.4mm; }
+    .flyer ul li { position: relative; padding-left: 7mm; font-size: 4.1mm; line-height: 1.32; }
+    .flyer ul li::before { content: ""; position: absolute; left: 0; top: 1.5mm; width: 3.6mm; height: 3.6mm; border-radius: 50%;
+      background: var(--signal); box-shadow: inset 0 0 0 1mm #fff, 0 0 0 .4mm var(--asphalt); }
+    .flyer ul li b { font-weight: 700; }
+    .steps { display: flex; gap: 2.5mm; margin: 6mm 0 0; padding: 0; list-style: none; counter-reset: s; }
+    .steps li { flex: 1; display: flex; gap: 2mm; align-items: center; padding: 2.2mm 2.5mm; border: .3mm solid var(--line); border-radius: 2.5mm;
+      font-size: 3.1mm; line-height: 1.25; counter-increment: s; }
+    .steps li::before { content: counter(s); flex: none; display: grid; place-items: center; width: 5.5mm; height: 5.5mm; border-radius: 50%;
+      background: var(--asphalt); color: var(--signal); font: 800 3mm/1 "Unbounded", sans-serif; }
+    .road { position: absolute; left: 0; right: 66mm; bottom: 0; height: 2.2mm;
+      background: repeating-linear-gradient(90deg, var(--signal) 0 7mm, transparent 7mm 11mm); border-radius: 1mm; }
+    .side { display: grid; align-content: center; justify-items: center; gap: 3mm; padding: 5mm 4mm; border-radius: 4mm;
+      background: var(--asphalt); color: #fff; text-align: center; }
+    .qr { width: 46mm; height: 46mm; padding: 2.5mm; background: #fff; border-radius: 2.5mm; }
+    .qr svg { width: 100%; height: 100%; display: block; }
+    .side .scan { font: 700 4mm/1.25 "Onest", sans-serif; }
+    .side .alt { font-size: 3.1mm; color: #C9D3D7; line-height: 1.35; }
+    .side .alt b { color: var(--signal); font-weight: 700; }
+    .foot { position: absolute; left: 0; bottom: 4.5mm; font-size: 3mm; color: var(--muted); }
+
+    /* ---- Stiker (taxminan 105 x 99 mm) ---- */
+    .sticker { position: absolute; inset: 6mm; display: grid; grid-template-rows: auto 1fr auto; justify-items: center; text-align: center;
+      border-radius: 5mm; background: var(--asphalt); color: #fff; padding: 5mm 5mm 4mm; }
+    .sticker .brand span { font-size: 6mm; color: #fff; }
+    .sticker .qr { width: 50mm; height: 50mm; align-self: center; }
+    .sticker .q { font: 800 4.3mm/1.2 "Unbounded", sans-serif; margin-top: 1mm; }
+    .sticker .q em { font-style: normal; color: var(--signal); }
+    .sticker .a { font-size: 3.2mm; color: #C9D3D7; margin-top: 1mm; }
+
+    @media print {
+      @page { size: A4; margin: 0; }
+      body { background: #fff; }
+      .no-print { display: none !important; }
+      .stage { padding: 0; overflow: visible; }
+      .sheet { box-shadow: none; margin: 0; }
+    }
+    @media screen and (max-width: 840px) {
+      .stage { padding: 8px; }
+      .sheet { zoom: .46; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <b>YukGo varaqa</b>
+    <nav class="seg" id="kinds" aria-label="Turi">
+      <a data-kind="driver" href="#">Haydovchilar</a><a data-kind="sender" href="#">Yuk egalari</a><a data-kind="sticker" href="#">Stiker</a>
+    </nav>
+    <button type="button" id="print">Chop etish / PDF</button>
+    <div class="hint" id="hint"></div>
+  </div>
+  <div id="warn"></div>
+  <div class="stage"><div class="sheet" id="sheet"></div></div>
+
+  <script src="/js/vendor/qrcode.js"></script>
+  <script>
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var code = (params.get('code') || '').trim().toLowerCase();
+    var valid = /^[a-z0-9_-]{1,40}$/.test(code);
+    var kind = ['driver', 'sender', 'sticker'].indexOf(params.get('kind')) >= 0 ? params.get('kind') : 'driver';
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    var LOGO = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1F2A30"/>'
+      + '<path d="M14 40h36" stroke="#F2B705" stroke-width="6" stroke-dasharray="8 6"/>'
+      + '<circle cx="14" cy="24" r="6" fill="#F2B705"/><circle cx="50" cy="24" r="6" fill="#fff"/></svg>';
+    var LOGO_DARK = LOGO.replace('fill="#1F2A30"', 'fill="#2C3A41"');
+
+    function qrSvg(text) {
+      var qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      return qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true, alt: text });
+    }
+
+    function render(cfg) {
+      var bot = cfg && cfg.botUsername ? cfg.botUsername : '';
+      var toSite = params.get('to') === 'site' || !bot;
+      var link = toSite ? location.origin + '/' + (valid ? '?src=' + code : '')
+                        : 'https://t.me/' + bot + (valid ? '?start=src_' + code : '');
+      var pr = cfg && cfg.pricing && cfg.pricing.enabled ? cfg.pricing : null;
+      var botLine = bot ? 'yoki Telegramda <b>@' + esc(bot) + '</b>' : esc(location.host);
+
+      document.querySelectorAll('#kinds a').forEach(function (a) {
+        var p = new URLSearchParams(location.search);
+        p.set('kind', a.dataset.kind);
+        a.href = '?' + p.toString();
+        a.classList.toggle('on', a.dataset.kind === kind);
+      });
+      document.getElementById('hint').innerHTML = (kind === 'sticker'
+        ? "A4 qog'ozdan 6 ta stiker chiqadi — punktir bo'yicha qirqing (yopishqoq qog'ozga chop etsangiz bo'ladi). "
+        : "A4 qog'ozdan 2 ta varaqa chiqadi — o'rtasidan qirqing. ")
+        + 'QR: <code>' + esc(link) + '</code>' + (valid ? '' : ' — manba kodisiz');
+      if (!valid) {
+        document.getElementById('warn').innerHTML = '<div class="warn no-print"><b>Manba kodi yo\'q.</b> Varaqani Boshqaruv → Manbalar dan oching — '
+          + "shunda bu varaqa orqali nechta odam kelgani ko'rinadi.</div>";
+      }
+
+      var qr = qrSvg(link);
+      var sheet = document.getElementById('sheet');
+      if (kind === 'sticker') {
+        sheet.className = 'sheet stickers';
+        var one = '<div class="cut"><div class="sticker">'
+          + '<div class="brand">' + LOGO_DARK + '<span>YukGo</span></div>'
+          + '<div class="qr">' + qr + '</div>'
+          + '<div><div class="q">Yuk bormi? <em>Haydovchimisiz?</em></div>'
+          + '<div class="a">Skanerlang — Telegramda ochiladi' + (bot ? ' · @' + esc(bot) : '') + '</div></div>'
+          + '</div></div>';
+        sheet.innerHTML = new Array(7).join(one);
+        return;
+      }
+      var d = kind === 'driver' ? {
+        kicker: 'Haydovchilar uchun',
+        title: "Bo'sh qaytmang —<br>yuk toping",
+        items: [
+          '<b>Yangi buyurtmalar</b> Telegramga o\'zi keladi',
+          'Narxni <b>o\'zingiz taklif qilasiz</b> — vositachisiz',
+          '<b>Reys e\'lon qiling</b>: yo\'lingizdagi yuklar sizni topadi',
+          pr && pr.freeFirstDeliveries > 0 ? 'Birinchi <b>' + pr.freeFirstDeliveries + ' ta buyurtma — komissiyasiz</b>'
+            : 'Ro\'yxatdan o\'tish <b>bepul</b>, 1 daqiqa',
+        ],
+        steps: ['QR ni skanerlang', 'Ro\'yxatdan o\'ting, mashinani kiriting', 'Buyurtmalar Telegramga keladi'],
+      } : {
+        kicker: 'Yuk egalari uchun',
+        title: 'Yukingizga<br>haydovchi toping',
+        items: [
+          'E\'lon berish <b>bepul</b> — haydovchilar o\'zi narx taklif qiladi',
+          '<b>Reyting va sharhlar</b>, hujjati tekshirilgan haydovchilar',
+          'Yukingizni <b>xaritada jonli</b> kuzatasiz',
+          'Botga bitta xabar yozing: <b>«Toshkent - Samarqand, 5 tonna, ertaga»</b>',
+        ],
+        steps: ['QR ni skanerlang', 'Yukingizni yozing', 'Narx takliflaridan tanlang'],
+      };
+      var flyer = '<div class="cut"><div class="flyer">'
+        + '<div style="position:relative">'
+        + '<div class="brand">' + LOGO + '<span>YukGo</span></div>'
+        + '<div class="kicker">' + d.kicker + '</div>'
+        + '<h1>' + d.title + '</h1>'
+        + '<ul>' + d.items.map(function (i) { return '<li>' + i + '</li>'; }).join('') + '</ul>'
+        + '<ol class="steps">' + d.steps.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>'
+        + '<div class="foot">Viloyatdan viloyatga va shahar ichida yuk tashish</div>'
+        + '<div class="road"></div>'
+        + '</div>'
+        + '<div class="side"><div class="qr">' + qr + '</div>'
+        + '<div class="scan">Telefon kamerasi bilan skanerlang</div>'
+        + '<div class="alt">' + botLine + '</div></div>'
+        + '</div></div>';
+      sheet.className = 'sheet flyers';
+      sheet.innerHTML = flyer + flyer;
+    }
+
+    document.getElementById('print').addEventListener('click', function () { window.print(); });
+    fetch('/api/config').then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (cfg) {
+      try { render(cfg); } catch (e) {
+        document.getElementById('warn').innerHTML = '<div class="warn">Varaqani tayyorlab bo\'lmadi: ' + esc(e.message) + '</div>';
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import {
   $, $$, esc, avatar, toast, confirmDialog, busy, showError, clearError, money, phoneFmt, dateTime, ago, num,
   options, statusPill, emptyState, skeletons, ROLE, USTATUS, STATUS,
 } from '../ui.js';
+import { channelsTab, sourcesTab, verifyTab, pendingVerifications } from './admin-growth.js';
 
 export async function adminPage(main) {
   const owner = auth.isOwner;
@@ -15,11 +16,19 @@ export async function adminPage(main) {
       <button data-t="stats" class="on">Statistika</button><button data-t="users">Foydalanuvchilar</button>
       <button data-t="orders">Buyurtmalar</button><button data-t="reports">Murojaatlar</button>
       <button data-t="revenue">Daromad</button>
+      <button data-t="verify">Tekshiruv<span class="tab-count hidden" id="ver-count"></span></button>
+      <button data-t="channels">Kanallar</button><button data-t="sources">Manbalar</button>
       <button data-t="broadcast">Ommaviy xabar</button><button data-t="logs">Jurnal</button>
     </div>
     <div id="pane"></div></div>`;
   const pane = $('#pane', main);
-  const show = () => ({ stats, users, orders, reports, revenue, broadcast, logs })[tab](pane, owner);
+  const setCount = (n) => {
+    const el = $('#ver-count', main);
+    if (el) { el.textContent = n; el.classList.toggle('hidden', !n); }
+  };
+  const verify = (p, o) => verifyTab(p, o, setCount);
+  const show = () => ({ stats, users, orders, reports, revenue, verify, channels: channelsTab, sources: sourcesTab, broadcast, logs })[tab](pane, owner);
+  pendingVerifications().then(setCount);
   $$('#tabs button', main).forEach(b => b.addEventListener('click', () => {
     tab = b.dataset.t;
     $$('#tabs button', main).forEach(x => x.classList.toggle('on', x === b));
@@ -53,7 +62,7 @@ async function revenue(pane, owner) {
   const dis = can ? '' : 'disabled';
   const k = (v, l) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`;
   pane.innerHTML = `<div class="stack">
-    <div class="kpis">${k(money(s.revenueToday), 'Bugungi daromad')}${k(money(s.revenueMonth), 'Shu oy')}${k(money(s.revenueTotal), 'Jami daromad')}${k(money(s.walletsTotal), 'Foydalanuvchilar balanslari')}</div>
+    <div class="kpis">${k(money(s.revenueToday), 'Bugungi daromad')}${k(money(s.revenueMonth), 'Shu oy')}${k(money(s.revenueTotal), 'Jami daromad')}${k(money(s.walletsTotal), 'Foydalanuvchilar balanslari')}${k(money(s.bonusesTotal || 0), 'Berilgan taklif bonuslari')}</div>
     <div class="grid-2">
       <section class="panel stack">
         <h2>Daromad sozlamalari</h2>
@@ -65,6 +74,16 @@ async function revenue(pane, owner) {
             <label class="field"><span>Eng kam komissiya, so'm</span><input class="input" name="commissionMin" type="number" min="0" step="500" value="${esc(st.commissionMin)}" ${dis}></label>
             <label class="field"><span>Eng ko'p komissiya, so'm (0 — cheklovsiz)</span><input class="input" name="commissionMax" type="number" min="0" step="500" value="${esc(st.commissionMax)}" ${dis}></label>
             <label class="field"><span>Shoshilinch e'lon narxi, so'm (0 — bepul)</span><input class="input" name="urgentFee" type="number" min="0" step="500" value="${esc(st.urgentFee)}" ${dis}></label>
+          </div>
+          <h3 style="margin-top:6px">Yangi foydalanuvchilarni jalb qilish</h3>
+          <div class="form-grid">
+            <label class="field"><span>Taklif bonusi, so'm (0 — o'chiq)</span><input class="input" name="referralBonus" type="number" min="0" max="1000000" step="1000" value="${esc(st.referralBonus || 0)}" ${dis}>
+              <small>Do'sti havolasi bilan kelgan foydalanuvchi birinchi buyurtmasini yakunlasa — ikkalasiga. Faqat daromad tizimi yoqilganda</small></label>
+            <label class="field"><span>Yangi haydovchiga komissiyasiz buyurtmalar soni</span><input class="input" name="freeFirstDeliveries" type="number" min="0" max="100" step="1" value="${esc(st.freeFirstDeliveries || 0)}" ${dis}>
+              <small>Birinchi N ta buyurtmadan komissiya olinmaydi (0 — o'chiq)</small></label>
+            <label class="check full"><input type="checkbox" name="firstUrgentFree" ${st.firstUrgentFree ? 'checked' : ''} ${dis}> Birinchi «Shoshilinch» e'lon bepul (har bir yuk egasiga bir marta)</label>
+          </div>
+          <div class="form-grid">
             <label class="field full"><span>Balansni to'ldirish yo'riqnomasi (foydalanuvchilar profilida ko'rinadi)</span>
               <textarea class="textarea" name="topupInfo" maxlength="1000" placeholder="Masalan: Balansni to'ldirish uchun Telegramda @admin ga yozing" ${dis}>${esc(st.topupInfo || '')}</textarea></label>
           </div>
@@ -100,6 +119,9 @@ async function revenue(pane, owner) {
       commissionMax: Math.round(Number(mf.commissionMax.value || 0)),
       urgentFee: Math.round(Number(mf.urgentFee.value || 0)),
       topupInfo: mf.topupInfo.value.trim() || null,
+      referralBonus: Math.max(0, Math.round(Number(mf.referralBonus.value || 0))),
+      freeFirstDeliveries: Math.max(0, Math.round(Number(mf.freeFirstDeliveries.value || 0))),
+      firstUrgentFree: mf.firstUrgentFree.checked,
     };
     if (body.enabled && !st.enabled) {
       const ok = await confirmDialog('Daromad tizimini yoqasizmi?',
@@ -322,6 +344,9 @@ async function logs(pane) {
     CANCEL_ORDER: 'buyurtmani bekor qildi', DELETE_REVIEW: "sharhni o'chirdi", BROADCAST: 'ommaviy xabar yubordi',
     MONETIZATION_ON: 'daromad tizimini yoqdi', MONETIZATION_OFF: "daromad tizimini o'chirdi",
     MONETIZATION_UPDATE: "narxlarni o'zgartirdi", BALANCE_TOPUP: "balansni to'ldirdi", BALANCE_DEBIT: 'balansdan yechdi',
+    CHANNEL_ADD: "kanal qo'shdi", CHANNEL_UPDATE: "kanalni o'zgartirdi", CHANNEL_DELETE: "kanalni o'chirdi",
+    CHANNEL_SETTINGS: "kanal tugmasini sozladi", SOURCE_CREATE: 'havola kodi yaratdi', SOURCE_DELETE: "havola kodini o'chirdi",
+    DRIVER_VERIFY: 'haydovchini tasdiqladi', DRIVER_REJECT: 'haydovchi arizasini rad etdi',
   };
   pane.innerHTML = data.items.length ? `<div class="table-wrap"><table><thead><tr><th>Vaqt</th><th>Kim</th><th>Amal</th><th>Kimga</th><th>Tafsilot</th></tr></thead>
     <tbody>${data.items.map(l => `<tr><td class="small">${esc(dateTime(l.createdAt))}</td><td class="small">${esc(l.actorName)}</td>

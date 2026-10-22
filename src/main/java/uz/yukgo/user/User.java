@@ -103,6 +103,21 @@ public class User {
      */
     private Integer tokenVersion;
 
+    // ---- Qayerdan keldi va kim taklif qildi (marketing hisobi uchun; barchasi ixtiyoriy) ----
+    /** Ro'yxatdan o'tgan havola manbasi: kanal, hamkor, dala xodimi kodi (masalan "ch3", "agent_ali") */
+    @Column(length = 40)
+    private String signupSource;
+
+    /** Taklif qilgan foydalanuvchi ID si (taklif havolasi orqali kelgan bo'lsa) */
+    private Long referredById;
+
+    /** Taklif bonusi berilgan vaqt (birinchi yetkazilgan buyurtmadan keyin bir marta) */
+    private Instant referralRewardedAt;
+
+    // ---- "Tekshirilgan haydovchi" belgisi (guvohnoma va texpasportni admin tekshirgan) ----
+    private Boolean driverVerified;
+    private Instant driverVerifiedAt;
+
     // ---- Haydovchi sozlamalari ----
     /** "Hozir bo'shman, buyurtma olaman" */
     private boolean available = true;
@@ -128,6 +143,11 @@ public class User {
         this.lastName = last.trim();
         this.firstNameLower = this.firstName.toLowerCase();
         this.lastNameLower = this.lastName.toLowerCase();
+    }
+
+    /** Haydovchi hujjatlari admin tomonidan tekshirilgan va mashinasi hali o'sha */
+    public boolean isVerifiedDriver() {
+        return Boolean.TRUE.equals(driverVerified) && isDriver();
     }
 
     public int currentTokenVersion() {

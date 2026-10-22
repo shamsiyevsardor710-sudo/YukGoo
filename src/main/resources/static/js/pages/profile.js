@@ -3,9 +3,10 @@ import { auth, get, post, put, del, upload, config, regions } from '../api.js';
 import {
   $, $$, esc, icon, avatar, stars, toast, modal, confirmDialog, formData, showError, clearError, busy,
   bindRegionDistrict, regionOptions, options, phoneFmt, date, ago, num, emptyState, skeletons, BODY, ROLE,
-  money, dateTime,
+  money, dateTime, verifiedBadge,
 } from '../ui.js';
 import { phoneVerification } from './auth.js';
+import { inviteBlock, verifyBlock } from './growth-ui.js';
 import { reportDialog } from './orders.js';
 import { refreshMe, logout, refreshUnread } from '../app.js';
 
@@ -61,6 +62,7 @@ function heroBlock(u, editable) {
         ${editable ? `<label class="avatar-edit" title="Rasm yuklash">${icon('camera')}<input type="file" accept="image/*" id="avatar-input" class="sr"></label>` : ''}</div>
       <div style="min-width:0" class="stack-sm">
         <div class="row"><h1 style="font-size:clamp(22px,4vw,30px)">${esc(u.fullName)}</h1>
+          ${verifiedBadge(u.verified)}
           ${u.role !== 'USER' ? `<span class="pill role-${u.role} plain">${esc(ROLE[u.role])}</span>` : ''}
           ${u.driver ? `<span class="pill ${u.available ? 'us-ACTIVE' : ''}">${u.available ? "Haydovchi, bo'sh" : 'Haydovchi, band'}</span>` : ''}</div>
         <div>${stars(u.rating, u.ratingCount)}</div>
@@ -134,6 +136,8 @@ export async function profilePage(main, _p, query) {
                <a class="btn btn-route" target="_blank" rel="noopener" href="https://t.me/${esc(cfg.botUsername)}?start=link">${icon('telegram')}@${esc(cfg.botUsername)} ni ulash</a>`}
         </section>
         <div id="wallet-slot"></div>
+        <div id="verify-slot"></div>
+        <div id="invite-slot"></div>
         ${u.driver ? `<section class="panel stack">
           <h2>Haydovchi sozlamalari</h2>
           <label class="setting"><span><b>Hozir bo'shman</b><br><span class="small muted">O'chirsangiz, yangi buyurtmalar haqida xabar kelmaydi</span></span>
@@ -161,6 +165,8 @@ export async function profilePage(main, _p, query) {
 
   reviewsBlock($('#reviews', main), u.id);
   walletBlock($('#wallet-slot', main));
+  verifyBlock($('#verify-slot', main), u);
+  inviteBlock($('#invite-slot', main));
 
   $('#avatar-input', main).addEventListener('change', async (e) => {
     const f = e.target.files[0];
@@ -428,7 +434,7 @@ export async function notificationsPage(main) {
 // =====================================================================
 export async function driversPage(main) {
   main.innerHTML = `<div class="page">
-    <div class="page-head"><div><h1>Haydovchilar</h1><p class="muted">Reyting va yetkazgan yuklari bo'yicha. To'g'ridan-to'g'ri qo'ng'iroq qilishingiz mumkin.</p></div></div>
+    <div class="page-head"><div><h1>Haydovchilar</h1><p class="muted">Avval hujjatlari tekshirilganlar, keyin reyting va yetkazgan yuklari bo'yicha.</p></div></div>
     <form class="filters" id="f" style="margin-bottom:16px">
       <select class="select" name="regionId" aria-label="Viloyat">${await regionOptions('', 'Barcha viloyatlar')}</select>
       <select class="select" name="bodyType" aria-label="Mashina turi">${options(BODY, '', 'Har qanday mashina')}</select>
@@ -442,7 +448,7 @@ export async function driversPage(main) {
       const data = await get('/drivers', d);
       $('#list', main).innerHTML = data.items.length ? `<div class="orders">${data.items.map(u => `<div class="order-row">
           <div class="row-between"><a class="person" href="#/u/${u.id}">${avatar(u.avatarUrl, u.fullName)}
-            <div style="min-width:0"><div class="person-name">${esc(u.fullName)}</div><div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
+            <div style="min-width:0"><div class="person-name">${esc(u.fullName)} ${verifiedBadge(u.verified)}</div><div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
             ${u.phone ? `<a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>` : ''}</div>
           <div class="meta">
             ${u.vehicle ? `<span><b>${esc(u.vehicle.brand)} ${esc(u.vehicle.model || '')}</b></span><span>${esc(BODY[u.vehicle.bodyType] || '')}</span>

@@ -34,16 +34,22 @@ public final class WalletDtos {
         }
     }
 
-    /** Hammaga ochiq narxlar (frontend komissiya va shoshilinch narxini ko'rsatadi) */
+    /** Hammaga ochiq narxlar (frontend komissiya va shoshilinch narxini ko'rsatadi) va jalb qilish bonuslari */
     public record PricingDto(boolean enabled, double commissionPercent, long commissionMin, long commissionMax,
-                             long urgentFee, String topupInfo) {
+                             long urgentFee, String topupInfo, long referralBonus, int freeFirstDeliveries,
+                             boolean firstUrgentFree) {
         public static PricingDto of(MonetizationSettings s) {
             return new PricingDto(s.isEnabled(), s.getCommissionPercent(), s.getCommissionMin(),
-                    s.getCommissionMax(), s.getUrgentFee(), s.getTopupInfo());
+                    s.getCommissionMax(), s.getUrgentFee(), s.getTopupInfo(), s.referralBonusAmount(),
+                    s.freeDeliveries(), s.isFirstUrgentFreeOn());
         }
     }
 
-    public record WalletDto(long balance, PricingDto pricing) {}
+    /**
+     * @param freeDeliveriesLeft yana nechta buyurtmadan komissiya olinmaydi (yangi haydovchi bonusi)
+     * @param urgentFreeAvailable birinchi shoshilinch e'lon bepulmi (hali ishlatilmagan)
+     */
+    public record WalletDto(long balance, PricingDto pricing, int freeDeliveriesLeft, boolean urgentFreeAvailable) {}
 
     public record SettingsRequest(
             boolean enabled,
@@ -52,7 +58,10 @@ public final class WalletDtos {
             @Min(value = 0, message = "Summa manfiy bo'lmaydi") @Max(10_000_000) long commissionMin,
             @Min(value = 0, message = "Summa manfiy bo'lmaydi") @Max(10_000_000) long commissionMax,
             @Min(value = 0, message = "Summa manfiy bo'lmaydi") @Max(10_000_000) long urgentFee,
-            @Size(max = 1000) String topupInfo) {}
+            @Size(max = 1000) String topupInfo,
+            @Min(value = 0, message = "Bonus manfiy bo'lmaydi") @Max(1_000_000) Long referralBonus,
+            @Min(value = 0, message = "Son manfiy bo'lmaydi") @Max(100) Integer freeFirstDeliveries,
+            Boolean firstUrgentFree) {}
 
     public record AdjustRequest(
             @NotBlank(message = "Telefon raqamni kiriting") String phone,

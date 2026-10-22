@@ -7,7 +7,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.security.CurrentUser;
-import uz.yukgo.wallet.WalletDtos.PricingDto;
 import uz.yukgo.wallet.WalletDtos.TxDto;
 import uz.yukgo.wallet.WalletDtos.WalletDto;
 
@@ -21,7 +20,7 @@ public class WalletController {
 
     @GetMapping
     public WalletDto me() {
-        return new WalletDto(wallet.balance(currentUser.id()), PricingDto.of(wallet.current()));
+        return wallet.walletOf(currentUser.get());
     }
 
     @GetMapping("/transactions")

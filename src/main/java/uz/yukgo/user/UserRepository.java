@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,7 +49,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
               and (:regionId is null or u.region.id = :regionId)
               and (:bodyType is null or u.vehicle.bodyType = :bodyType)
               and (:minCapacity is null or u.vehicle.capacityKg >= :minCapacity)
-            order by (case when u.ratingCount = 0 then 0 else u.ratingSum * 1.0 / u.ratingCount end) desc,
+            order by (case when u.driverVerified = true then 1 else 0 end) desc,
+                     (case when u.ratingCount = 0 then 0 else u.ratingSum * 1.0 / u.ratingCount end) desc,
                      u.deliveriesCompleted desc
             """)
     Page<User> searchDrivers(@Param("regionId") Long regionId, @Param("bodyType") BodyType bodyType,
@@ -66,6 +68,51 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("select distinct u.telegramChatId from User u where u.telegramChatId is not null and u.status = uz.yukgo.user.UserStatus.ACTIVE")
     List<Long> findAllActiveChatIds();
+
+    // ---- Marketing: manbalar va takliflar ----
+
+    /**
+     * Manba kodi bo'yicha: [kod, foydalanuvchilar, haydovchilar, e'lon berganlar, faollashganlar, oxirgi ro'yxatdan o'tish].
+     * Faollashgan — kamida bitta buyurtmasi yakunlangan: haydovchi sifatida yetkazgan yoki yuk egasi sifatida yuki yetkazilgan.
+     */
+    @Query("""
+            select u.signupSource, count(u),
+                   sum(case when u.vehicle.brand is not null then 1 else 0 end),
+                   sum(case when u.ordersCreated > 0 then 1 else 0 end),
+                   sum(case when u.deliveriesCompleted > 0
+                              or exists (select o.id from Shipment o
+                                         where o.sender = u and o.status = uz.yukgo.order.OrderStatus.DELIVERED)
+                            then 1 else 0 end),
+                   max(u.createdAt)
+            from User u
+            where u.signupSource is not null and u.createdAt >= :since
+            group by u.signupSource
+            """)
+    List<Object[]> sourceStats(@Param("since") Instant since);
+
+    /** Taklif qilganlar: [taklif qilgan ID, taklif qilinganlar, bonusli (birinchi buyurtmasi yetkazilgan)] */
+    @Query("""
+            select u.referredById, count(u), sum(case when u.referralRewardedAt is not null then 1 else 0 end)
+            from User u
+            where u.referredById is not null and u.createdAt >= :since
+            group by u.referredById
+            order by count(u) desc
+            """)
+    List<Object[]> referralStats(@Param("since") Instant since, Pageable pageable);
+
+    long countByCreatedAtGreaterThanEqual(Instant since);
+
+    long countBySignupSourceIsNotNullAndCreatedAtGreaterThanEqual(Instant since);
+
+    long countByReferredById(Long referrerId);
+
+    long countBySignupSource(String signupSource);
+
+    long countByReferredByIdAndReferralRewardedAtIsNotNull(Long referrerId);
+
+    /** Bloklangandan keyin bazadagi haqiqiy qiymat (xotiradagi nusxa eskirgan bo'lishi mumkin) */
+    @Query("select u.referralRewardedAt from User u where u.id = :id")
+    Instant referralRewardedAtOf(@Param("id") Long id);
 
     /** Hisobni o'chirish kabi amallar uchun: qator tranzaksiya oxirigacha bloklanadi (ikki marta bosilsa ham bir marta bajariladi) */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

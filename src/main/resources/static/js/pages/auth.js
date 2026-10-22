@@ -1,8 +1,9 @@
 // Kirish, ro'yxatdan o'tish (Telegram kod bilan) va parolni tiklash
-import { auth, post, get } from '../api.js';
-import { $, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt } from '../ui.js';
+import { auth, post, get, config } from '../api.js';
+import { $, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt, money } from '../ui.js';
 import { afterLogin, go } from '../app.js';
 import { tg, telegramInitData, telegramLoggedIn } from '../telegram.js';
+import { attribution, clearAttribution } from '../attribution.js';
 
 function shell(main, inner) {
   main.innerHTML = `<div class="auth-wrap"><div class="auth-card">${inner}</div></div>`;
@@ -188,14 +189,31 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
 // =====================================================================
 // Ro'yxatdan o'tish: telefon → kod → ma'lumotlar va manzil
 // =====================================================================
+
+/** Yangi foydalanuvchiga imtiyozlar (admin yoqqan bo'lsa): taklif bonusi, komissiyasiz birinchi buyurtmalar */
+async function showPerks(box) {
+  const cfg = await config().catch(() => null);
+  const pr = cfg?.pricing?.enabled ? cfg.pricing : null;
+  const notes = [];
+  if (attribution().ref) {
+    notes.push(pr?.referralBonus > 0
+      ? `🤝 Sizni do'stingiz taklif qildi: birinchi buyurtmangiz yakunlanganda ikkalangizga <b>${esc(money(pr.referralBonus))}</b> bonus.`
+      : "🤝 Sizni do'stingiz taklif qildi — xush kelibsiz!");
+  }
+  if (pr?.freeFirstDeliveries > 0) notes.push(`🚚 Yangi haydovchilarga: birinchi <b>${pr.freeFirstDeliveries} ta</b> buyurtma komissiyasiz.`);
+  if (pr?.firstUrgentFree && pr.urgentFee > 0) notes.push("🔥 Yuk egalariga: birinchi «Shoshilinch» e'lon bepul.");
+  if (box && notes.length) box.innerHTML = notes.map(n => `<div class="perk">${n}</div>`).join('');
+}
 export function registerPage(main) {
   const card = shell(main, `
     <div class="steps" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
     <h1>Ro'yxatdan o'tish</h1>
+    <div id="perks" class="stack-sm"></div>
     <p class="muted" id="step-text" style="margin-bottom:20px">Telefon raqamingizni tasdiqlaymiz.</p>
     <div id="step"></div>
     <p class="small muted" style="margin-top:22px;text-align:center">Hisobingiz bormi? <a href="#/login">Kirish</a></p>
     <p class="tiny muted" style="margin-top:10px;text-align:center">Ro'yxatdan o'tib, <a href="/privacy.html">maxfiylik siyosati</a>ga rozilik bildirasiz.</p>`);
+  showPerks($('#perks', card));
   const steps = card.querySelectorAll('.steps i');
   const setStep = (n, text) => {
     steps.forEach((s, i) => s.classList.toggle('on', i < n));
@@ -240,12 +258,14 @@ export function registerPage(main) {
           requestId, firstName: d.firstName, lastName: d.lastName, password: d.password,
           regionId: Number(d.regionId) || null, districtId: Number(d.districtId) || null,
           village: d.village, house: d.house, telegramInitData: telegramInitData(),
+          ...attribution(),   // qaysi kanal/hamkor/do'st havolasi bilan kelgani
         }));
         auth.token = res.token;
         auth.user = res.user;
         telegramLoggedIn();
+        clearAttribution();
         toast("Ro'yxatdan o'tdingiz! Xush kelibsiz", 'ok');
-        go('#/profile');
+        afterLogin('#/profile');   // botdan kelgan to'ldirilgan forma yoki buyurtma bo'lsa — o'sha yerga
       } catch (err) { showError(form, err); }
     });
   }

@@ -10,7 +10,9 @@ import org.springframework.web.multipart.MultipartFile;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.common.Phones;
+import uz.yukgo.channel.ChannelHooks;
 import uz.yukgo.config.AppProperties;
+import uz.yukgo.growth.GrowthService;
 import uz.yukgo.file.FileStorageService;
 import uz.yukgo.location.District;
 import uz.yukgo.location.LocationService;
@@ -60,6 +62,9 @@ public class OrderService {
     private final CurrentUser currentUser;
     private final AppProperties props;
     private final WalletService wallet;
+    private final GrowthService growth;
+    private final ChannelHooks channels;
+    private final uz.yukgo.common.RowLocks locks;
 
     // =====================================================================
     // Yaratish va ko'rish
@@ -111,6 +116,7 @@ public class OrderService {
         me.setOrdersCreated(me.getOrdersCreated() + 1);
         event(o, OrderStatus.NEW, "Buyurtma e'lon qilindi", me);
         notifyDriversAboutNewOrder(o, me);
+        channels.orderChanged(o.getId());   // YukGo va hamkor Telegram kanallariga e'lon (saqlangandan keyin)
         return toDto(o, me);
     }
 
@@ -178,7 +184,8 @@ public class OrderService {
         if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizga taklif bera olmaysiz");
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Bu buyurtma endi taklif qabul qilmaydi");
         // Daromad tizimi yoqilgan bo'lsa: qabul qilinganda komissiyani to'lay olishini oldindan tekshiramiz
-        wallet.requireBalanceForCommission(me, req.price());
+        // (yangi haydovchining bonusli — komissiyasiz — buyurtmalari bo'lsa, balans shart emas)
+        if (wallet.freeDeliveriesLeft(me) <= 0) wallet.requireBalanceForCommission(me, req.price());
 
         Offer offer = offerRepository.findFirstByOrderIdAndDriverIdAndStatus(orderId, me.getId(), OfferStatus.PENDING)
                 .orElse(null);
@@ -266,11 +273,17 @@ public class OrderService {
         o.setUrgent(true);
         event(o, OrderStatus.NEW, "E'lon shoshilinch qilindi" + (fee > 0 ? " (" + money(fee) + ")" : ""), me);
         notifyDriversAboutNewOrder(o, me);
+        channels.orderChanged(o.getId());   // kanal postiga 🔥 belgisi
         return toDto(o, me);
     }
 
     /** Daromad tizimi yoqilgan bo'lsa shoshilinch narxini yuboruvchidan yechadi. @return yechilgan summa */
     private long chargeUrgentFee(Order o, User sender) {
+        // Bonus: har bir foydalanuvchining birinchi shoshilinch e'loni bepul. Yuboruvchining hamyon qatori bloklanadi —
+        // bir vaqtda yuborilgan ikki shoshilinch e'lon ikkalasi ham "birinchi" bo'lib qolmasin. (Foydalanuvchi qatori emas:
+        // hisobni o'chirish avval foydalanuvchini, keyin buyurtmalarni bloklaydi — teskari tartib tranzaksiyalarni to'xtatib qo'yardi)
+        wallet.lockWallet(sender.getId());
+        if (wallet.urgentFreeAvailable(sender, o.getId())) return 0;
         long fee = wallet.urgentFee();
         if (fee > 0) {
             wallet.charge(sender, fee, TxType.URGENT_FEE, o.getId(), "Shoshilinch e'lon #" + o.getId() + ": " + o.getTitle(),
@@ -311,7 +324,12 @@ public class OrderService {
     private void assignDriver(Order o, Offer accepted, User actor) {
         // Daromad tizimi yoqilgan bo'lsa — haydovchidan komissiya (yetmasa xato, hech narsa o'zgarmaydi)
         boolean byDriver = actor.getId().equals(accepted.getDriver().getId());
-        long fee = wallet.chargeCommission(accepted.getDriver(), o.getId(), accepted.getPrice(), o.getTitle(), byDriver);
+        // Yangi haydovchi bonusi: birinchi N ta buyurtmasidan komissiya olinmaydi. Haydovchining hamyon qatori bloklanadi —
+        // bir vaqtda bir nechta buyurtma olib, bepul buyurtmalar sonidan oshirib bo'lmasin (foydalanuvchi qatori emas —
+        // hisobni o'chirish bilan teskari tartibda bloklanib qolmasin)
+        wallet.lockWallet(accepted.getDriver().getId());
+        boolean freeRide = wallet.freeDeliveriesLeft(accepted.getDriver()) > 0;
+        long fee = freeRide ? 0 : wallet.chargeCommission(accepted.getDriver(), o.getId(), accepted.getPrice(), o.getTitle(), byDriver);
         o.setCommission(fee > 0 ? fee : null);
 
         accepted.setStatus(OfferStatus.ACCEPTED);
@@ -328,6 +346,7 @@ public class OrderService {
         o.setOffersCount(0);
         User driver = accepted.getDriver();
         event(o, OrderStatus.ACCEPTED, "Haydovchi tanlandi: " + driver.getFullName() + ", narx " + money(accepted.getPrice()), actor);
+        channels.orderChanged(o.getId());   // kanalda: "✅ Haydovchi topildi"
 
         notifications.notify(driver, "✅ Buyurtma sizga berildi!",
                 "\"" + o.getTitle() + "\" — " + o.getFromRegion().getName() + " → " + o.getToRegion().getName()
@@ -384,10 +403,16 @@ public class OrderService {
         if (!o.getDeliveryCode().equals(req.code().trim())) {
             throw ApiException.badRequest("Topshirish kodi noto'g'ri. Kodni qabul qiluvchidan so'rang");
         }
+        // Ikki tomon qatori ID tartibida bloklanadi va bazadan qayta o'qiladi: bir vaqtda A B uchun, B A uchun yetkazsa ham
+        // (taklif bonusi ikkala hisobni o'zgartiradi) tranzaksiyalar bir-birini kutib qolmaydi, bir haydovchining ikki
+        // yetkazishi bir vaqtda tugasa ham hisoblagich yo'qolmaydi
+        User senderRow = o.getSender();
+        for (User party : me.getId() < senderRow.getId() ? List.of(me, senderRow) : List.of(senderRow, me)) locks.lockFresh(party);
         o.setStatus(OrderStatus.DELIVERED);
         o.setDeliveredAt(Instant.now());
         me.setDeliveriesCompleted(me.getDeliveriesCompleted() + 1);
         event(o, OrderStatus.DELIVERED, "Yuk qabul qiluvchiga topshirildi", me);
+        growth.onDelivered(o);   // taklif havolasi orqali kelganlarga birinchi yetkazishda bonus
         notifications.notify(o.getSender(), "🎉 Yuk yetkazildi!",
                 "\"" + o.getTitle() + "\" qabul qiluvchiga topshirildi. Iltimos, haydovchini baholang.",
                 "#/orders/" + o.getId());
@@ -438,6 +463,7 @@ public class OrderService {
             o.setStatus(OrderStatus.NEW);
             me.setCancelledAsDriver(me.getCancelledAsDriver() + 1);
             event(o, OrderStatus.NEW, "Haydovchi voz kechdi" + (reason != null ? ": " + reason : "") + ". Buyurtma qayta e'lon qilindi", me);
+            channels.orderChanged(o.getId());   // kanaldagi post yana ochiq e'longa qaytadi
             notifications.notify(o.getSender(), "Haydovchi voz kechdi",
                     me.getFullName() + " \"" + o.getTitle() + "\" ni olib keta olmasligini bildirdi. Buyurtmangiz qayta e'lon qilindi.",
                     "#/orders/" + o.getId());
@@ -546,6 +572,7 @@ public class OrderService {
         }
         o.setOffersCount(0);
         event(o, OrderStatus.CANCELLED, "Buyurtma bekor qilindi" + (reason != null ? ": " + reason : ""), actor);
+        channels.orderChanged(o.getId());   // kanalda: "❌ E'lon yopilgan"
     }
 
     // =====================================================================

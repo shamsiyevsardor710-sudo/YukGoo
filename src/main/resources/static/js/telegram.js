@@ -1,6 +1,7 @@
 // Telegram Mini App rejimi: YukGo bot ichida ochilganda — avtomatik kirish, "Orqaga" tugmasi, ranglar, havolalar.
 // Oddiy brauzerda bu modul hech narsa qilmaydi va telegram.org skripti umuman yuklanmaydi.
 import { auth, post } from './api.js';
+import { parseStartParam, rememberAttribution } from './attribution.js';
 
 const SCRIPT = 'https://telegram.org/js/telegram-web-app.js';
 const INIT_KEY = 'yukgo_tg_init';
@@ -24,14 +25,27 @@ function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch { /* */ } }
 /**
  * Telegram ishga tushirish ma'lumotlarini manzilning "#" qismida beradi: "#tgWebAppData=...&tgWebAppVersion=...".
  * Sayt manzilida o'zi "#/yo'l" bo'lsa — "#/yo'l?tgWebAppData=...".
- * @returns {{data: string, path: string|null}|null}
+ * @returns {{data: string, path: string|null, startParam: string|null}|null}
  */
 function readLaunchHash() {
   const h = location.hash.replace(/^#/, '');
   if (!h.includes('tgWebAppData=')) return null;
   const withPath = h.startsWith('/');
   const params = new URLSearchParams(withPath ? h.slice(h.indexOf('?') + 1) : h);
-  return { data: params.get('tgWebAppData') || '', path: withPath ? h.split('?')[0] : null };
+  const data = params.get('tgWebAppData') || '';
+  return { data, path: withPath ? h.split('?')[0] : null, startParam: startParamOf(params, data) };
+}
+
+/**
+ * "t.me/BOT?startapp=o123_ch3" havolasi bilan ochilganda Telegram parametrni manzilning so'rov qismida
+ * (?tgWebAppStartParam=...) va initData ichida (start_param) beradi; ba'zi ilovalar # qismiga ham qo'yadi.
+ */
+function startParamOf(hashParams, initData) {
+  let fromQuery = null;
+  try { fromQuery = new URLSearchParams(location.search).get('tgWebAppStartParam'); } catch { /* */ }
+  let fromInit = null;
+  try { fromInit = new URLSearchParams(initData || '').get('start_param'); } catch { /* */ }
+  return fromQuery || hashParams.get('tgWebAppStartParam') || fromInit || null;
 }
 
 /** Sahifa Telegram ichida qayta yuklansa — avval saqlangan nusxa (bizniki yoki Telegram skriptiniki) */
@@ -85,10 +99,13 @@ export async function initTelegram() {
   try { await loadScript(SCRIPT, 6000); } catch { /* skriptsiz davom etamiz */ }
 
   const fromButton = new URLSearchParams(location.search).get('r');
+  // Kanal postidagi tugma (t.me/BOT?startapp=o123_ch3): qaysi buyurtma va qaysi kanaldan kelgani
+  const start = parseStartParam(launch?.startParam);
+  if (start) rememberAttribution(start.src, start.ref);
   if (launch || fromButton != null) {
     const h = location.hash;
     const fromHash = launch ? launch.path : (h.startsWith('#/') ? h.slice(1) : null);
-    const route = safeRoute(fromButton) ? fromButton : (safeRoute(fromHash) ? fromHash : '/');
+    const route = safeRoute(fromButton) ? fromButton : (safeRoute(fromHash) ? fromHash : (start ? start.route : '/'));
     history.replaceState({ tgStart: true }, '', location.pathname + '#' + route);
   }
 

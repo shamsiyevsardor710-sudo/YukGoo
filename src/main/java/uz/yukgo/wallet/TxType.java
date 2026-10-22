@@ -6,7 +6,9 @@ public enum TxType {
     COMMISSION("Komissiya"),
     COMMISSION_REFUND("Komissiya qaytarildi"),
     URGENT_FEE("Shoshilinch e'lon"),
-    ADJUSTMENT("Tuzatish");
+    ADJUSTMENT("Tuzatish"),
+    REFERRAL_BONUS("Taklif bonusi"),
+    BONUS_FORFEIT("Bonus bekor qilindi");
 
     private final String label;
 

@@ -31,6 +31,8 @@ public class TelegramClient {
     private volatile String username;
     /** Token Telegram tomonidan tasdiqlanganmi (getMe) */
     private volatile boolean healthy = true;
+    /** Botning o'z Telegram ID si (getMe) — kanalda admin ekanini tekshirish uchun */
+    private volatile long botId;
 
     public TelegramClient(AppProperties props) {
         AppProperties.Telegram cfg = props.telegram();
@@ -87,6 +89,7 @@ public class TelegramClient {
             if (res != null && res.path("ok").asBoolean()) {
                 String real = res.path("result").path("username").asText("");
                 if (!real.isBlank()) username = real;
+                botId = res.path("result").path("id").asLong(0);
                 healthy = true;
                 return true;
             }
@@ -143,6 +146,16 @@ public class TelegramClient {
         if (replyMarkup != null) body.put("reply_markup", replyMarkup);
         rest.post().uri("/sendMessage").contentType(MediaType.APPLICATION_JSON).body(body)
                 .retrieve().toBodilessEntity();
+    }
+
+    /**
+     * Bir nechta tugma varianti bilan sinxron yuborish: Telegram birinchisini rad etsa (400 — masalan, havola juda uzun),
+     * keyingisi bilan, oxirida tugmasiz.
+     */
+    public boolean sendNowWithFallbacks(long chatId, String html, List<Object> markups) {
+        List<Object> list = new ArrayList<>();
+        for (Object m : markups) if (m != null) list.add(m);
+        return deliver(chatId, html, list);
     }
 
     /** Bildirishnomalar uchun fon rejimida yuborish. */
@@ -282,6 +295,70 @@ public class TelegramClient {
         return null;
     }
 
+    /**
+     * Kanal yoki guruhga post. Telegram cheklovi (429, guruhga daqiqasiga ~20 ta xabar) bo'lsa — aytilgan vaqt
+     * (60 soniyagacha) kutib bir marta qayta uriniladi, post jim tashlab ketilmasin.
+     * @return message_id yoki null
+     */
+    public Integer sendToChat(long chatId, String html, Object replyMarkup) {
+        if (!enabled()) {
+            log.info("[TELEGRAM o'chiq] chat={} xabar: {}", chatId, html);
+            return null;
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("chat_id", chatId);
+        body.put("text", html);
+        body.put("parse_mode", "HTML");
+        body.put("disable_web_page_preview", true);
+        if (replyMarkup != null) body.put("reply_markup", replyMarkup);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                JsonNode res = rest.post().uri("/sendMessage").contentType(MediaType.APPLICATION_JSON).body(body)
+                        .retrieve().body(JsonNode.class);
+                return res != null && res.path("ok").asBoolean() ? res.path("result").path("message_id").asInt() : null;
+            } catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() == 429 && attempt == 0) {
+                    if (!pause(retryAfterMs(e.getResponseBodyAsString()))) return null;
+                    continue;
+                }
+                log.warn("Kanalga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
+                return null;
+            } catch (Exception e) {
+                log.warn("Kanalga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** Kanal postini tahrirlash, 429 da bir marta kutib qayta uriniladi. "message is not modified" — xato emas. */
+    public void editInChat(long chatId, int messageId, String html, Object replyMarkup) {
+        if (!enabled()) return;
+        Map<String, Object> body = new HashMap<>();
+        body.put("chat_id", chatId);
+        body.put("message_id", messageId);
+        body.put("text", html);
+        body.put("parse_mode", "HTML");
+        body.put("disable_web_page_preview", true);
+        if (replyMarkup != null) body.put("reply_markup", replyMarkup);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                rest.post().uri("/editMessageText").contentType(MediaType.APPLICATION_JSON).body(body).retrieve().toBodilessEntity();
+                return;
+            } catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() == 429 && attempt == 0) {
+                    if (!pause(retryAfterMs(e.getResponseBodyAsString()))) return;
+                    continue;
+                }
+                log.debug("Kanal postini yangilab bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
+                return;
+            } catch (Exception e) {
+                log.debug("Kanal postini yangilab bo'lmadi (chat={}): {}", chatId, e.getMessage());
+                return;
+            }
+        }
+    }
+
     /** Bot yuborgan xabar matnini almashtiradi; replyMarkup null bo'lsa tugmalar olib tashlanadi. */
     public void editMessage(long chatId, int messageId, String html, Object replyMarkup) {
         if (!enabled()) return;
@@ -311,6 +388,40 @@ public class TelegramClient {
                     .retrieve().toBodilessEntity();
         } catch (Exception e) {
             log.debug("answerCallbackQuery xatosi: {}", e.getMessage());
+        }
+    }
+
+    public long botId() {
+        return botId;
+    }
+
+    /**
+     * Kanal yoki guruh haqida (getChat): id, title, username, type. Topilmasa yoki bot ko'ra olmasa — null.
+     * @param chat "@username" yoki "-100..." ko'rinishidagi ID
+     */
+    public JsonNode getChat(String chat) {
+        if (!enabled() || chat == null || chat.isBlank()) return null;
+        Object id = chat.trim().matches("-?\\d+") ? (Object) Long.valueOf(chat.trim()) : chat.trim();
+        try {
+            JsonNode res = rest.post().uri("/getChat").contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("chat_id", id)).retrieve().body(JsonNode.class);
+            return res != null && res.path("ok").asBoolean() ? res.path("result") : null;
+        } catch (Exception e) {
+            log.debug("getChat({}) xatosi: {}", chat, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Foydalanuvchi (yoki botning o'zi) chatda kim: status ("administrator", "member"...) va huquqlari. Xato bo'lsa null. */
+    public JsonNode getChatMember(long chatId, long userId) {
+        if (!enabled() || userId == 0) return null;
+        try {
+            JsonNode res = rest.post().uri("/getChatMember").contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("chat_id", chatId, "user_id", userId)).retrieve().body(JsonNode.class);
+            return res != null && res.path("ok").asBoolean() ? res.path("result") : null;
+        } catch (Exception e) {
+            log.debug("getChatMember({}) xatosi: {}", chatId, e.getMessage());
+            return null;
         }
     }
 

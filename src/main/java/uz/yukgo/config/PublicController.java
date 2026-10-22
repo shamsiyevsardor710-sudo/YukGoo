@@ -5,6 +5,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import uz.yukgo.channel.ChannelFeedRepository;
 import uz.yukgo.order.CargoType;
 import uz.yukgo.order.OrderRepository;
 import uz.yukgo.order.OrderStatus;
@@ -27,6 +28,7 @@ public class PublicController {
     private final OrderRepository orderRepository;
     private final WalletService wallet;
     private final Environment env;
+    private final ChannelFeedRepository channelFeeds;
 
     @GetMapping("/api/config")
     public Map<String, Object> config() {
@@ -39,6 +41,8 @@ public class PublicController {
         m.put("bodyTypes", BodyType.values());
         // Komissiya va shoshilinch narxi (tizim o'chiq bo'lsa enabled=false — frontend hech narsa ko'rsatmaydi)
         m.put("pricing", PricingDto.of(wallet.current()));
+        // Yangi e'lonlar Telegram kanallarga ham chiqadimi (formada foydalanuvchiga aytiladi)
+        m.put("channelPosting", telegram.enabled() && channelFeeds.countByActiveTrue() > 0);
         // Maxfiylik siyosati va "hisobni o'chirish" sahifalaridagi aloqa (Railway: SUPPORT_EMAIL o'zgaruvchisi)
         String email = env.getProperty("SUPPORT_EMAIL");
         if (email != null && !email.isBlank()) m.put("supportEmail", email.trim());

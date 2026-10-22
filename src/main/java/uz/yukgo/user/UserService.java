@@ -19,6 +19,7 @@ import uz.yukgo.auth.VerificationService;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.common.Phones;
+import uz.yukgo.driver.DriverVerificationService;
 import uz.yukgo.file.FileStorageService;
 import uz.yukgo.location.LocationService;
 import uz.yukgo.location.Region;
@@ -38,6 +39,7 @@ import uz.yukgo.wallet.WalletService;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -61,6 +63,7 @@ public class UserService {
     private final TripRepository tripRepository;
     private final JwtService jwtService;
     private final TelegramAuthService telegramAuth;
+    private final DriverVerificationService driverVerification;
 
     /** O'chirilgan hisobning ism-familiyasi (buyurtmalar tarixida shunday ko'rinadi) */
     private static final String DELETED_FIRST = "O'chirilgan";
@@ -133,9 +136,12 @@ public class UserService {
     public MeDto updateVehicle(VehicleDto dto) {
         User u = currentUser.get();
         Vehicle v = u.getVehicle() == null ? new Vehicle() : u.getVehicle();
+        String oldPlate = v.getPlateNumber();
         v.setBrand(dto.brand().trim());
         v.setModel(blankToNull(dto.model()));
         v.setPlateNumber(dto.plateNumber().trim().toUpperCase().replaceAll("\\s+", " "));
+        // Boshqa mashina — "Tekshirilgan haydovchi" belgisi qayta tekshiruvgacha olinadi
+        if (oldPlate != null && !Objects.equals(oldPlate, v.getPlateNumber())) driverVerification.vehicleChanged(u);
         v.setColor(blankToNull(dto.color()));
         v.setYear(dto.year());
         v.setBodyType(dto.bodyType());
@@ -160,6 +166,7 @@ public class UserService {
         User u = currentUser.get();
         if (u.getVehicle() != null) files.delete(u.getVehicle().getPhotoUrl());
         u.setVehicle(null);
+        driverVerification.vehicleChanged(u);
         return MeDto.of(u);
     }
 
@@ -258,7 +265,7 @@ public class UserService {
         if (orderRepository.countForUser(u.getId(), active) > 0) {
             throw ApiException.badRequest("Sizda haydovchiga berilgan yoki yo'ldagi buyurtma bor. Avval uni yakunlang yoki bekor qiling");
         }
-        if (wallet.balance(u.getId()) > 0) {
+        if (wallet.ownMoney(u.getId()) > 0) {
             throw ApiException.badRequest("Balansingizda mablag' bor. Hisobni o'chirishdan oldin uni qaytarib olish uchun admin bilan bog'laning");
         }
         orderService.closeForDeletedAccount(u);
@@ -276,6 +283,8 @@ public class UserService {
         orderService.anonymizeHistory(u, oldName, DELETED_NAME);
         adminLogs.renameTarget(u.getId(), DELETED_NAME);
         verifications.deleteForAccount(oldPhone, u.getId());
+        driverVerification.deleteAllFor(u.getId());
+        wallet.forfeitBalance(u.getId(), "Hisob o'chirildi — bonus qoldig'i bekor qilindi");   // hujjat rasmlari (ko'rib chiqilmagan ariza bo'lsa)
         notificationRepository.deleteAllForUser(u.getId());
         // Boshqalarga kelgan bildirishnomalardagi telefon raqami ("Yuboruvchi: ..., +998...") olib tashlanadi
         for (Notification n : notificationRepository.findByBodyContaining(oldPhone)) {
@@ -302,6 +311,8 @@ public class UserService {
         u.setHouse(null);
         u.setTelegramChatId(null);
         u.setTelegramAutoLogin(null);
+        u.setDriverVerified(null);
+        u.setDriverVerifiedAt(null);
         u.setLastLat(null);
         u.setLastLng(null);
         u.setLastLocationAt(null);

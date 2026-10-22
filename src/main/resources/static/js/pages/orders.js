@@ -3,7 +3,7 @@ import { auth, get, post, upload, regions, config } from '../api.js';
 import {
   $, $$, esc, icon, money, km, duration, date, dateTime, ago, phoneFmt, avatar, stars, toast, modal, confirmDialog,
   formData, showError, clearError, busy, bindRegionDistrict, regionOptions, options, routeStrip, statusPill,
-  emptyState, skeletons, CARGO, BODY, SCOPE, PAYMENT, PAYER, num,
+  emptyState, skeletons, CARGO, BODY, SCOPE, PAYMENT, PAYER, num, verifiedBadge,
 } from '../ui.js';
 import { createMap, pin, drawRoute, reverseGeocode, myPosition, UZ_CENTER } from '../maps.js';
 import { go, refreshMe } from '../app.js';
@@ -213,23 +213,50 @@ export function orderRow(o) {
 // =====================================================================
 // Yangi buyurtma
 // =====================================================================
-export async function createOrderPage(main) {
+/**
+ * Botga yozilgan e'londan to'ldirilgan forma: "#/new?bot=1&fr=1&fd=5&tr=12&w=5000&p=3000000&d=2026-10-23&b=TENT&c=FURNITURE&t=..&x=.."
+ * Noto'g'ri yoki eskirgan qiymatlar jim e'tiborsiz qoldiriladi.
+ */
+function prefillFrom(query, today) {
+  const q = query instanceof URLSearchParams ? query : new URLSearchParams();
+  const id = (k) => (/^\d{1,18}$/.test(q.get(k) || '') ? Number(q.get(k)) : null);
+  const positive = (k) => { const v = Number(q.get(k)); return Number.isFinite(v) && v > 0 ? v : null; };
+  const d = q.get('d') || '';
+  const known = (map, k) => Object.prototype.hasOwnProperty.call(map, k);   // eski WebView'larda Object.hasOwn yo'q
+  return {
+    fromBot: q.get('bot') === '1',
+    fr: id('fr'), fd: id('fd'), tr: id('tr'), td: id('td'),
+    weight: positive('w'), price: positive('p'), negotiable: q.get('n') === '1',
+    date: /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= today ? d : today,
+    body: known(BODY, q.get('b') || '') ? q.get('b') : '',
+    cargo: known(CARGO, q.get('c') || '') ? q.get('c') : 'GENERAL',
+    title: (q.get('t') || '').slice(0, 120),
+    description: (q.get('x') || '').slice(0, 1500),
+  };
+}
+
+export async function createOrderPage(main, _p, query) {
   const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
   const today = localISO();
+  const pre = prefillFrom(query, today);
   const urgentFee = cfg.pricing?.enabled && cfg.pricing.urgentFee > 0 ? cfg.pricing.urgentFee : 0;
+  // Birinchi shoshilinch e'lon bepul (admin yoqqan bo'lsa va hali ishlatilmagan bo'lsa)
+  const wallet = urgentFee && cfg.pricing.firstUrgentFree ? await get('/wallet').catch(() => null) : null;
+  const urgentFree = !!wallet?.urgentFreeAvailable;
   main.innerHTML = `<div class="page">
     <div class="page-head"><div><h1>Yangi buyurtma</h1><p class="muted">Yukingiz haqida yozing — mos haydovchilarga Telegram orqali darhol xabar boradi.</p></div></div>
+    ${pre.fromBot ? `<div class="prefill-note">${icon('check')}<div><b>Botga yozgan e'loningizdan to'ldirildi.</b> Tekshirib chiqing, qabul qiluvchini yozing va «E'lon qilish» ni bosing.</div></div>` : ''}
     <form id="order-form" class="grid-2" novalidate>
       <div class="stack">
         <section class="panel stack">
           <h2>Yuk</h2>
           <div class="form-grid">
-            <label class="field full"><span>Nima yuboryapsiz?</span><input class="input" name="title" maxlength="120" placeholder="Masalan: 20 qop sement, divan va 2 ta shkaf" required></label>
-            <label class="field"><span>Yuk turi</span><select class="select" name="cargoType" required>${options(CARGO, 'GENERAL')}</select></label>
-            <label class="field"><span>Kerakli mashina</span><select class="select" name="requiredBodyType">${options(BODY, '', 'Farqi yo\'q')}</select></label>
-            <label class="field"><span>Og'irligi, kg</span><input class="input" name="weightKg" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="500"></label>
+            <label class="field full"><span>Nima yuboryapsiz?</span><input class="input" name="title" maxlength="120" placeholder="Masalan: 20 qop sement, divan va 2 ta shkaf" value="${esc(pre.title)}" required></label>
+            <label class="field"><span>Yuk turi</span><select class="select" name="cargoType" required>${options(CARGO, pre.cargo)}</select></label>
+            <label class="field"><span>Kerakli mashina</span><select class="select" name="requiredBodyType">${options(BODY, pre.body, 'Farqi yo\'q')}</select></label>
+            <label class="field"><span>Og'irligi, kg</span><input class="input" name="weightKg" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="500" value="${pre.weight ?? ''}"></label>
             <label class="field"><span>Hajmi, m³</span><input class="input" name="volumeM3" type="number" min="0" step="0.1" inputmode="decimal" placeholder="ixtiyoriy"></label>
-            <label class="field full"><span>Qo'shimcha ma'lumot</span><textarea class="textarea" name="description" maxlength="1500" placeholder="Qavat, lift bormi, yuklashga yordam kerakmi, qadoqlanganmi…"></textarea></label>
+            <label class="field full"><span>Qo'shimcha ma'lumot</span><textarea class="textarea" name="description" maxlength="1500" placeholder="Qavat, lift bormi, yuklashga yordam kerakmi, qadoqlanganmi…">${esc(pre.description)}</textarea></label>
             <label class="field full"><span>Yuk rasmi (ixtiyoriy)</span><input class="input" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
           </div>
         </section>
@@ -258,15 +285,17 @@ export async function createOrderPage(main) {
           <h2>Narx va to'lov</h2>
           <div class="panel-sunk hidden" id="estimate"></div>
           <label class="field"><span>Taklif qilayotgan narxingiz, so'm</span>
-            <input class="input" name="price" type="number" min="1000" step="1000" inputmode="numeric" placeholder="300000"></label>
-          <label class="check"><input type="checkbox" name="negotiable"> Narx kelishiladi — haydovchilar o'zi taklif qilsin</label>
+            <input class="input" name="price" type="number" min="1000" step="1000" inputmode="numeric" placeholder="300000" value="${pre.negotiable ? '' : (pre.price ?? '')}" ${pre.negotiable ? 'disabled' : ''}></label>
+          <label class="check"><input type="checkbox" name="negotiable" ${pre.negotiable ? 'checked' : ''}> Narx kelishiladi — haydovchilar o'zi taklif qilsin</label>
           <div class="form-grid">
             <label class="field"><span>To'lov usuli</span><select class="select" name="paymentMethod">${options(PAYMENT, 'CASH')}</select></label>
             <label class="field"><span>Kim to'laydi</span><select class="select" name="payer">${options(PAYER, 'SENDER')}</select></label>
           </div>
-          <label class="field"><span>Yukni olish sanasi</span><input class="input" name="pickupDate" type="date" min="${today}" value="${today}"></label>
-          <label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda doim eng yuqorida turadi${urgentFee ? ` <b class="fee">${esc(money(urgentFee))}</b>` : ''}</label>
-          ${urgentFee ? `<p class="tiny muted">Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi.</p>` : ''}
+          <label class="field"><span>Yukni olish sanasi</span><input class="input" name="pickupDate" type="date" min="${today}" value="${pre.date}"></label>
+          <label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda doim eng yuqorida turadi${urgentFee
+            ? (urgentFree ? ` <b class="fee fee-free">Bepul</b> <s class="tiny muted">${esc(money(urgentFee))}</s>` : ` <b class="fee">${esc(money(urgentFee))}</b>`) : ''}</label>
+          ${urgentFee ? `<p class="tiny muted">${urgentFree ? "Birinchi shoshilinch e'loningiz bepul — balansdan hech narsa yechilmaydi."
+            : "Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi."}</p>` : ''}
         </section>
         <section class="panel stack">
           <h2>Qabul qiluvchi</h2>
@@ -276,6 +305,7 @@ export async function createOrderPage(main) {
           <label class="check"><input type="checkbox" id="me-receiver"> Qabul qiluvchi — o'zim</label>
         </section>
         <button class="btn btn-primary btn-lg btn-block" type="submit">Buyurtmani e'lon qilish</button>
+        ${cfg.channelPosting ? `<p class="tiny muted" style="text-align:center">📣 E'loningiz YukGo Telegram kanallarida ham chiqadi — ismingiz va telefoningiz u yerda ko'rsatilmaydi.</p>` : ''}
       </div>
     </form>
   </div>`;
@@ -283,8 +313,10 @@ export async function createOrderPage(main) {
   const form = $('#order-form', main);
   const me = auth.user;
   await Promise.all([
-    bindRegionDistrict(form.fromRegionId, form.fromDistrictId, { regionId: me?.region?.id, districtId: me?.district?.id, allowEmptyDistrict: true }),
-    bindRegionDistrict(form.toRegionId, form.toDistrictId, { allowEmptyDistrict: true }),
+    bindRegionDistrict(form.fromRegionId, form.fromDistrictId, pre.fr
+      ? { regionId: pre.fr, districtId: pre.fd, allowEmptyDistrict: true }
+      : { regionId: me?.region?.id, districtId: me?.district?.id, allowEmptyDistrict: true }),
+    bindRegionDistrict(form.toRegionId, form.toDistrictId, { regionId: pre.tr, districtId: pre.td, allowEmptyDistrict: true }),
   ]);
   $('#me-receiver', main).addEventListener('change', (e) => {
     form.receiverName.value = e.target.checked ? me.fullName : '';
@@ -408,6 +440,10 @@ export async function orderPage(main, { id }) {
   const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
   const pr = cfg.pricing?.enabled ? cfg.pricing : null;   // daromad tizimi o'chiq bo'lsa — null, hech narsa ko'rsatilmaydi
   const urgentFee = pr && pr.urgentFee > 0 ? pr.urgentFee : 0;
+  // Shaxsiy bonuslar: yangi haydovchining komissiyasiz buyurtmalari va birinchi bepul shoshilinch e'lon
+  const myWallet = pr && auth.loggedIn ? await get('/wallet').catch(() => null) : null;
+  const freeLeft = myWallet?.freeDeliveriesLeft || 0;
+  const urgentFree = urgentFee > 0 && !!myWallet?.urgentFreeAvailable;
 
   async function load() {
     o = await get('/orders/' + id);
@@ -480,7 +516,7 @@ export async function orderPage(main, { id }) {
       ? "Raqam buyurtma sizga berilgach ko'rinadi"
       : "Raqam faqat buyurtma tomonlariga ko'rinadi";
     return `<a class="person" href="#/u/${u.id}">${avatar(u.avatarUrl, u.fullName)}
-      <div style="min-width:0"><div class="person-name">${esc(u.fullName)}</div>
+      <div style="min-width:0"><div class="person-name">${esc(u.fullName)} ${verifiedBadge(u.verified)}</div>
         <div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
       ${withVehicle && u.vehicle ? `<div class="small muted">${esc(u.vehicle.brand)} ${esc(u.vehicle.model || '')}, ${esc(BODY[u.vehicle.bodyType] || '')}
         <span class="plate" style="font-size:13px;margin-left:6px"><span>${esc(u.vehicle.plateNumber)}</span></span></div>` : ''}
@@ -505,7 +541,7 @@ export async function orderPage(main, { id }) {
         } else if (!o.urgent) {
           html += `<section class="panel stack-sm"><h2>Tezroq haydovchi topish</h2>
             <p class="small muted">Shoshilinch e'lon ro'yxatda doim eng yuqorida turadi va haydovchilarga qayta xabar boradi.</p>
-            <button class="btn btn-primary btn-block" id="make-urgent">🔥 Shoshilinch qilish${urgentFee ? ' — ' + esc(money(urgentFee)) : ''}</button></section>`;
+            <button class="btn btn-primary btn-block" id="make-urgent">🔥 Shoshilinch qilish${urgentFee ? ' — ' + (urgentFree ? 'bepul' : esc(money(urgentFee))) : ''}</button></section>`;
         }
       }
       if (o.status === 'ACCEPTED' || o.status === 'IN_TRANSIT') {
@@ -577,7 +613,8 @@ export async function orderPage(main, { id }) {
           <option value="1">1 soat ichida</option><option value="3">3 soat ichida</option><option value="24" selected>Bugun-ertaga</option><option value="72">3 kun ichida</option></select></label>
         <label class="field"><span>Izoh</span><textarea class="textarea" name="comment" maxlength="500" placeholder="Masalan: yuklashga yordam beraman, tentli Isuzu">${esc(existing?.comment || '')}</textarea></label>
         <button class="btn ${o.price && !existing ? '' : 'btn-primary'} btn-block" type="submit">Taklif yuborish</button></form>
-      ${pr ? `<p class="tiny muted">Buyurtma sizga berilsa, balansingizdan komissiya yechiladi: narxning ${esc(num(pr.commissionPercent, 1))}%${pr.commissionMin ? `, kamida ${esc(money(pr.commissionMin))}` : ''}${o.price ? ` — shu narxda ${esc(money(commissionFor(pr, o.price)))}` : ''}.
+      ${pr && freeLeft > 0 ? `<p class="tiny muted">🎁 Sizda yana <b>${freeLeft} ta</b> komissiyasiz buyurtma bor — bu buyurtma sizga berilsa, balansdan hech narsa yechilmaydi.</p>`
+        : pr ? `<p class="tiny muted">Buyurtma sizga berilsa, balansingizdan komissiya yechiladi: narxning ${esc(num(pr.commissionPercent, 1))}%${pr.commissionMin ? `, kamida ${esc(money(pr.commissionMin))}` : ''}${o.price ? ` — shu narxda ${esc(money(commissionFor(pr, o.price)))}` : ''}.
         Yuboruvchi bekor qilsa, komissiya qaytariladi.</p>` : ''}</section>`;
   }
 
@@ -604,15 +641,17 @@ export async function orderPage(main, { id }) {
     on('#make-urgent', async (e) => {
       const btn = e.currentTarget;   // await dan keyin currentTarget null bo'lib qoladi
       const r = await confirmDialog("E'lonni shoshilinch qilasizmi?",
-        urgentFee ? `${money(urgentFee)} balansingizdan yechiladi. E'lon ro'yxatda eng yuqoriga chiqadi.` : "E'lon ro'yxatda eng yuqoriga chiqadi va haydovchilarga qayta xabar boradi.",
+        urgentFee && !urgentFree ? `${money(urgentFee)} balansingizdan yechiladi. E'lon ro'yxatda eng yuqoriga chiqadi.`
+          : (urgentFree ? "Birinchi shoshilinch e'loningiz bepul. " : '') + "E'lon ro'yxatda eng yuqoriga chiqadi va haydovchilarga qayta xabar boradi.",
         { okText: 'Shoshilinch qilish' });
       if (!r) return;
       try { o = await busy(btn, () => post(`/orders/${id}/urgent`)); toast("E'lon shoshilinch qilindi", 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
     });
     on('#take', async (e) => {
-      const fee = commissionFor(pr, o.price);
+      const fee = freeLeft > 0 ? 0 : commissionFor(pr, o.price);
       const r = await confirmDialog('Buyurtmani olasizmi?', `${money(o.price)} narxda. Yuboruvchiga darhol xabar boradi.`
-        + (fee ? ` Balansingizdan ${money(fee)} komissiya yechiladi.` : ''), { okText: 'Olaman' });
+        + (fee ? ` Balansingizdan ${money(fee)} komissiya yechiladi.` : (pr && freeLeft > 0 ? ' Komissiya olinmaydi (yangi haydovchi bonusi).' : '')),
+        { okText: 'Olaman' });
       if (!r) return;
       try { o = await busy($('#take', main), () => post(`/orders/${id}/take`)); toast('Buyurtma sizniki! Yuboruvchiga qo\'ng\'iroq qiling', 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
     });
@@ -684,7 +723,7 @@ export async function orderPage(main, { id }) {
       const list = (await get(`/orders/${id}/offers`)).filter(f => f.status === 'PENDING');
       box.innerHTML = list.length ? list.map(f => `<div class="offer">
           <a class="person" href="#/u/${f.driver.id}">${avatar(f.driver.avatarUrl, f.driver.fullName)}
-            <div style="min-width:0"><div class="person-name">${esc(f.driver.fullName)}</div>
+            <div style="min-width:0"><div class="person-name">${esc(f.driver.fullName)} ${verifiedBadge(f.driver.verified)}</div>
             <div class="person-sub">${stars(f.driver.rating, f.driver.ratingCount)}, ${f.driver.deliveriesCompleted} ta yetkazish</div></div></a>
           <div class="price">${esc(money(f.price))}</div>
           <div class="small muted" style="grid-column:1/-1">

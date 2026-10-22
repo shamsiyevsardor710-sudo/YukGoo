@@ -34,7 +34,10 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 - **Yozishma** yuboruvchi ↔ haydovchi (Telegramga ham boradi).
 - **Baholash**: yetkazilgandan keyin ikki tomon bir-birini baholaydi; reyting profilda.
 - **Reyslar**: haydovchi «Ertaga Toshkent → Samarqand, 2 t bo'sh joy» deb e'lon qiladi.
-- **Haydovchilar katalogi**: reyting va yetkazgan yuklar bo'yicha.
+- **Haydovchilar katalogi**: avval tekshirilgan haydovchilar, keyin reyting va yetkazgan yuklar bo'yicha.
+- **«Tekshirilgan haydovchi»**: haydovchi profilda guvohnoma va texpasport rasmini yuboradi (ilova rasmni ~1600px gacha kichraytiradi),
+  admin «Tekshiruv» bo'limida ko'rib tasdiqlaydi yoki sababini yozib rad etadi. Rasmlar bazada saqlanadi, faqat adminga ko'rinadi va
+  qaror qilingan zahoti o'chiriladi. Davlat raqami o'zgarsa yoki mashina o'chirilsa — belgi olinadi.
 - Haydovchi voz kechsa buyurtma avtomatik qayta e'lon qilinadi; 30 kun olinmagan e'lonlar avtomatik yopiladi.
 - Shikoyat / adminga murojaat.
 
@@ -48,6 +51,11 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 - Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yozishma, yangi buyurtmalar.
 - Menyu: 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam.
 - Pastdagi **«YukGo»** tugmasi saytni Telegram ichida (Mini App) ochadi: bir marta parol bilan kirilgach, keyingi safar o'zi kiradi.
+- **Matn bilan e'lon:** foydalanuvchi botga guruhga yozgandek yozadi — *«Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln»*.
+  Bot viloyat va tumanni (lotin, kirill, ruscha yozuv, «-dan/-ga» qo'shimchalari), og'irlik, narx, sana, kuzov va yuk turini tushunadi
+  va to'ldirilgan formani Mini App'da ochadi. Telefon raqamlar formaga o'tmaydi.
+- **Havolalar:** `t.me/BOT?start=o123_ch3` — kanal postidagi «Taklif berish» (buyurtma kartasi + ochish tugmasi), `start=new` — e'lon berish,
+  `start=src_KOD` — manba (kanal, hamkor, varaqa, agent), `start=ref_ID` — do'st taklifi. Mini App `startapp=` havolalarini ham tushunadi.
 - **Adminlar uchun ommaviy xabar:** admin yoki ega o'z Telegramidan botga rasm, video, dumaloq video, ovozli xabar, fayl,
   albom yoki matn yuboradi → bot «Hammaga yuborilsinmi?» deb so'raydi → «✅ Hammaga yuborish» bosilsa, xabar botga ulangan
   barcha faol foydalanuvchilarga xuddi shu ko'rinishda boradi, oxirida nechta odamga yetgani yoziladi. Oddiy foydalanuvchilar
@@ -64,8 +72,21 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 | **Adminni** bloklash va chiqarib yuborish | ❌ | ✅ |
 | Egalikni boshqa odamga topshirish | ❌ | ✅ |
 | Egaga nisbatan har qanday amal | ❌ | ❌ |
+| Kanallar, manbalar, haydovchi hujjatlarini tekshirish | ✅ | ✅ |
+| Daromad va bonus sozlamalari | ❌ | ✅ |
 
 Har bir admin amali jurnalga yoziladi (kim, kimga, qachon, sabab).
+
+### Foydalanuvchi jalb qilish
+- **Kanallar** (Boshqaruv → Kanallar): botni kanal yoki guruhga admin qilib qo'shasiz («Xabar joylash» huquqi) — har yangi ochiq buyurtma
+  u yerga avtomatik chiqadi (viloyat filtri bilan). Postda yuk egasining ismi va telefoni yo'q, «📩 Taklif berish» va «➕ Yuk e'lon qilish»
+  tugmalari bor. Haydovchi topilsa post «✅ Haydovchi topildi», bekor qilinsa «❌ E'lon yopilgan» ga o'zgaradi.
+  @BotFather'da Main Mini App yoqilsa, tugma ilovani bir bosishda ochadi (sozlama shu sahifada).
+- **Manbalar** (Boshqaruv → Manbalar): har kanal, hamkor, varaqa va agent uchun kod (`?src=KOD`, `t.me/BOT?start=src_KOD`), QR va chop
+  etiladigan varaqa/stiker (`/promo.html`). Hisobot: kelganlar, haydovchilar, yuk egalari, faollashganlar; eng ko'p taklif qilganlar.
+- **Taklif havolasi** har foydalanuvchining profilida. Do'sti birinchi buyurtmasini yakunlasa — ikkalasiga bonus (Daromad sozlamasida).
+- **Bonuslar** (Daromad): taklif bonusi, yangi haydovchiga birinchi N ta buyurtma komissiyasiz, birinchi «Shoshilinch» e'lon bepul.
+- Marketing materiallari (postlar, hamkorlarga taklif, agentlar yo'riqnomasi, chop etiladigan PDF): `marketing/` papkasi.
 
 ---
 
@@ -138,7 +159,9 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Yozishma | `GET/POST /api/orders/{id}/messages` |
 | Baho | `POST /api/orders/{id}/review`, `GET /api/users/{id}/reviews` |
 | Reyslar | `GET/POST /api/trips`, `GET /api/trips/my` |
-| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs) |
+| Taklif | `GET /api/users/me/referral` |
+| Haydovchi tekshiruvi | `GET/POST /api/users/me/driver-verification` (multipart: `license`, `techPassport`) |
+| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications) |
 
 To'liq sxema: `/swagger-ui.html`. Mobil ilovada Yandex MapKit SDK (Android/iOS) dan foydalanish tavsiya etiladi.
 
@@ -149,7 +172,10 @@ To'liq sxema: `/swagger-ui.html`. Mobil ilovada Yandex MapKit SDK (Android/iOS) 
 ```
 src/main/java/uz/yukgo/
   auth/          ro'yxatdan o'tish, kirish, Telegram kod bilan tasdiqlash
-  telegram/      bot (long polling), Telegram API mijoz
+  telegram/      bot (long polling), Telegram API mijoz, matndan e'lonni tushunish (LoadTextParser)
+  channel/       kanallarga avtomatik e'lon va postlarni yangilash
+  growth/        manba kodlari, taklif havolalari va bonuslar
+  driver/        «Tekshirilgan haydovchi» arizalari
   user/          foydalanuvchi, profil, mashina
   order/         buyurtma, takliflar, holatlar, GPS kuzatuv, yozishma, narx hisoblagich
   trip/          haydovchi reyslari
@@ -158,5 +184,6 @@ src/main/java/uz/yukgo/
   notification/  sayt ichidagi va Telegram bildirishnomalari
   location/      viloyat va tumanlar
   security/      JWT, Spring Security
-src/main/resources/static/   veb-sayt (SPA): index.html, css/, js/
+src/main/resources/static/   veb-sayt (SPA): index.html, css/, js/; promo.html — chop etiladigan varaqa va stiker
+marketing/                   jalb qilish rejasi, kanal postlari, hamkor va agentlar uchun materiallar
 ```
