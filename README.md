@@ -175,7 +175,8 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    | `APP_DEV_MODE` | `false` |
    | `YANDEX_MAPS_API_KEY`, `SUPPORT_EMAIL` | ixtiyoriy |
    | `ESKIZ_EMAIL`, `ESKIZ_PASSWORD` | SMS orqali kod (pastdagi «SMS orqali tasdiqlash» bo'limi). Berilmasa, kodlar Telegram bot orqali |
-   | `ESKIZ_FROM`, `SMS_TEMPLATE`, `SMS_DAILY_LIMIT` | ixtiyoriy: jo'natuvchi nomi (standart `4546`), SMS matni, sutkalik SMS chegarasi (standart 500) |
+   | `ESKIZ_FROM`, `SMS_DAILY_LIMIT` | ixtiyoriy: jo'natuvchi nomi (standart `4546`), sutkalik SMS chegarasi (standart 500) |
+   | `SMS_TEMPLATE_REGISTER`, `SMS_TEMPLATE_RESET`, `SMS_TEMPLATE_PHONE` | ixtiyoriy: Eskiz boshqacha matnni tasdiqlasa (pastda) |
    | `CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_SECRET_KEY` | Click orqali to'lov (pastdagi «Onlayn to'lovlar» bo'limi) |
    | `PAYME_MERCHANT_ID`, `PAYME_KEY` | Payme orqali to'lov. Sinov paytida `PAYME_TEST=true` va sinov kaliti (Payme foydalanuvchilarga ko'rinmaydi) |
    | `PAYNET_USERNAME`, `PAYNET_PASSWORD`, `PAYNET_SERVICE_ID` | Paynet orqali to'lov (Paynet beradi). Uchalasi ham bo'lmasa Paynet o'chiq |
@@ -195,10 +196,21 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
 Ro'yxatdan o'tish, parolni tiklash va telefon raqamni o'zgartirish kodlari SMS bo'lib keladi.
 SMS sozlanmagan bo'lsa, chegaraga yetilsa yoki SMS ketmasa, kod Telegram bot orqali olinadi.
 
-1. <https://eskiz.uz> da ro'yxatdan o'ting va balansni to'ldiring.
-2. Kabinetda SMS matnini shablon sifatida tasdiqlating. Standart matn: `YukGo: tasdiqlash kodingiz 123456. Uni hech kimga bermang.`
-   Eskiz boshqa matnni tasdiqlasa, uni `SMS_TEMPLATE` ga yozing va kod o'rniga `{code}` qo'ying.
-3. Railway'da `ESKIZ_EMAIL` va `ESKIZ_PASSWORD` ni yozing. Eskiz alohida jo'natuvchi nomi bergan bo'lsa, `ESKIZ_FROM` ni ham yozing.
+1. <https://my.eskiz.uz> da ro'yxatdan o'ting va balansni to'ldiring. Yangi hisob **test rejimida** bo'ladi: Eskiz
+   faqat o'zining sinov matnlarini («Bu Eskiz dan test») yuboradi, tasdiqlash kodlari bormaydi.
+2. **«Shartnoma so'rash»** — shartnoma tuzilgach, test rejimi olib tashlanadi.
+3. **SMS → «Mening matnlarim»** — quyidagi uchta matnni moderatsiyaga yuboring (123456 o'rnida har safar yangi 6 xonali
+   kod bo'ladi). Ilova aynan shu matnlarni yuboradi, harfma-harf mos bo'lishi kerak:
+   - `YukGo saytida ro'yxatdan o'tish uchun tasdiqlash kodi: 123456. Kodni hech kimga bermang!`
+   - `YukGo saytida parolni tiklash uchun tasdiqlash kodi: 123456. Agar buni siz so'ramagan bo'lsangiz, e'tibor bermang.`
+   - `YukGo saytida telefon raqamni o'zgartirish uchun tasdiqlash kodi: 123456. Kodni hech kimga bermang!`
+
+   Eskiz matnni o'zgartirishni so'rasa, tasdiqlangan matnni Railway'ga yozing va kod o'rniga `{code}` qo'ying:
+   `SMS_TEMPLATE_REGISTER`, `SMS_TEMPLATE_RESET`, `SMS_TEMPLATE_PHONE` (bittasi hammasi uchun bo'lsa — `SMS_TEMPLATE`).
+4. Shartnoma va matnlar tasdiqlangach, Railway'ga `ESKIZ_EMAIL` va `ESKIZ_PASSWORD` (my.eskiz.uz'ga kiradigan email va parol)
+   ni yozing. Ungacha yozmang: test rejimida har urinishda «SMS yuborib bo'lmadi» chiqadi. Eskiz alohida jo'natuvchi nomi
+   («Nik uchun ariza») bergan bo'lsa, `ESKIZ_FROM` ni ham yozing.
+5. O'z raqamingiz bilan sinab ko'ring: ro'yxatdan o'tish yoki parolni tiklashda kod SMS bo'lib kelishi kerak.
 
 SMS pulini begonalar sarflamasligi uchun cheklovlar bor:
 - bitta so'rovga ko'pi bilan 3 ta SMS;

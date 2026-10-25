@@ -23,6 +23,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -44,8 +45,18 @@ public class VerificationService {
     private static final Duration SMS_RESEND_COOLDOWN = Duration.ofSeconds(60);
     static final String CHANNEL_SMS = "SMS";
     static final String CHANNEL_TELEGRAM = "TELEGRAM";
-    /** SMS matni. Eskiz kabinetida aynan shu matn shablon sifatida tasdiqlanadi (kod — o'zgaruvchi qism). */
-    static final String DEFAULT_SMS_TEMPLATE = "YukGo: tasdiqlash kodingiz {code}. Uni hech kimga bermang.";
+    /**
+     * SMS matnlari — har maqsad uchun alohida (Eskiz moderatsiyasi kodli matnda sayt nomi va kod nima uchunligini so'raydi).
+     * Eskiz kabinetidagi «Mening matnlarim»da aynan shu matnlar tasdiqlanadi; {code} — 6 xonali kod (o'zgaruvchi qism).
+     * Eskiz boshqacha matnni tasdiqlasa: Railway'da SMS_TEMPLATE_REGISTER, SMS_TEMPLATE_RESET, SMS_TEMPLATE_PHONE.
+     */
+    static final Map<VerificationPurpose, String> DEFAULT_SMS = Map.of(
+            VerificationPurpose.REGISTER,
+            "YukGo saytida ro'yxatdan o'tish uchun tasdiqlash kodi: {code}. Kodni hech kimga bermang!",
+            VerificationPurpose.RESET_PASSWORD,
+            "YukGo saytida parolni tiklash uchun tasdiqlash kodi: {code}. Agar buni siz so'ramagan bo'lsangiz, e'tibor bermang.",
+            VerificationPurpose.CHANGE_PHONE,
+            "YukGo saytida telefon raqamni o'zgartirish uchun tasdiqlash kodi: {code}. Kodni hech kimga bermang!");
 
     private final VerificationRequestRepository repository;
     private final TelegramLinkRepository linkRepository;
@@ -114,7 +125,7 @@ public class VerificationService {
             notice = smsGuard.check(ip, vr.smsSent(), toPhone);
             if (notice == null) {
                 String code = newCode(vr);
-                if (sms.send(vr.getPhone(), smsText(code))) {
+                if (sms.send(vr.getPhone(), smsText(vr.getPurpose(), code))) {
                     smsGuard.record(ip);
                     vr.setChannel(CHANNEL_SMS);
                     vr.setSmsCount(vr.smsSent() + 1);
@@ -134,10 +145,21 @@ public class VerificationService {
         return toResult(vr, sent, devCode, notice);
     }
 
-    String smsText(String code) {
-        String t = env.getProperty("SMS_TEMPLATE");
-        if (t == null || t.isBlank() || !t.contains("{code}")) t = DEFAULT_SMS_TEMPLATE;
+    /** Maqsadga mos SMS matni: Railway'dagi SMS_TEMPLATE_<maqsad>, bo'lmasa umumiy SMS_TEMPLATE, bo'lmasa standart matn */
+    String smsText(VerificationPurpose purpose, String code) {
+        String t = usable(env.getProperty("SMS_TEMPLATE_" + switch (purpose) {
+            case REGISTER -> "REGISTER";
+            case RESET_PASSWORD -> "RESET";
+            case CHANGE_PHONE -> "PHONE";
+        }));
+        if (t == null) t = usable(env.getProperty("SMS_TEMPLATE"));
+        if (t == null) t = DEFAULT_SMS.get(purpose);
         return t.replace("{code}", code);
+    }
+
+    /** Shablonda kod o'rni ({code}) bo'lmasa — ishlatilmaydi (aks holda SMS kodsiz ketardi) */
+    private static String usable(String t) {
+        return t == null || t.isBlank() || !t.contains("{code}") ? null : t.trim();
     }
 
     /** Noto'g'ri urinishlar soni xato bo'lsa ham saqlanishi kerak — shuning uchun alohida tranzaksiya, rollback yo'q. */
