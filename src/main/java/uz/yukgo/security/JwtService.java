@@ -19,7 +19,14 @@ public class JwtService {
     private final SecretKey key;
     private final Duration ttl;
 
+    /** application.yml dagi sinov kaliti. U GitHub'da hammaga ochiq — u bilan istalgan hisob nomidan token yasash mumkin. */
+    static final String DEV_SECRET = "ZGV2LXNlY3JldC1rZXktY2hhbmdlLW1lLWluLXByb2R1Y3Rpb24tMTIzNDU2Nzg5MA==";
+
     public JwtService(AppProperties props) {
+        if (!props.devMode() && DEV_SECRET.equals(props.jwt().secret() == null ? null : props.jwt().secret().trim())) {
+            throw new IllegalStateException("JWT_SECRET berilmagan: ochiq sinov kaliti bilan ishga tushirib bo'lmaydi. "
+                    + "Railway → Variables'da JWT_SECRET ga uzun tasodifiy qiymat yozing (README, \"Railway'ga joylash\").");
+        }
         byte[] bytes;
         try {
             bytes = Decoders.BASE64.decode(props.jwt().secret());

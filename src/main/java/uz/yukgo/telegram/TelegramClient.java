@@ -47,6 +47,23 @@ public class TelegramClient {
                 .build();
     }
 
+    /** Bot tokeni ko'rinishidagi matn: "123456789:AA…" (kamida 30 belgili kalit qismi bilan) */
+    private static final Pattern TOKEN_LIKE = Pattern.compile("\\d{6,}:[A-Za-z0-9_-]{30,}");
+
+    /**
+     * Matndan bot tokenini olib tashlaydi. Ulanish xatolarida (masalan, "Read timed out") Spring xato xabariga
+     * so'rov manzilini to'liq qo'shadi, manzilda esa token bor. Token o'rniga uchta yulduzcha qoladi.
+     */
+    public static String redact(String text) {
+        return text == null ? null : TOKEN_LIKE.matcher(text).replaceAll("***");
+    }
+
+    /** Xatoning logga yozsa bo'ladigan matni — tokensiz. Telegram xatolarini logga faqat shu orqali yozing. */
+    public static String safe(Throwable e) {
+        if (e == null) return null;
+        return redact(e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+    }
+
     /** "@YukGoobot", "https://t.me/YukGoobot" yoki "YukGoobot" — hammasi "YukGoobot" bo'ladi. */
     static String normalizeUsername(String raw) {
         if (raw == null) return "";
@@ -96,7 +113,7 @@ public class TelegramClient {
         } catch (RestClientResponseException e) {
             log.error("Telegram tokenni rad etdi ({}): {}", e.getStatusCode().value(), e.getResponseBodyAsString());
         } catch (Exception e) {
-            log.error("Telegram'ga ulanib bo'lmadi: {}", e.getMessage());
+            log.error("Telegram'ga ulanib bo'lmadi: {}", safe(e));
         }
         healthy = false;
         return false;
@@ -130,7 +147,7 @@ public class TelegramClient {
                 log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
                 return false;
             } catch (Exception e) {
-                log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
+                log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, safe(e));
                 return false;
             }
         }
@@ -239,7 +256,7 @@ public class TelegramClient {
                 log.debug("Nusxa yuborilmadi (chat={}): {}", toChatId, e.getResponseBodyAsString());
                 return false;
             } catch (Exception e) {
-                log.debug("Nusxa yuborilmadi (chat={}): {}", toChatId, e.getMessage());
+                log.debug("Nusxa yuborilmadi (chat={}): {}", toChatId, safe(e));
                 return false;
             }
         }
@@ -290,7 +307,7 @@ public class TelegramClient {
         } catch (RestClientResponseException e) {
             log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
         } catch (Exception e) {
-            log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
+            log.warn("Telegramga yuborib bo'lmadi (chat={}): {}", chatId, safe(e));
         }
         return null;
     }
@@ -324,7 +341,7 @@ public class TelegramClient {
                 log.warn("Kanalga yuborib bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
                 return null;
             } catch (Exception e) {
-                log.warn("Kanalga yuborib bo'lmadi (chat={}): {}", chatId, e.getMessage());
+                log.warn("Kanalga yuborib bo'lmadi (chat={}): {}", chatId, safe(e));
                 return null;
             }
         }
@@ -353,7 +370,7 @@ public class TelegramClient {
                 log.debug("Kanal postini yangilab bo'lmadi (chat={}): {}", chatId, e.getResponseBodyAsString());
                 return;
             } catch (Exception e) {
-                log.debug("Kanal postini yangilab bo'lmadi (chat={}): {}", chatId, e.getMessage());
+                log.debug("Kanal postini yangilab bo'lmadi (chat={}): {}", chatId, safe(e));
                 return;
             }
         }
@@ -373,7 +390,7 @@ public class TelegramClient {
             rest.post().uri("/editMessageText").contentType(MediaType.APPLICATION_JSON).body(body)
                     .retrieve().toBodilessEntity();
         } catch (Exception e) {
-            log.debug("Xabarni yangilab bo'lmadi (chat={}): {}", chatId, e.getMessage());
+            log.debug("Xabarni yangilab bo'lmadi (chat={}): {}", chatId, safe(e));
         }
     }
 
@@ -387,7 +404,7 @@ public class TelegramClient {
             rest.post().uri("/answerCallbackQuery").contentType(MediaType.APPLICATION_JSON).body(body)
                     .retrieve().toBodilessEntity();
         } catch (Exception e) {
-            log.debug("answerCallbackQuery xatosi: {}", e.getMessage());
+            log.debug("answerCallbackQuery xatosi: {}", safe(e));
         }
     }
 
@@ -407,7 +424,7 @@ public class TelegramClient {
                     .body(Map.of("chat_id", id)).retrieve().body(JsonNode.class);
             return res != null && res.path("ok").asBoolean() ? res.path("result") : null;
         } catch (Exception e) {
-            log.debug("getChat({}) xatosi: {}", chat, e.getMessage());
+            log.debug("getChat({}) xatosi: {}", chat, safe(e));
             return null;
         }
     }
@@ -420,7 +437,7 @@ public class TelegramClient {
                     .body(Map.of("chat_id", chatId, "user_id", userId)).retrieve().body(JsonNode.class);
             return res != null && res.path("ok").asBoolean() ? res.path("result") : null;
         } catch (Exception e) {
-            log.debug("getChatMember({}) xatosi: {}", chatId, e.getMessage());
+            log.debug("getChatMember({}) xatosi: {}", chatId, safe(e));
             return null;
         }
     }
@@ -440,7 +457,7 @@ public class TelegramClient {
         try {
             rest.post().uri("/deleteWebhook").retrieve().toBodilessEntity();
         } catch (Exception e) {
-            log.warn("deleteWebhook xatosi: {}", e.getMessage());
+            log.warn("deleteWebhook xatosi: {}", safe(e));
         }
     }
 
@@ -449,7 +466,7 @@ public class TelegramClient {
             rest.post().uri("/setMyCommands").contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("commands", commands)).retrieve().toBodilessEntity();
         } catch (Exception e) {
-            log.warn("setMyCommands xatosi: {}", e.getMessage());
+            log.warn("setMyCommands xatosi: {}", safe(e));
         }
     }
 
@@ -468,7 +485,7 @@ public class TelegramClient {
         } catch (RestClientResponseException e) {
             log.warn("Mini App menyu tugmasini o'rnatib bo'lmadi: {}", e.getResponseBodyAsString());
         } catch (Exception e) {
-            log.warn("Mini App menyu tugmasini o'rnatib bo'lmadi: {}", e.getMessage());
+            log.warn("Mini App menyu tugmasini o'rnatib bo'lmadi: {}", safe(e));
         }
         return false;
     }

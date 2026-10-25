@@ -190,11 +190,11 @@ public class TelegramBot {
                                 + "bitta ilova ishlay oladi: kompyuteringizdagi ilovani to'xtating yoki unga alohida test bot bering.");
                     }
                 } else {
-                    log.warn("Telegram polling xatosi: {}", e.getMessage());
+                    log.warn("Telegram polling xatosi: {}", TelegramClient.safe(e));
                 }
                 if (!pause(5000)) return;
             } catch (Exception e) {
-                log.warn("Telegram polling xatosi: {}", e.getMessage());
+                log.warn("Telegram polling xatosi: {}", TelegramClient.safe(e));
                 if (!pause(5000)) return;
             }
         }
@@ -252,7 +252,7 @@ public class TelegramBot {
         try {
             p = places.parser().parse(text, LocalDate.now(TZ));
         } catch (Exception e) {
-            log.warn("E'lon matnini tushunib bo'lmadi: {}", e.getMessage());
+            log.warn("E'lon matnini tushunib bo'lmadi: {}", TelegramClient.safe(e));
         }
         if (p == null || !p.isLoad()) {
             client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇\n\n" + LOAD_HINT, TelegramClient.mainMenu());

@@ -731,7 +731,7 @@ public class OrderService {
                 if (++n >= 300) break;
             }
         } catch (Exception e) {
-            log.warn("Haydovchilarga xabar yuborishda xato: {}", e.getMessage());
+            log.warn("Haydovchilarga xabar yuborishda xato: {}", TelegramClient.safe(e));
         }
     }
 

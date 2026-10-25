@@ -14,6 +14,12 @@ public final class Phones {
         return "+" + digits;
     }
 
+    /** Logga yozish uchun yashirilgan raqam: "+998901234567" → "+998*******67". */
+    public static String mask(String phone) {
+        if (phone == null || phone.length() < 7) return "***";
+        return phone.substring(0, 4) + "*".repeat(phone.length() - 6) + phone.substring(phone.length() - 2);
+    }
+
     /** Telegram kontaktidan kelgan raqamni xatosiz normallashtirish (null qaytarishi mumkin). */
     public static String tryNormalize(String raw) {
         try {

@@ -66,9 +66,19 @@ public class DataSeeder implements ApplicationRunner {
         }
     }
 
+    /** application.yml dagi sinov paroli — hammaga ochiq */
+    static final String DEV_OWNER_PASSWORD = "owner12345";
+
     private void seedOwner() {
         if (userRepository.existsByRole(Role.OWNER)) return;
         var o = props.owner();
+        String password = o.password() == null ? "" : o.password();
+        if (!props.devMode() && (password.isBlank() || DEV_OWNER_PASSWORD.equals(password))) {
+            // Bo'sh yoki ochiq parol bilan ega hisobi yaratilsa — begona odam ega bo'lib kirishi mumkin
+            log.error("Ega hisobi yaratilmadi: OWNER_PASSWORD berilmagan yoki sinov qiymatida. "
+                    + "Railway → Variables'da OWNER_PASSWORD ga kuchli parol yozing va qayta deploy qiling.");
+            return;
+        }
         String phone = Phones.normalize(o.phone());
         User owner = userRepository.findByPhone(phone).orElseGet(User::new);
         owner.setPhone(phone);
@@ -77,6 +87,6 @@ public class DataSeeder implements ApplicationRunner {
         owner.setRole(Role.OWNER);
         owner.setRegion(regionRepository.findAllByOrderBySortOrderAsc().stream().findFirst().orElse(null));
         userRepository.save(owner);
-        log.warn("Ega hisobi yaratildi: {} ({}). Parolni darhol o'zgartiring!", owner.getFullName(), phone);
+        log.warn("Ega hisobi yaratildi: {} ({}). Parolni darhol o'zgartiring!", owner.getFullName(), Phones.mask(phone));
     }
 }

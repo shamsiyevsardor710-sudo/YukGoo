@@ -141,6 +141,42 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
 
 ---
 
+## Railway'ga joylash
+
+> `SPRING_PROFILES_ACTIVE=prod` berilmasa, ilova konteyner ichidagi H2 faylida ishlaydi. Railway har deployda konteynerni
+> yangidan yaratadi, shuning uchun foydalanuvchilar va buyurtmalar o'chib ketadi. Rasmlar ham Volume'siz o'chadi.
+> Ilova bunday holatda logga `DIQQAT:` bilan boshlanadigan ogohlantirish yozadi.
+
+1. **Tarif:** Hobby. Trial'da volume 0.5 GB, «Limited Trial»da esa tarmoq cheklangan.
+2. **PostgreSQL:** loyihada **+ Create (+ New) → Database → PostgreSQL**. Xizmat nomi `Postgres` bo'lib qolsin.
+3. **Rasmlar uchun Volume:** YukGoo xizmatiga Volume ulang (Ctrl+K → Volume yoki kanvasda o'ng tugma), mount path: **`/app/uploads`**.
+4. **YukGoo → Variables:**
+
+   | O'zgaruvchi | Qiymat |
+   |---|---|
+   | `SPRING_PROFILES_ACTIVE` | `prod` |
+   | `DB_URL` | `jdbc:postgresql://${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}` |
+   | `DB_USER` | `${{Postgres.PGUSER}}` |
+   | `DB_PASSWORD` | `${{Postgres.PGPASSWORD}}` |
+   | `RAILWAY_RUN_UID` | `0` — ilova Volume'ga yoza olishi uchun (Docker obrazi oddiy foydalanuvchi bilan ishlaydi) |
+   | `JWT_SECRET` | uzun tasodifiy qiymat (pastdagi buyruq). Berilmasa, ilova ishga tushmaydi |
+   | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` | @BotFather'dan |
+   | `OWNER_PHONE`, `OWNER_FIRST_NAME`, `OWNER_LAST_NAME`, `OWNER_PASSWORD` | ega hisobi. Faqat bo'sh bazada bir marta yaratiladi, parolsiz yaratilmaydi |
+   | `PUBLIC_URL` | `https://<sizning-domeningiz>` |
+   | `APP_DEV_MODE` | `false` |
+   | `YANDEX_MAPS_API_KEY`, `SUPPORT_EMAIL` | ixtiyoriy |
+
+   `JWT_SECRET` yaratish (PowerShell):
+   ```powershell
+   $b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
+   ```
+5. **Deploy** va logni tekshiring:
+   - `HikariPool-1 - Added connection org.postgresql…` chiqishi kerak (`jdbc:h2` emas);
+   - `Telegram bot @… ishga tushdi` chiqishi kerak;
+   - `DIQQAT:` bilan boshlanadigan qatorlar bo'lmasligi kerak.
+
+---
+
 ## Mobil ilova uchun API
 
 Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:

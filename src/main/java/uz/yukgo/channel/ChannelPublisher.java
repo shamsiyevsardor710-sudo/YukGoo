@@ -63,7 +63,7 @@ public class ChannelPublisher {
             try {
                 syncNow(orderId);
             } catch (Exception e) {
-                log.warn("Kanal postini yangilab bo'lmadi (buyurtma #{}): {}", orderId, e.getMessage());
+                log.warn("Kanal postini yangilab bo'lmadi (buyurtma #{}): {}", orderId, TelegramClient.safe(e));
             }
         });
     }
