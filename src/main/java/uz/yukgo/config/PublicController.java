@@ -29,6 +29,7 @@ public class PublicController {
     private final WalletService wallet;
     private final Environment env;
     private final ChannelFeedRepository channelFeeds;
+    private final uz.yukgo.sms.SmsSender sms;
 
     @GetMapping("/api/config")
     public Map<String, Object> config() {
@@ -36,6 +37,8 @@ public class PublicController {
         m.put("yandexMapsApiKey", props.yandex().mapsApiKey());
         m.put("botUsername", telegram.botUsername());
         m.put("botEnabled", telegram.enabled());
+        // Tasdiqlash kodi SMS orqali keladimi (Eskiz sozlangan) — kirish sahifasidagi izoh shunga qarab
+        m.put("smsEnabled", sms.enabled());
         m.put("devMode", props.devMode());
         m.put("cargoTypes", CargoType.values());
         m.put("bodyTypes", BodyType.values());

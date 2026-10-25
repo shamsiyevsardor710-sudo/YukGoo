@@ -7,6 +7,7 @@ import {
 } from '../ui.js';
 import { createMap, pin, drawRoute, reverseGeocode, myPosition, UZ_CENTER } from '../maps.js';
 import { go, refreshMe } from '../app.js';
+import { digitalSalesBlocked } from '../platform.js';
 
 // =====================================================================
 // Bozor (bosh sahifa)
@@ -243,6 +244,8 @@ export async function createOrderPage(main, _p, query) {
   // Birinchi shoshilinch e'lon bepul (admin yoqqan bo'lsa va hali ishlatilmagan bo'lsa)
   const wallet = urgentFee && cfg.pricing.firstUrgentFree ? await get('/wallet').catch(() => null) : null;
   const urgentFree = !!wallet?.urgentFreeAvailable;
+  // Android ilova va Telegram ichida pullik «Shoshilinch» taklif qilinmaydi (do'kon qoidalari) — bepul bo'lsa qoladi
+  const urgentHidden = urgentFee > 0 && !urgentFree && digitalSalesBlocked();
   main.innerHTML = `<div class="page">
     <div class="page-head"><div><h1>Yangi buyurtma</h1><p class="muted">Yukingiz haqida yozing — mos haydovchilarga Telegram orqali darhol xabar boradi.</p></div></div>
     ${pre.fromBot ? `<div class="prefill-note">${icon('check')}<div><b>Botga yozgan e'loningizdan to'ldirildi.</b> Tekshirib chiqing, qabul qiluvchini yozing va «E'lon qilish» ni bosing.</div></div>` : ''}
@@ -292,10 +295,10 @@ export async function createOrderPage(main, _p, query) {
             <label class="field"><span>Kim to'laydi</span><select class="select" name="payer">${options(PAYER, 'SENDER')}</select></label>
           </div>
           <label class="field"><span>Yukni olish sanasi</span><input class="input" name="pickupDate" type="date" min="${today}" value="${pre.date}"></label>
-          <label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda doim eng yuqorida turadi${urgentFee
+          ${urgentHidden ? '' : `<label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda doim eng yuqorida turadi${urgentFee
             ? (urgentFree ? ` <b class="fee fee-free">Bepul</b> <s class="tiny muted">${esc(money(urgentFee))}</s>` : ` <b class="fee">${esc(money(urgentFee))}</b>`) : ''}</label>
           ${urgentFee ? `<p class="tiny muted">${urgentFree ? "Birinchi shoshilinch e'loningiz bepul — balansdan hech narsa yechilmaydi."
-            : "Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi."}</p>` : ''}
+            : "Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi."}</p>` : ''}`}
         </section>
         <section class="panel stack">
           <h2>Qabul qiluvchi</h2>
@@ -444,6 +447,7 @@ export async function orderPage(main, { id }) {
   const myWallet = pr && auth.loggedIn ? await get('/wallet').catch(() => null) : null;
   const freeLeft = myWallet?.freeDeliveriesLeft || 0;
   const urgentFree = urgentFee > 0 && !!myWallet?.urgentFreeAvailable;
+  const urgentHidden = urgentFee > 0 && !urgentFree && digitalSalesBlocked();   // do'kon qoidalari (platform.js)
 
   async function load() {
     o = await get('/orders/' + id);
@@ -538,7 +542,7 @@ export async function orderPage(main, { id }) {
         if (late) {
           html += `<section class="panel stack-sm"><h2>Olib ketish sanasi o'tdi</h2>
             <p class="small muted">Sanasi o'tganiga 7 kun bo'lgach e'lon avtomatik yopiladi. Yuk hali jo'natilmagan bo'lsa, bu e'lonni bekor qilib, yangi sana bilan qayta joylang.</p></section>`;
-        } else if (!o.urgent) {
+        } else if (!o.urgent && !urgentHidden) {
           html += `<section class="panel stack-sm"><h2>Tezroq haydovchi topish</h2>
             <p class="small muted">Shoshilinch e'lon ro'yxatda doim eng yuqorida turadi va haydovchilarga qayta xabar boradi.</p>
             <button class="btn btn-primary btn-block" id="make-urgent">🔥 Shoshilinch qilish${urgentFee ? ' — ' + (urgentFree ? 'bepul' : esc(money(urgentFee))) : ''}</button></section>`;

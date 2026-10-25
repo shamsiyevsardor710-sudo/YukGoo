@@ -2,13 +2,17 @@ package uz.yukgo.auth;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uz.yukgo.common.ApiException;
+import uz.yukgo.common.ClientIp;
 import uz.yukgo.config.AppProperties;
+import uz.yukgo.sms.SmsGuard;
+import uz.yukgo.sms.SmsSender;
 import uz.yukgo.telegram.TelegramClient;
 import uz.yukgo.telegram.TelegramLink;
 import uz.yukgo.telegram.TelegramLinkRepository;
@@ -22,13 +26,13 @@ import java.util.HexFormat;
 import java.util.UUID;
 
 /**
- * Telegram bot orqali tasdiqlash kodi yuborish.
+ * Tasdiqlash kodi yuborish: ro'yxatdan o'tish, parolni tiklash va telefon raqamni o'zgartirish uchun.
  *
- * Telegram botlar telefon raqamga o'zi birinchi bo'lib yoza olmaydi, shuning uchun:
- *  1) foydalanuvchi saytda raqamini kiritadi;
- *  2) agar bu raqam botga avval ulangan bo'lsa — kod darhol botdan keladi;
- *  3) aks holda sayt t.me/BOT?start=TOKEN havolasini beradi, foydalanuvchi botda
- *     "Telefon raqamni yuborish" tugmasini bosadi, raqam mos kelsa bot kodni yuboradi.
+ * 1) SMS sozlangan bo'lsa (Eskiz) — kod haqiqiy telefonga SMS bo'lib boradi. Har SMS pul turadi, shuning uchun
+ *    SmsGuard cheklovlari bor; chegaraga yetilsa yoki SMS ketmasa — 2-yo'l.
+ * 2) Telegram bot: bot telefon raqamga o'zi birinchi bo'lib yoza olmaydi, shuning uchun raqam botga avval
+ *    ulangan bo'lsa kod darhol botdan keladi, aks holda sayt t.me/BOT?start=TOKEN havolasini beradi —
+ *    foydalanuvchi botda "Telefon raqamni yuborish" tugmasini bosadi va kodni oladi.
  */
 @Slf4j
 @Service
@@ -37,14 +41,26 @@ public class VerificationService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Duration VERIFIED_WINDOW = Duration.ofMinutes(30);
     private static final Duration RESEND_COOLDOWN = Duration.ofSeconds(45);
+    private static final Duration SMS_RESEND_COOLDOWN = Duration.ofSeconds(60);
+    static final String CHANNEL_SMS = "SMS";
+    static final String CHANNEL_TELEGRAM = "TELEGRAM";
+    /** SMS matni. Eskiz kabinetida aynan shu matn shablon sifatida tasdiqlanadi (kod — o'zgaruvchi qism). */
+    static final String DEFAULT_SMS_TEMPLATE = "YukGo: tasdiqlash kodingiz {code}. Uni hech kimga bermang.";
 
     private final VerificationRequestRepository repository;
     private final TelegramLinkRepository linkRepository;
     private final TelegramClient telegram;
     private final AppProperties props;
+    private final SmsSender sms;
+    private final SmsGuard smsGuard;
+    private final Environment env;
 
+    /**
+     * @param channel "SMS" — kod SMS bo'lib ketdi; "TELEGRAM" — bot orqali; null — hali yuborilmagan (botni kutyapti)
+     * @param notice  foydalanuvchiga izoh (masalan, SMS chegarasi tugagani)
+     */
     public record StartResult(String requestId, boolean codeSent, String botLink, String botUsername,
-                              Instant expiresAt, String devCode) {}
+                              Instant expiresAt, String devCode, String channel, String notice) {}
 
     /** Har kuni tunda: 2 kundan eski tasdiqlash so'rovlari (telefon raqam, kod izi) o'chiriladi — keraksiz saqlanmasin */
     @Scheduled(cron = "0 45 3 * * *")
@@ -68,38 +84,60 @@ public class VerificationService {
         vr.setLinkToken(randomToken());
         // ID qo'lda berilgani uchun save() merge qiladi va boshqa (managed) nusxani qaytaradi
         vr = repository.save(vr);
-
-        String devCode = null;
-        boolean sent = false;
-        TelegramLink link = linkRepository.findById(phone).orElse(null);
-        if (link != null || !telegram.enabled()) {
-            devCode = issueAndSend(vr, link == null ? null : link.getChatId());
-            sent = link != null && telegram.enabled();
-        }
-        return toResult(vr, sent, devCode);
+        return deliver(vr);
     }
 
     @Transactional
     public StartResult resend(String requestId) {
         VerificationRequest vr = getActive(requestId);
-        if (vr.getCodeSentAt() != null && vr.getCodeSentAt().plus(RESEND_COOLDOWN).isAfter(Instant.now())) {
+        Duration cooldown = CHANNEL_SMS.equals(vr.getChannel()) ? SMS_RESEND_COOLDOWN : RESEND_COOLDOWN;
+        if (vr.getCodeSentAt() != null && vr.getCodeSentAt().plus(cooldown).isAfter(Instant.now())) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "Kodni qayta so'rashdan oldin biroz kuting");
         }
-        TelegramLink link = linkRepository.findById(vr.getPhone()).orElse(null);
-        String devCode = null;
-        boolean sent = false;
-        if (link != null || !telegram.enabled()) {
-            devCode = issueAndSend(vr, link == null ? null : link.getChatId());
-            sent = link != null && telegram.enabled();
-        }
-        return toResult(vr, sent, devCode);
+        return deliver(vr);
     }
 
     /** So'rov holati (frontend bot orqali ulanishni kutayotganda so'rab turadi). */
     @Transactional(readOnly = true)
     public StartResult status(String requestId) {
         VerificationRequest vr = getActive(requestId);
-        return toResult(vr, vr.getCodeSentAt() != null && telegram.enabled(), null);
+        boolean sent = vr.getCodeSentAt() != null && (CHANNEL_SMS.equals(vr.getChannel()) || telegram.enabled());
+        return toResult(vr, sent, null, null);
+    }
+
+    /** Kodni yuboradi: avval SMS (sozlangan va chegara ichida bo'lsa), bo'lmasa — Telegram bot. */
+    private StartResult deliver(VerificationRequest vr) {
+        String notice = null;
+        if (sms.enabled()) {
+            String ip = ClientIp.current();
+            long toPhone = repository.sumSmsSince(vr.getPhone(), Instant.now().minus(Duration.ofHours(24)));
+            notice = smsGuard.check(ip, vr.smsSent(), toPhone);
+            if (notice == null) {
+                String code = newCode(vr);
+                if (sms.send(vr.getPhone(), smsText(code))) {
+                    smsGuard.record(ip);
+                    vr.setChannel(CHANNEL_SMS);
+                    vr.setSmsCount(vr.smsSent() + 1);
+                    return toResult(vr, true, null, null);
+                }
+                clearCode(vr);   // yetib bormagan kod hech kimda yo'q — ishlatilmasin
+                notice = "SMS yuborib bo'lmadi. Kodni Telegram bot orqali oling.";
+            }
+        }
+        String devCode = null;
+        boolean sent = false;
+        TelegramLink link = linkRepository.findById(vr.getPhone()).orElse(null);
+        if (link != null || !telegram.enabled()) {
+            devCode = issueAndSend(vr, link == null ? null : link.getChatId());
+            sent = link != null && telegram.enabled();
+        }
+        return toResult(vr, sent, devCode, notice);
+    }
+
+    String smsText(String code) {
+        String t = env.getProperty("SMS_TEMPLATE");
+        if (t == null || t.isBlank() || !t.contains("{code}")) t = DEFAULT_SMS_TEMPLATE;
+        return t.replace("{code}", code);
     }
 
     /** Noto'g'ri urinishlar soni xato bo'lsa ham saqlanishi kerak — shuning uchun alohida tranzaksiya, rollback yo'q. */
@@ -108,7 +146,7 @@ public class VerificationService {
         VerificationRequest vr = getActive(requestId);
         if (vr.isVerified()) return;
         if (vr.getCodeHash() == null) {
-            throw ApiException.badRequest("Avval Telegram bot orqali kod oling");
+            throw ApiException.badRequest("Avval tasdiqlash kodini oling");
         }
         if (vr.getAttempts() >= props.verification().maxAttempts()) {
             throw ApiException.badRequest("Urinishlar soni tugadi. Kodni qayta so'rang");
@@ -183,13 +221,26 @@ public class VerificationService {
 
     // ---- ichki ----
 
-    private String issueAndSend(VerificationRequest vr, Long chatId) {
+    /** Yangi 6 xonali kod: bazada faqat izi (hash) saqlanadi, eski kod bekor bo'ladi */
+    private String newCode(VerificationRequest vr) {
         String code = String.format("%06d", RANDOM.nextInt(1_000_000));
         vr.setCodeHash(hash(vr.getId(), code));
         vr.setCodeSentAt(Instant.now());
         vr.setCodeExpiresAt(Instant.now().plus(Duration.ofMinutes(props.verification().codeTtlMinutes())));
         vr.setAttempts(0);
+        return code;
+    }
+
+    private static void clearCode(VerificationRequest vr) {
+        vr.setCodeHash(null);
+        vr.setCodeSentAt(null);
+        vr.setCodeExpiresAt(null);
+    }
+
+    private String issueAndSend(VerificationRequest vr, Long chatId) {
+        String code = newCode(vr);
         if (chatId != null) {
+            vr.setChannel(CHANNEL_TELEGRAM);
             String text = "🔐 <b>YukGo</b> — " + vr.getPurpose().label() + " uchun tasdiqlash kodi:\n\n"
                     + "<code>" + code + "</code>\n\n"
                     + "Kod " + props.verification().codeTtlMinutes() + " daqiqa amal qiladi. "
@@ -212,9 +263,9 @@ public class VerificationService {
         return vr;
     }
 
-    private StartResult toResult(VerificationRequest vr, boolean sent, String devCode) {
+    private StartResult toResult(VerificationRequest vr, boolean sent, String devCode, String notice) {
         return new StartResult(vr.getId(), sent, telegram.deepLink(vr.getLinkToken()), telegram.botUsername(),
-                vr.getCodeExpiresAt(), devCode);
+                vr.getCodeExpiresAt(), devCode, sent ? vr.getChannel() : null, notice);
     }
 
     private static String randomToken() {

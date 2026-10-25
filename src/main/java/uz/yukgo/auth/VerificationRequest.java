@@ -43,5 +43,16 @@ public class VerificationRequest {
     private Instant verifiedAt;
     private boolean consumed;
 
+    /** Kod qayerga yuborilgan: "SMS" yoki "TELEGRAM" (eski yozuvlarda — null) */
+    @Column(length = 10)
+    private String channel;
+
+    /** Shu so'rov uchun yuborilgan SMS'lar soni (SMS xarajatini cheklash uchun) */
+    private Integer smsCount;
+
     private Instant createdAt = Instant.now();
+
+    public int smsSent() {
+        return smsCount == null ? 0 : smsCount;
+    }
 }

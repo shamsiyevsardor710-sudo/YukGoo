@@ -17,6 +17,10 @@ public interface VerificationRequestRepository extends JpaRepository<Verificatio
 
     long countByPhoneAndCreatedAtAfter(String phone, Instant after);
 
+    /** Shu raqamga berilgan vaqtdan beri yuborilgan SMS'lar soni */
+    @Query("select coalesce(sum(v.smsCount), 0) from VerificationRequest v where v.phone = :phone and v.createdAt > :since")
+    long sumSmsSince(@Param("phone") String phone, @Param("since") Instant since);
+
     /** Eskirgan tasdiqlash so'rovlari (kod 5-10 daqiqa, so'rov 30 daqiqa amal qiladi — keyin kerak emas) */
     @Modifying
     @Query("delete from VerificationRequest v where v.createdAt < :before")

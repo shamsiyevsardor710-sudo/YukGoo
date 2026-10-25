@@ -190,6 +190,20 @@ public class WalletService {
         apply(lockOrCreate(userId), amount, type, orderId, note, actorName);
     }
 
+    /**
+     * To'lov tizimi to'lovni qaytarganda (masalan, Payme yoki Paynet operatori bekor qildi): balansda yetarli bo'lsa
+     * summani yechadi va true qaytaradi. Pul allaqachon ishlatilgan bo'lsa — hech narsa qilmaydi (false), to'lov
+     * tizimiga "bekor qilib bo'lmaydi" deb javob beriladi.
+     */
+    @Transactional
+    public boolean reverseTopup(Long userId, long amount, String note) {
+        if (amount <= 0) return true;
+        Wallet w = lockOrCreate(userId);
+        if (w.getBalance() < amount) return false;
+        apply(w, -amount, TxType.TOPUP_REVERSAL, null, note, null);
+        return true;
+    }
+
     // =====================================================================
     // Buyurtmalar bilan bog'liq to'lovlar
     // =====================================================================

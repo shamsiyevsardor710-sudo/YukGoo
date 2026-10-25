@@ -9,6 +9,8 @@ import { phoneVerification } from './auth.js';
 import { inviteBlock, verifyBlock } from './growth-ui.js';
 import { reportDialog } from './orders.js';
 import { refreshMe, logout, refreshUnread } from '../app.js';
+import { openTopup, topupAvailable, topupReturn } from './topup.js';
+import { digitalSalesBlocked } from '../platform.js';
 
 // ---------- umumiy bloklar ----------
 function vehicleBlock(v, editable) {
@@ -90,13 +92,18 @@ async function walletBlock(el) {
     const w = await get('/wallet');
     const p = w.pricing || {};
     if (!p.enabled && !w.balance) { el.innerHTML = ''; return; }
+    // Click / Payme / Paynet ulangan bo'lsa — "Balansni to'ldirish" tugmasi
+    const opts = p.enabled ? await get('/payments/options').catch(() => null) : null;
+    const canTopup = topupAvailable(opts);
     el.innerHTML = `<section class="panel stack-sm">
       <div class="row-between"><h2>Balans</h2><span class="balance num">${esc(money(w.balance))}</span></div>
-      ${p.enabled ? `<p class="small muted">Haydovchiga buyurtma berilganda komissiya yechiladi: narxning ${esc(num(p.commissionPercent, 1))}%${p.commissionMin ? `, kamida ${esc(money(p.commissionMin))}` : ''}${p.commissionMax ? `, ko'pi bilan ${esc(money(p.commissionMax))}` : ''}.${p.urgentFee ? ` Shoshilinch e'lon — ${esc(money(p.urgentFee))}.` : ''}</p>` : ''}
+      ${p.enabled ? `<p class="small muted">Haydovchiga buyurtma berilganda komissiya yechiladi: narxning ${esc(num(p.commissionPercent, 1))}%${p.commissionMin ? `, kamida ${esc(money(p.commissionMin))}` : ''}${p.commissionMax ? `, ko'pi bilan ${esc(money(p.commissionMax))}` : ''}.${p.urgentFee && !digitalSalesBlocked() ? ` Shoshilinch e'lon — ${esc(money(p.urgentFee))}.` : ''}</p>` : ''}
       ${p.topupInfo ? `<div class="panel-sunk small" style="white-space:pre-line"><b>Balansni to'ldirish</b><br>${esc(p.topupInfo)}</div>` : ''}
-      <div><button class="btn btn-sm" id="wallet-history">Balans tarixi</button></div>
+      <div class="row">${canTopup ? `<button class="btn btn-primary btn-sm" id="wallet-topup">${icon('plus')}Balansni to'ldirish</button>` : ''}
+        <button class="btn btn-sm" id="wallet-history">Balans tarixi</button></div>
     </section>`;
     $('#wallet-history', el).addEventListener('click', walletHistoryModal);
+    if (canTopup) $('#wallet-topup', el).addEventListener('click', () => openTopup(opts, () => walletBlock(el)));
   } catch { el.innerHTML = ''; }
 }
 
@@ -165,6 +172,13 @@ export async function profilePage(main, _p, query) {
 
   reviewsBlock($('#reviews', main), u.id);
   walletBlock($('#wallet-slot', main));
+  // Click / Payme to'lov sahifasidan qaytildi (#/profile?topup=ID) — holatini ko'rsatamiz (bir marta)
+  const topupId = query && query.get('topup');
+  if (topupId && /^\d{1,18}$/.test(topupId)) {
+    query.delete('topup');
+    try { history.replaceState(null, '', '#/profile'); } catch { /* */ }
+    topupReturn(topupId, () => walletBlock($('#wallet-slot', main)));
+  }
   verifyBlock($('#verify-slot', main), u);
   inviteBlock($('#invite-slot', main));
 
@@ -292,7 +306,7 @@ function editProfileModal(onSaved) {
         <button class="btn btn-primary" type="submit">Saqlash</button></form>
     </div>
     <div data-pane="phone" class="hidden">
-      <p class="small muted" style="margin-bottom:12px">Hozirgi raqam: <b>${esc(phoneFmt(u.phone))}</b>. Yangi raqam Telegram orqali tasdiqlanadi.</p>
+      <p class="small muted" style="margin-bottom:12px">Hozirgi raqam: <b>${esc(phoneFmt(u.phone))}</b>. Yangi raqamga tasdiqlash kodi yuboriladi.</p>
       <div id="phone-flow"></div>
     </div>
     <div data-pane="pass" class="hidden">

@@ -1,4 +1,4 @@
-// Kirish, ro'yxatdan o'tish (Telegram kod bilan) va parolni tiklash
+// Kirish, ro'yxatdan o'tish (SMS yoki Telegram kod bilan) va parolni tiklash
 import { auth, post, get, config } from '../api.js';
 import { $, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt, money } from '../ui.js';
 import { afterLogin, go } from '../app.js';
@@ -88,9 +88,15 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
     el.innerHTML = `<form class="stack" novalidate>
       <label class="field"><span>${esc(phoneLabel)}</span>
         <input class="input" name="phone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="${esc(presetPhone)}" autocomplete="tel" required>
-        <small>Tasdiqlash kodi SMS emas, <b>Telegram bot</b> orqali keladi.</small></label>
+        <small id="code-hint">Shu raqamga tasdiqlash kodi yuboriladi.</small></label>
       <button class="btn btn-primary btn-lg btn-block" type="submit">Kod olish</button></form>`;
     const form = $('form', el);
+    config().then(c => {
+      const hint = $('#code-hint', el);
+      if (!hint || !c) return;
+      hint.innerHTML = c.smsEnabled ? 'Tasdiqlash kodi shu raqamga <b>SMS</b> bo\'lib keladi.'
+        : 'Tasdiqlash kodi SMS emas, <b>Telegram bot</b> orqali keladi.';
+    }).catch(() => {});
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       clearError(form);
@@ -105,7 +111,14 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
 
   function codeStep() {
     if (onCodeStep) onCodeStep();
-    const tgBlock = state.codeSent ? `
+    const bySms = state.codeSent && state.channel === 'SMS';
+    const noticeBlock = state.notice ? `<div class="form-note">${esc(state.notice)}</div>` : '';
+    const tgBlock = bySms ? `
+      <div class="form-note">${icon('phone', 'style="width:16px;height:16px;vertical-align:-3px"')}
+        Kod <b>${esc(phoneFmt(state.phone) || state.phone)}</b> raqamiga SMS bo'lib yuborildi.</div>
+      ${state.botLink ? `<a class="link-btn small" id="tg-alt" href="${esc(state.botLink)}" target="_blank" rel="noopener"
+        style="justify-self:start">SMS kelmadimi? Kodni Telegram bot orqali oling</a>` : ''}`
+      : state.codeSent ? `
       <div class="form-note">${icon('telegram', 'style="width:16px;height:16px;vertical-align:-3px"')}
         Kod <b>@${esc(state.botUsername)}</b> botiga yuborildi. Telegramni oching.</div>`
       : `<div class="tg-step" id="tg-step">
@@ -120,6 +133,7 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
         </div>`;
     el.innerHTML = `<form class="stack" novalidate>
       <p class="small muted">Raqam: <b>${esc(phoneFmt(state.phone) || state.phone)}</b> · <button type="button" class="link-btn" id="change-phone">o'zgartirish</button></p>
+      ${noticeBlock}
       ${tgBlock}
       ${state.devCode ? `<div class="form-note">Sinov rejimi (bot ulanmagan): kod <b class="num">${esc(state.devCode)}</b></div>` : ''}
       <label class="field"><span>Tasdiqlash kodi</span>
@@ -147,13 +161,38 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
       clearError(form);
       try {
         const r = await post('/auth/resend', { requestId: state.requestId });
+        const prevChannel = state.channel || null;
         Object.assign(state, r);
+        if ((r.channel || null) !== prevChannel || r.notice) {
+          // Yo'l o'zgardi (masalan, SMS chegarasi tugab, endi Telegram orqali) — ko'rsatmalar yangilanadi
+          stop();
+          codeStep();
+          if (r.devCode) $('[name=code]', el).value = r.devCode;
+          return;
+        }
         if (r.devCode) form.code.value = r.devCode;
-        toast(r.codeSent ? 'Kod qayta yuborildi' : 'Avval botda raqamingizni yuboring');
+        toast(r.channel === 'SMS' ? 'Kod SMS orqali qayta yuborildi'
+          : r.codeSent ? 'Kod qayta yuborildi' : 'Avval botda raqamingizni yuboring');
         cooldown();
       } catch (err) { showError(form, err); }
     });
     cooldown();
+    // "SMS kelmadimi?" — bot orqali kod kelishini kutamiz
+    const tgAlt = $('#tg-alt', el);
+    if (tgAlt) tgAlt.addEventListener('click', () => {
+      clearInterval(poll);
+      poll = setInterval(async () => {
+        try {
+          const s = await get(`/auth/verification/${state.requestId}`);
+          if (s.codeSent && s.channel === 'TELEGRAM') {
+            clearInterval(poll);
+            toast('Kod Telegramga yuborildi');
+            form.code.value = '';
+            form.code.focus();
+          }
+        } catch { clearInterval(poll); }
+      }, 3000);
+    });
     if (!state.codeSent && !state.devCode) {
       poll = setInterval(async () => {
         try {
@@ -171,7 +210,7 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
     }
 
     function cooldown() {
-      let left = 45;
+      let left = state.channel === 'SMS' ? 60 : 45;
       resend.disabled = true;
       clearInterval(cooldownTimer);
       cooldownTimer = setInterval(() => {
@@ -224,7 +263,7 @@ export function registerPage(main) {
     startFn: (phone) => post('/auth/register/start', { phone }),
     verifyFn: (requestId, code) => post('/auth/verify', { requestId, code }),
     onDone: (requestId) => detailsStep(requestId),
-    onCodeStep: () => setStep(2, 'Telegramdan kelgan kodni kiriting.'),
+    onCodeStep: () => setStep(2, 'Kelgan tasdiqlash kodini kiriting.'),
   });
 
   async function detailsStep(requestId) {
@@ -278,7 +317,7 @@ export function registerPage(main) {
 export function forgotPage(main) {
   const card = shell(main, `
     <h1>Parolni tiklash</h1>
-    <p class="muted" style="margin-bottom:20px">Ro'yxatdan o'tgan raqamingizga Telegram orqali kod yuboramiz.</p>
+    <p class="muted" style="margin-bottom:20px">Ro'yxatdan o'tgan raqamingizga tasdiqlash kodi yuboramiz.</p>
     <div id="step"></div>
     <p class="small muted" style="margin-top:22px;text-align:center"><a href="#/login">Kirish sahifasiga qaytish</a></p>`);
   return phoneVerification($('#step', card), {

@@ -28,8 +28,10 @@ services:
       DB_URL: jdbc:postgresql://db:5432/yukgo
       DB_USER: yukgo
       DB_PASSWORD: ${DB_PASSWORD:-yukgo}
+    # Faqat shu serverning o'zidan (Nginx/Caddy orqali) ochiladi: to'g'ridan-to'g'ri ulanib, IP sarlavhasini
+    # soxtalashtirib bo'lmasin (ilova mijoz IP'sini proksi yozgan X-Real-IP / X-Forwarded-For'dan oladi)
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - uploads:/app/uploads
 

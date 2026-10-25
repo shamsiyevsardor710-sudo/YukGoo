@@ -8,7 +8,8 @@ public enum TxType {
     URGENT_FEE("Shoshilinch e'lon"),
     ADJUSTMENT("Tuzatish"),
     REFERRAL_BONUS("Taklif bonusi"),
-    BONUS_FORFEIT("Bonus bekor qilindi");
+    BONUS_FORFEIT("Bonus bekor qilindi"),
+    TOPUP_REVERSAL("To'lov qaytarildi");
 
     private final String label;
 

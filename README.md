@@ -9,10 +9,10 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 ## Imkoniyatlar
 
 ### Ro'yxatdan o'tish va kirish
-- Telefon raqam → **Telegram bot orqali 6 xonali kod** → ism, familiya, parol va to'liq manzil (viloyat, tuman, qishloq/mahalla, uy).
+- Telefon raqam → **SMS orqali 6 xonali kod** (SMS sozlanmagan bo'lsa — Telegram bot orqali) → ism, familiya, parol va to'liq manzil (viloyat, tuman, qishloq/mahalla, uy).
 - O'zbekistonning 14 ta hududi va barcha tumanlari bazaga avtomatik yoziladi.
 - Kirish: **ism + familiya + parol** (bir xil ismli odamlar bo'lsa — telefon + parol).
-- Parolni tiklash va telefon raqamni almashtirish ham Telegram kod orqali.
+- Parolni tiklash va telefon raqamni almashtirish ham shu kod orqali.
 - Parolni taxmin qilishdan himoya (10 ta xatodan keyin 15 daqiqa blok).
 
 ### Profil
@@ -40,6 +40,12 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
   qaror qilingan zahoti o'chiriladi. Davlat raqami o'zgarsa yoki mashina o'chirilsa — belgi olinadi.
 - Haydovchi voz kechsa buyurtma avtomatik qayta e'lon qilinadi; 30 kun olinmagan e'lonlar avtomatik yopiladi.
 - Shikoyat / adminga murojaat.
+
+### Hamyon va to'lovlar
+- Daromad tizimi yoqilganda (Boshqaruv → Daromad) haydovchiga buyurtma berilganda komissiya, «Shoshilinch» e'lon uchun to'lov balansdan yechiladi.
+- **Balansni to'ldirish**: profilda «Balansni to'ldirish» → summa → **Click** yoki **Payme** (to'lov sahifasi ochiladi) yoki **Paynet**
+  (Paynet ilovasi yoki shoxobchasida hisob raqami sifatida YukGo ID kiritiladi). Pul tushishi bilan balans yangilanadi va xabar keladi.
+- Ega balansni qo'lda ham to'ldira oladi; onlayn to'lovlar ro'yxati va holati — Boshqaruv → Daromad → «Onlayn to'lovlar».
 
 ### Haydovchilar uchun
 - **Ilova ichidagi navigatsiya** (Yandex xarita sayt ichida ishlaydi, Yandex ilovasiga o'tib ketmaydi): joriy joylashuvdan olish nuqtasigacha, keyin topshirish nuqtasigacha marshrut, qolgan masofa va yetib borish vaqti, tirbandlik qatlami, «meni kuzatish» rejimi, ekran o'chmasligi.
@@ -135,7 +141,10 @@ cp .env.example .env      # qiymatlarni to'ldiring
 docker compose up -d --build
 ```
 
-PostgreSQL va ilova birga ko'tariladi. Rasmlar `uploads` volume'da saqlanadi. HTTPS uchun oldiga Nginx/Caddy qo'ying (geolokatsiya brauzerda faqat HTTPS'da ishlaydi).
+PostgreSQL va ilova birga ko'tariladi. Rasmlar `uploads` volume'da saqlanadi. Ilova porti (8080) faqat shu serverning
+o'zida ochiq — oldiga Nginx/Caddy qo'ying va HTTPS ulang (geolokatsiya brauzerda faqat HTTPS'da ishlaydi). Proksi
+`X-Real-IP` yoki `X-Forwarded-For` sarlavhasini yozsin: ilova SMS cheklovlari va to'lov tizimlari IP ro'yxati uchun
+mijoz IP manzilini shundan oladi.
 
 Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YANDEX_MAPS_API_KEY`, `PUBLIC_URL`, `JWT_SECRET` (≥32 belgi), `APP_DEV_MODE=false`, `OWNER_*`, `DB_*`.
 
@@ -165,6 +174,12 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    | `PUBLIC_URL` | `https://<sizning-domeningiz>` |
    | `APP_DEV_MODE` | `false` |
    | `YANDEX_MAPS_API_KEY`, `SUPPORT_EMAIL` | ixtiyoriy |
+   | `ESKIZ_EMAIL`, `ESKIZ_PASSWORD` | SMS orqali kod (pastdagi «SMS orqali tasdiqlash» bo'limi). Berilmasa, kodlar Telegram bot orqali |
+   | `ESKIZ_FROM`, `SMS_TEMPLATE`, `SMS_DAILY_LIMIT` | ixtiyoriy: jo'natuvchi nomi (standart `4546`), SMS matni, sutkalik SMS chegarasi (standart 500) |
+   | `CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_SECRET_KEY` | Click orqali to'lov (pastdagi «Onlayn to'lovlar» bo'limi) |
+   | `PAYME_MERCHANT_ID`, `PAYME_KEY` | Payme orqali to'lov. Sinov paytida `PAYME_TEST=true` va sinov kaliti (Payme foydalanuvchilarga ko'rinmaydi) |
+   | `PAYNET_USERNAME`, `PAYNET_PASSWORD`, `PAYNET_SERVICE_ID` | Paynet orqali to'lov (Paynet beradi). Uchalasi ham bo'lmasa Paynet o'chiq |
+   | `PAYMENT_MIN`, `PAYMENT_MAX` | ixtiyoriy: bitta to'lov chegarasi, so'm (standart 1 000 va 10 000 000) |
 
    `JWT_SECRET` yaratish (PowerShell):
    ```powershell
@@ -174,6 +189,75 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    - `HikariPool-1 - Added connection org.postgresql…` chiqishi kerak (`jdbc:h2` emas);
    - `Telegram bot @… ishga tushdi` chiqishi kerak;
    - `DIQQAT:` bilan boshlanadigan qatorlar bo'lmasligi kerak.
+
+### SMS orqali tasdiqlash (Eskiz.uz)
+
+Ro'yxatdan o'tish, parolni tiklash va telefon raqamni o'zgartirish kodlari SMS bo'lib keladi.
+SMS sozlanmagan bo'lsa, chegaraga yetilsa yoki SMS ketmasa, kod Telegram bot orqali olinadi.
+
+1. <https://eskiz.uz> da ro'yxatdan o'ting va balansni to'ldiring.
+2. Kabinetda SMS matnini shablon sifatida tasdiqlating. Standart matn: `YukGo: tasdiqlash kodingiz 123456. Uni hech kimga bermang.`
+   Eskiz boshqa matnni tasdiqlasa, uni `SMS_TEMPLATE` ga yozing va kod o'rniga `{code}` qo'ying.
+3. Railway'da `ESKIZ_EMAIL` va `ESKIZ_PASSWORD` ni yozing. Eskiz alohida jo'natuvchi nomi bergan bo'lsa, `ESKIZ_FROM` ni ham yozing.
+
+SMS pulini begonalar sarflamasligi uchun cheklovlar bor:
+- bitta so'rovga ko'pi bilan 3 ta SMS;
+- bitta raqamga sutkasiga 5 ta;
+- bitta IP'dan soatiga 15 ta, sutkasiga 50 ta;
+- hammasi bo'lib sutkasiga `SMS_DAILY_LIMIT` ta.
+
+### Onlayn to'lovlar (Click, Payme, Paynet)
+
+Foydalanuvchi profilida «Balansni to'ldirish» tugmasi chiqadi, agar **daromad tizimi yoqilgan** bo'lsa va kamida bitta
+to'lov tizimi ulangan bo'lsa. To'lov tizimlari faqat yuridik shaxs yoki yakka tartibdagi tadbirkor bilan shartnoma tuzadi —
+hisob raqamingiz va guvohnomangiz tayyor bo'lsin. Kalitlar **faqat Railway → Variables**'ga yoziladi, GitHub'ga emas.
+
+Kabinetlarga yoziladigan manzillar **Boshqaruv → Daromad → Onlayn to'lovlar** bo'limida ko'rinadi (`PUBLIC_URL` asosida):
+
+| Tizim | Manzil |
+|---|---|
+| Click — Prepare URL | `https://<domen>/api/pay/click/prepare` |
+| Click — Complete URL | `https://<domen>/api/pay/click/complete` |
+| Payme — Endpoint URL | `https://<domen>/api/pay/payme` |
+| Paynet | `https://<domen>/api/pay/paynet` |
+
+**Click** (<https://merchant.click.uz>)
+1. Click bilan shartnoma tuzing — kabinetda xizmat (service) ochiladi.
+2. Xizmat sozlamalarida Prepare URL va Complete URL'ni yozing.
+3. Railway'ga `CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_SECRET_KEY` (kabinetdagi «Secret key») ni yozing va deploy qiling.
+4. Click'ning sinov dasturi bilan tekshiring: Prepare/Complete, noto'g'ri imzo (-1), noto'g'ri summa (-2), qayta to'lov (-4) va h.k.
+   Sinov uchun to'lov raqami (`merchant_trans_id`): Boshqaruv → Daromad → Onlayn to'lovlar → «Sinov to'lovi».
+   Sinov to'lovi to'lansa ham balansga yozilmaydi.
+
+**Payme** (<https://business.paycom.uz>)
+1. Kassa oching. «Endpoint URL»ga yuqoridagi manzilni yozing.
+2. Kassa «hisob» maydoni: `order_id` (to'lov raqami, bir martalik). Boshqa nom bo'lsa — `PAYME_ACCOUNT_FIELD`.
+3. Avval sinov: `PAYME_MERCHANT_ID`, `PAYME_KEY` (sinov kaliti) va `PAYME_TEST=true`. Bu paytda Payme foydalanuvchilarga
+   ko'rsatilmaydi va sinov kassasi faqat admin ochgan sinov to'lovlarini qabul qiladi (Payme'ning ochiq sinov kartalari bilan
+   haqiqiy balans olinmasligi uchun). Boshqaruv → Daromad → Onlayn to'lovlar → «Sinov to'lovi» bilan Payme to'lovi oching va
+   uning raqamini (`order_id`) <https://test.paycom.uz> sinovlarida kiriting. Sinov to'lovi balansga yozilmaydi.
+4. Sinovlar o'tgach: haqiqiy kalit, `PAYME_TEST` ni o'chiring.
+5. Kabinetda kalit almashtirilsa, Payme `ChangePassword` yuboradi va yangi kalit darhol ishlaydi. Shundan keyin Railway'dagi
+   `PAYME_KEY` ni ham yangilang.
+6. Fiskal chek kerak bo'lsa: `PAYMENT_MXIK` (MXIK/IKPU kodi), `PAYMENT_PACKAGE_CODE`, `PAYMENT_VAT_PERCENT`.
+
+**Paynet** (<https://paynet.uz>)
+1. Paynet bilan «ta'minotchi» (provayder) sifatida shartnoma tuzing. Ular login, parol va xizmat raqamini (serviceId) beradi.
+2. Paynet'ga manzilni bering. To'lovchini aniqlash maydoni: `client_id` (YukGo ID; telefon raqami ham qabul qilinadi).
+   Boshqa nom kelishilsa — `PAYNET_CLIENT_FIELD`.
+3. Railway'ga `PAYNET_USERNAME`, `PAYNET_PASSWORD`, `PAYNET_SERVICE_ID` (bir nechta bo'lsa vergul bilan) yozing.
+   Xizmat raqamisiz Paynet yoqilmaydi — boshqa xizmat raqami bilan kelgan so'rov 305 xatosini oladi.
+   Paynet ilovasini to'g'ridan-to'g'ri ochadigan havola uchun `PAYNET_MERCHANT_ID` (ixtiyoriy).
+4. Paynet o'z test dasturi bilan tekshiradi (GetInformation, PerformTransaction, CheckTransaction, CancelTransaction, GetStatement).
+
+Qo'shimcha:
+- To'lov tizimi IP manzillarini bersa, `CLICK_ALLOWED_IPS`, `PAYME_ALLOWED_IPS`, `PAYNET_ALLOWED_IPS` ga yozing
+  (vergul bilan, `185.234.113.0/24` ko'rinishida ham bo'ladi). Bo'sh bo'lsa tekshirilmaydi. Railway'da to'g'ri ishlaydi;
+  o'z serveringizda faqat Nginx/Caddy ortida (yuqoridagi «Serverga joylash»).
+- Hisobini o'chirgan yoki bloklangan foydalanuvchiga yangi to'lov qabul qilinmaydi.
+- To'lov tizimi to'langan to'lovni bekor qilsa, summa foydalanuvchi balansidan yechiladi; pul ishlatib bo'lingan bo'lsa,
+  bekor qilish rad etiladi va masala to'lov tizimi bilan qo'lda hal qilinadi.
+- Har bir to'lov va uning holati: Boshqaruv → Daromad → Onlayn to'lovlar. Balans harakatlari «So'nggi harakatlar»da.
 
 ---
 
@@ -197,7 +281,9 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Reyslar | `GET/POST /api/trips`, `GET /api/trips/my` |
 | Taklif | `GET /api/users/me/referral` |
 | Haydovchi tekshiruvi | `GET/POST /api/users/me/driver-verification` (multipart: `license`, `techPassport`) |
-| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications) |
+| Balansni to'ldirish | `GET /api/payments/options`, `POST /api/payments/topup {provider, amount}`, `GET /api/payments/{id}` |
+| To'lov tizimlari | `POST /api/pay/click/prepare`, `/api/pay/click/complete`, `/api/pay/payme`, `/api/pay/paynet` (token emas — imzo yoki login-parol) |
+| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications, payments) |
 
 To'liq sxema: `/swagger-ui.html`. Mobil ilovada Yandex MapKit SDK (Android/iOS) dan foydalanish tavsiya etiladi.
 

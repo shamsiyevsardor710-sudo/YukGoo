@@ -551,3 +551,31 @@ tr:last-child td { border-bottom: 0; }
 .qr-box { display: grid; place-items: center; padding: 14px; background: #fff; border-radius: 12px; }
 .qr-box svg, .qr-box img { width: 180px; height: 180px; }
 .tab-count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+
+/* ---- Balansni to'ldirish (Click, Payme, Paynet) ---- */
+.amount-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; }
+.amount-chips button {
+  border: 1px solid var(--line); background: var(--surface); color: var(--asphalt); border-radius: 999px;
+  padding: 8px 6px; font: 600 14px/1 var(--font); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
+}
+.amount-chips button:hover { border-color: var(--asphalt-2); }
+.amount-chips button.on { border-color: var(--route); background: var(--route-soft); }
+.pay-methods { display: grid; gap: 8px; }
+.pay-method {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 58px; padding: 8px 16px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--asphalt); text-align: left; cursor: pointer;
+}
+.pay-method:hover { border-color: var(--asphalt-2); }
+.pay-method:disabled { opacity: .6; cursor: progress; }
+.pay-method > span { display: grid; gap: 2px; font-size: 16px; }
+.pay-method small { color: var(--muted); font-size: 13px; }
+.pay-method i { font: 400 26px/1 var(--font); color: var(--muted); font-style: normal; }
+.pay-sum { display: grid; gap: 4px; justify-items: start; padding: 14px 16px; border-radius: 12px; background: var(--surface-2); }
+.pay-steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 15px; line-height: 1.45; }
+.pay-status { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 10px 14px; border-radius: 12px; background: var(--surface-2); font-size: 14px; line-height: 1.45; }
+.pay-status.err { background: var(--danger-soft); color: var(--danger); }
+.pay-done { justify-items: center; text-align: center; }
+.pay-done h3 { margin: 0; }
+.pay-done p { margin: 0; }
+.pay-done-mark { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); }
+.pay-done-mark svg { width: 28px; height: 28px; }

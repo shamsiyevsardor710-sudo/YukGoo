@@ -106,6 +106,8 @@ async function revenue(pane, owner) {
       </section>
     </div>
     <section class="panel"><h2>So'nggi harakatlar</h2><div id="tx-list" style="margin-top:12px">${skeletons(2)}</div></section>
+    <section class="panel stack-sm"><h2>Onlayn to'lovlar (Click, Payme, Paynet)</h2>
+      <div id="pay-setup"></div><div id="pay-list">${skeletons(2)}</div></section>
   </div>`;
 
   const mf = $('#mon-form', pane);
@@ -170,6 +172,80 @@ async function revenue(pane, owner) {
     } catch (err) { box.innerHTML = `<p class="muted small">${esc(err.message)}</p>`; }
   }
   loadTx();
+  loadPayments(pane);
+}
+
+// ---------------- Onlayn to'lovlar: ulanish holati, manzillar va ro'yxat ----------------
+const PAY_STATUS = {
+  CREATED: ["To'lanmagan", 'st-NEW'], PREPARED: ['Jarayonda', 'st-ACCEPTED'],
+  PAID: ["To'langan", 'st-DELIVERED'], CANCELLED: ['Bekor qilingan', 'st-CANCELLED'],
+};
+const PROVIDER = { CLICK: 'Click', PAYME: 'Payme', PAYNET: 'Paynet' };
+
+async function loadPayments(pane) {
+  const setupBox = $('#pay-setup', pane);
+  if (!setupBox) return;
+  try {
+    const st = await get('/admin/payments/setup');
+    const on = (b, extra = '') => b ? `<span class="pill st-DELIVERED">ulangan${extra}</span>` : `<span class="pill plain">ulanmagan</span>`;
+    const url = (label, u) => `<div class="small"><span class="muted">${esc(label)}:</span> <code style="word-break:break-all">${esc(u)}</code></div>`;
+    setupBox.innerHTML = `<div class="row" style="gap:8px">
+        <b>Click</b>${on(st.click)} <b>Payme</b>${on(st.payme, st.paymeTest ? ' (sinov kassasi)' : '')} <b>Paynet</b>${on(st.paynet)}</div>
+      ${st.paynetCredentials && !st.paynetServiceSet ? `<p class="small" style="color:var(--warn);margin:0">PAYNET_SERVICE_ID berilmagan — Paynet o'chiq turibdi. Paynet bergan xizmat raqamini Railway'ga qo'shing.</p>` : ''}
+      ${st.payme && st.paymeTest ? `<p class="small muted" style="margin:0">Payme sinov kassasida: foydalanuvchilarga ko'rsatilmaydi, faqat «Sinov to'lovi» ishlaydi.</p>` : ''}
+      <details class="small"><summary>To'lov tizimlari kabinetiga yoziladigan manzillar</summary>
+        <div class="stack-sm" style="margin-top:8px">${url('Click — Prepare URL', st.urls.clickPrepare)}${url('Click — Complete URL', st.urls.clickComplete)}
+          ${url('Payme — Endpoint URL', st.urls.payme)}${url('Paynet — manzil', st.urls.paynet)}</div></details>
+      ${st.click || st.payme ? `<details class="small" id="pay-test"><summary>Sinov to'lovi (Click va Payme sinovlari uchun)</summary>
+        <form class="row" id="pay-test-form" style="margin-top:8px;gap:8px" novalidate>
+          <select class="select" name="provider" style="max-width:150px" aria-label="To'lov tizimi">${['CLICK', 'PAYME'].filter(k => st[k.toLowerCase()])
+            .map(k => `<option value="${k}">${esc(PROVIDER[k])}</option>`).join('')}</select>
+          <input class="input" name="amount" type="number" min="${st.min}" max="${st.max}" step="1000" value="${st.min}" style="max-width:150px" aria-label="Summa">
+          <button class="btn btn-sm" type="submit">Ochish</button></form>
+        <div id="pay-test-out" class="stack-sm" style="margin-top:8px"></div>
+        <p class="tiny muted" style="margin:6px 0 0">To'lov sizning nomingizga ochiladi. Sinov to'lovi balansga yozilmaydi.
+          Payme sinov kassasida hisob (order_id) sifatida to'lov raqamini kiriting. Daromad tizimi o'chiq bo'lsa ham ishlaydi.</p></details>` : ''}
+      <p class="tiny muted" style="margin:0">Summa chegarasi: ${esc(money(st.min))} — ${esc(money(st.max))}. Kalitlar Railway → Variables'da (README, «Onlayn to'lovlar»).</p>`;
+    const tf = $('#pay-test-form', setupBox);
+    if (tf) tf.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearError(tf);
+      try {
+        const r = await busy(tf.querySelector('[type=submit]'), () => post('/admin/payments/test',
+          { provider: tf.provider.value, amount: Math.round(Number(tf.amount.value || 0)) }));
+        $('#pay-test-out', setupBox).innerHTML = `<div class="panel-sunk small">To'lov <b class="num">#${r.id}</b> (${esc(PROVIDER[r.provider])}, ${esc(money(r.amount))}) —
+          <a href="${esc(r.payUrl)}" target="_blank" rel="noopener">to'lov sahifasini ochish</a></div>`;
+        payList(pane);
+      } catch (err) { showError(tf, err); }
+    });
+  } catch (err) { setupBox.innerHTML = `<p class="muted small">${esc(err.message)}</p>`; }
+  payList(pane);
+}
+
+async function payList(pane, page = 0) {
+  const box = $('#pay-list', pane);
+  if (!box) return;
+  try {
+    const data = await get('/admin/payments', { page });
+    box.innerHTML = data.items.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>To'lov</th><th>Foydalanuvchi</th><th>Tizim</th><th>Summa</th><th>Holat</th><th>Vaqt</th></tr></thead>
+      <tbody>${data.items.map(p => {
+        const [label, cls] = PAY_STATUS[p.status] || [p.status, ''];
+        return `<tr>
+          <td class="small num">#${p.id}${p.parentId ? `<br><span class="tiny muted">#${p.parentId} ga qayta urinish</span>` : ''}${p.providerTransId ? `<br><span class="tiny muted" title="To'lov tizimidagi raqam">${esc(p.providerTransId)}</span>` : ''}</td>
+          <td class="small"><a href="#/u/${p.userId}">${esc(p.userName || '#' + p.userId)}</a>${p.userPhone ? `<br><span class="muted">${esc(phoneFmt(p.userPhone))}</span>` : ''}</td>
+          <td class="small">${esc(PROVIDER[p.provider] || p.provider)}</td>
+          <td class="num small">${esc(money(p.amount))}</td>
+          <td><span class="pill ${cls}">${esc(label)}</span>${p.test ? ` <span class="pill plain">sinov</span>` : ''}${p.note ? `<div class="tiny muted" style="margin-top:4px">${esc(p.note)}</div>` : ''}</td>
+          <td class="small">${esc(dateTime(p.createdAt))}${p.paidAt ? `<br><span class="muted">to'langan: ${esc(dateTime(p.paidAt))}</span>` : ''}</td></tr>`;
+      }).join('')}</tbody></table></div>
+      ${data.totalPages > 1 ? `<div class="row" style="justify-content:center;margin-top:10px">
+        ${page > 0 ? `<button class="btn btn-sm" data-pp="${page - 1}">← Oldingi</button>` : ''}
+        <span class="small muted">${page + 1} / ${data.totalPages}</span>
+        ${page + 1 < data.totalPages ? `<button class="btn btn-sm" data-pp="${page + 1}">Keyingi →</button>` : ''}</div>` : ''}`
+      : `<p class="muted small">Hali onlayn to'lov bo'lmagan.</p>`;
+    $$('[data-pp]', box).forEach(b => b.addEventListener('click', () => payList(pane, Number(b.dataset.pp))));
+  } catch (err) { box.innerHTML = `<p class="muted small">${esc(err.message)}</p>`; }
 }
 
 async function users(pane, owner) {

@@ -43,6 +43,8 @@ public class SecurityConfig {
                                 "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org")))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/auth/**", "/api/locations/**", "/api/config").permitAll()
+                        // Click, Payme va Paynet serverlari so'rovlari: ular o'z imzosi yoki login-paroli bilan tekshiriladi
+                        .requestMatchers("/api/pay/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders", "/api/orders/estimate",
                                 "/api/trips", "/api/drivers", "/api/users/{id}", "/api/users/{id}/reviews",
                                 "/api/stats/public").permitAll()
