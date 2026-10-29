@@ -23,4 +23,15 @@ public interface OfferRepository extends JpaRepository<Offer, Long> {
     /** Haydovchi qachondir taklif bergan (yoki olgan) barcha buyurtmalar */
     @Query("select distinct f.order.id from Offer f where f.driver.id = :driverId")
     List<Long> findOrderIdsOfferedBy(@Param("driverId") Long driverId);
+
+    /**
+     * a va b o'rtasidagi ochiq takliflar bor e'lonlar: biri yuboruvchi, ikkinchisi taklif bergan haydovchi
+     * (faqat ID — keyin har biri bloklanadi; takrorlanishi mumkin)
+     */
+    @Query("""
+            select f.order.id from Offer f
+            where f.status = uz.yukgo.order.OfferStatus.PENDING and f.order.status = uz.yukgo.order.OrderStatus.NEW
+              and ((f.driver.id = :a and f.order.sender.id = :b) or (f.driver.id = :b and f.order.sender.id = :a))
+            """)
+    List<Long> findOpenOrderIdsBetween(@Param("a") Long a, @Param("b") Long b);
 }

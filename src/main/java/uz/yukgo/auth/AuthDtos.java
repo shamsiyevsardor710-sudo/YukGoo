@@ -31,7 +31,12 @@ public final class AuthDtos {
             /** Qaysi havoladan keldi (kanal, hamkor, dala xodimi kodi) — ixtiyoriy */
             @Size(max = 64) String source,
             /** Kim taklif qildi (taklif havolasidagi foydalanuvchi ID si) — ixtiyoriy */
-            @Size(max = 24) String ref) {}
+            @Size(max = 24) String ref,
+            /**
+             * Foydalanish shartlari va maxfiylik siyosatiga rozilik (formadagi belgi). Eski ilova versiyalari yubormaydi —
+             * bunday hisob kirgach ilova shartlarni alohida so'raydi.
+             */
+            Boolean acceptTerms) {}
 
     /** Ism + familiya + parol bilan kirish. Bir xil ismli bir nechta odam bo'lsa telefon ham so'raladi. */
     public record LoginRequest(String firstName, String lastName, String phone,

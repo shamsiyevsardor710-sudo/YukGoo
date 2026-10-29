@@ -64,6 +64,7 @@ public class UserService {
     private final JwtService jwtService;
     private final TelegramAuthService telegramAuth;
     private final DriverVerificationService driverVerification;
+    private final BlockService blocks;
 
     /** O'chirilgan hisobning ism-familiyasi (buyurtmalar tarixida shunday ko'rinadi) */
     private static final String DELETED_FIRST = "O'chirilgan";
@@ -82,7 +83,18 @@ public class UserService {
     public PublicUserDto publicProfile(Long id) {
         User u = userRepository.findById(id).orElseThrow(() -> ApiException.notFound("Foydalanuvchi topilmadi"));
         if (u.getStatus() == UserStatus.REMOVED) throw ApiException.notFound("Foydalanuvchi topilmadi");
-        return PublicUserDto.of(u, canSeePhone(u));
+        Long viewerId = currentUser.idOrNull();
+        Boolean blockedByMe = viewerId == null || viewerId.equals(u.getId()) ? null
+                : BlockService.BY_ME.equals(blocks.state(viewerId, u.getId()));
+        return PublicUserDto.of(u, canSeePhone(u), blockedByMe);
+    }
+
+    /** Joriy foydalanish shartlarini qabul qilish (shartlar paydo bo'lishidan oldingi hisoblar va yangilangan shartlar) */
+    @Transactional
+    public MeDto acceptTerms() {
+        User u = currentUser.get();
+        if (!u.hasAcceptedTerms()) u.acceptTerms();
+        return MeDto.of(u);
     }
 
     /**
@@ -105,6 +117,7 @@ public class UserService {
     @Transactional
     public MeDto updateProfile(UpdateProfileRequest req) {
         User u = currentUser.get();
+        Terms.require(u);   // "o'zi haqida" matni hammaga ko'rinadi
         Region region = locationService.region(req.regionId());
         u.setNames(req.firstName(), req.lastName());
         u.setBio(blankToNull(req.bio()));
@@ -118,6 +131,7 @@ public class UserService {
     @Transactional
     public MeDto uploadAvatar(MultipartFile file) {
         User u = currentUser.get();
+        Terms.require(u);
         String url = files.storeImage(file, "avatars");
         files.delete(u.getAvatarUrl());
         u.setAvatarUrl(url);
@@ -135,6 +149,7 @@ public class UserService {
     @Transactional
     public MeDto updateVehicle(VehicleDto dto) {
         User u = currentUser.get();
+        Terms.require(u);
         Vehicle v = u.getVehicle() == null ? new Vehicle() : u.getVehicle();
         String oldPlate = v.getPlateNumber();
         v.setBrand(dto.brand().trim());
@@ -154,6 +169,7 @@ public class UserService {
     @Transactional
     public MeDto uploadVehiclePhoto(MultipartFile file) {
         User u = currentUser.get();
+        Terms.require(u);
         if (!u.isDriver()) throw ApiException.badRequest("Avval mashina ma'lumotlarini kiriting");
         String url = files.storeImage(file, "vehicles");
         files.delete(u.getVehicle().getPhotoUrl());
@@ -236,7 +252,8 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public PageResponse<PublicUserDto> drivers(Long regionId, BodyType bodyType, Integer minCapacity, int page) {
-        return PageResponse.of(userRepository.searchDrivers(regionId, bodyType, minCapacity,
+        // Bloklangan (yoki meni bloklagan) haydovchilar ro'yxatda ko'rinmaydi
+        return PageResponse.of(userRepository.searchDrivers(regionId, bodyType, minCapacity, currentUser.idOrNull(),
                 PageRequest.of(page, 20)), PublicUserDto::of);
     }
 
@@ -295,6 +312,8 @@ public class UserService {
         // Reys e'lonlari (izohlarida telefon va boshqa ma'lumot bo'lishi mumkin) — ularga boshqa jadval bog'lanmagan
         tripRepository.deleteAll(tripRepository.findByDriverIdOrderByDepartAtDesc(u.getId()));
         linkRepository.deleteById(oldPhone);
+        // Bloklar: u bloklaganlar ro'yxati ham, uni bloklaganlarniki ham
+        blocks.deleteAllFor(u.getId());
 
         u.setNames(DELETED_FIRST, DELETED_LAST);
         // Ism bilan kirishda o'chirilgan hisoblar umuman topilmasin (har biri uchun parol tekshirib serverni yuklamasin)

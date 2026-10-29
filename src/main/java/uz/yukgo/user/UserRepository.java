@@ -43,18 +43,23 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> search(@Param("q") String q, @Param("role") Role role,
                       @Param("status") UserStatus status, Pageable pageable);
 
+    /** viewerId — ko'rayotgan foydalanuvchi: u bilan blok bo'lgan haydovchilar chiqarilmaydi (null — mehmon) */
     @Query("""
             select u from User u
             where u.status = uz.yukgo.user.UserStatus.ACTIVE and u.vehicle.brand is not null
               and (:regionId is null or u.region.id = :regionId)
               and (:bodyType is null or u.vehicle.bodyType = :bodyType)
               and (:minCapacity is null or u.vehicle.capacityKg >= :minCapacity)
+              and (:viewerId is null or (
+                   not exists (select b.id from UserBlock b where b.blockerId = :viewerId and b.blockedId = u.id)
+                   and not exists (select b2.id from UserBlock b2 where b2.blockerId = u.id and b2.blockedId = :viewerId)))
             order by (case when u.driverVerified = true then 1 else 0 end) desc,
                      (case when u.ratingCount = 0 then 0 else u.ratingSum * 1.0 / u.ratingCount end) desc,
                      u.deliveriesCompleted desc
             """)
     Page<User> searchDrivers(@Param("regionId") Long regionId, @Param("bodyType") BodyType bodyType,
-                             @Param("minCapacity") Integer minCapacity, Pageable pageable);
+                             @Param("minCapacity") Integer minCapacity, @Param("viewerId") Long viewerId,
+                             Pageable pageable);
 
     /** Yangi buyurtma haqida xabar olishi kerak bo'lgan haydovchilar */
     @Query("""

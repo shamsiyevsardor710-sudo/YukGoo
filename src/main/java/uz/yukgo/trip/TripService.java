@@ -10,6 +10,7 @@ import uz.yukgo.common.PageResponse;
 import uz.yukgo.location.LocationService;
 import uz.yukgo.location.Region;
 import uz.yukgo.security.CurrentUser;
+import uz.yukgo.user.Terms;
 import uz.yukgo.user.User;
 import uz.yukgo.user.UserDtos.UserBrief;
 
@@ -51,8 +52,9 @@ public class TripService {
 
     @Transactional(readOnly = true)
     public PageResponse<TripDto> search(Long fromRegion, Long toRegion, Integer minKg, int page) {
+        // Blok bo'lgan haydovchilarning reyslari (qaysi tomon bloklaganidan qat'i nazar) ko'rinmaydi
         return PageResponse.of(tripRepository.search(fromRegion, toRegion, minKg,
-                LocalDateTime.now().minusHours(12), PageRequest.of(page, 20)), TripDto::of);
+                LocalDateTime.now().minusHours(12), currentUser.idOrNull(), PageRequest.of(page, 20)), TripDto::of);
     }
 
     @Transactional(readOnly = true)
@@ -63,6 +65,7 @@ public class TripService {
     @Transactional
     public TripDto create(TripRequest req) {
         User me = currentUser.get();
+        Terms.require(me);
         if (!me.isDriver()) throw ApiException.badRequest("Reys e'lon qilish uchun profilingizga mashina ma'lumotlarini kiriting");
         Trip t = new Trip();
         t.setDriver(me);
@@ -74,6 +77,7 @@ public class TripService {
     @Transactional
     public TripDto update(Long id, TripRequest req) {
         Trip t = own(id);
+        Terms.require(t.getDriver());
         apply(t, req);
         return TripDto.of(t);
     }

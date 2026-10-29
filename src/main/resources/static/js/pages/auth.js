@@ -251,7 +251,7 @@ export function registerPage(main) {
     <p class="muted" id="step-text" style="margin-bottom:20px">Telefon raqamingizni tasdiqlaymiz.</p>
     <div id="step"></div>
     <p class="small muted" style="margin-top:22px;text-align:center">Hisobingiz bormi? <a href="#/login">Kirish</a></p>
-    <p class="tiny muted" style="margin-top:10px;text-align:center">Ro'yxatdan o'tib, <a href="/privacy.html">maxfiylik siyosati</a>ga rozilik bildirasiz.</p>`);
+    <p class="tiny muted" style="margin-top:10px;text-align:center"><a href="/terms.html" data-doc>Foydalanish shartlari</a> · <a href="/privacy.html" data-doc>Maxfiylik siyosati</a></p>`);
   showPerks($('#perks', card));
   const steps = card.querySelectorAll('.steps i');
   const setStep = (n, text) => {
@@ -283,6 +283,8 @@ export function registerPage(main) {
         <label class="field"><span>Qishloq / mahalla</span><input class="input" name="village" maxlength="120" required></label>
         <label class="field"><span>Ko'cha, uy raqami</span><input class="input" name="house" maxlength="120" placeholder="Navoiy ko'chasi, 12-uy" required></label>
       </div>
+      <label class="check"><input type="checkbox" name="acceptTerms">
+        <span><a href="/terms.html" data-doc>Foydalanish shartlari</a> va <a href="/privacy.html" data-doc>maxfiylik siyosati</a> bilan tanishdim va roziman</span></label>
       <button class="btn btn-primary btn-lg btn-block" type="submit">Ro'yxatdan o'tish</button>
     </form>`;
     const form = $('form', box);
@@ -292,11 +294,12 @@ export function registerPage(main) {
       clearError(form);
       const d = formData(form);
       if (d.password !== d.password2) return showError(form, { message: 'Parollar bir xil emas' });
+      if (!d.acceptTerms) return showError(form, { message: "Ro'yxatdan o'tish uchun foydalanish shartlariga rozilik bildiring" });
       try {
         const res = await busy(form.querySelector('[type=submit]'), () => post('/auth/register/complete', {
           requestId, firstName: d.firstName, lastName: d.lastName, password: d.password,
           regionId: Number(d.regionId) || null, districtId: Number(d.districtId) || null,
-          village: d.village, house: d.house, telegramInitData: telegramInitData(),
+          village: d.village, house: d.house, telegramInitData: telegramInitData(), acceptTerms: true,
           ...attribution(),   // qaysi kanal/hamkor/do'st havolasi bilan kelgani
         }));
         auth.token = res.token;

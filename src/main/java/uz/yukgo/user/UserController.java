@@ -3,6 +3,7 @@ package uz.yukgo.user;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -12,11 +13,14 @@ import uz.yukgo.auth.VerificationService;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.user.UserDtos.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 public class UserController {
     private final UserService userService;
     private final TelegramAuthService telegramAuthService;
+    private final BlockService blockService;
 
     /*
      * Telegramga ulash alohida endpoint emas: u faqat parol (yoki Telegram kodi) isbotlangan so'rovda —
@@ -103,6 +107,34 @@ public class UserController {
     @PostMapping("/api/users/me/location")
     public void location(@Valid @RequestBody LocationUpdate req) {
         userService.updateLocation(req);
+    }
+
+    @Operation(summary = "Foydalanish shartlarini qabul qilish (ilova kontent yaratishdan oldin so'raydi)")
+    @PostMapping("/api/users/me/terms")
+    public MeDto acceptTerms() {
+        return userService.acceptTerms();
+    }
+
+    @Operation(summary = "Foydalanuvchini bloklash: yozishma, taklif va e'lonlar ikki tomonga ham yopiladi")
+    @PostMapping("/api/users/{id:\\d+}/block")
+    public BlockedUserDto block(@PathVariable Long id) {
+        try {
+            return blockService.block(id);
+        } catch (DataIntegrityViolationException e) {
+            return blockService.existing(id);   // tugma ikki marta bosildi — blokni birinchi so'rov yozdi
+        }
+    }
+
+    @Operation(summary = "Blokdan chiqarish")
+    @DeleteMapping("/api/users/{id:\\d+}/block")
+    public void unblock(@PathVariable Long id) {
+        blockService.unblock(id);
+    }
+
+    @Operation(summary = "Men bloklagan foydalanuvchilar")
+    @GetMapping("/api/users/me/blocks")
+    public List<BlockedUserDto> blocks() {
+        return blockService.mine();
     }
 
     @Operation(summary = "Ommaviy profil — hamma ko'ra oladi")

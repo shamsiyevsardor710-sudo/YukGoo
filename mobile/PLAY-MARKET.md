@@ -9,20 +9,34 @@ Shaxsiy hisob uchun birinchi chiqarishgacha taxminan 3–4 hafta hisoblang.
 Ilova Google'ning hozirgi texnik talablariga mos: Android 16 (API 36) ga mo'ljallangan (2026-yil 31-avgustdan yangi ilovalar
 uchun majburiy), AAB formatida yig'iladi, fondagi joylashuv ruxsati (background location) so'ralmaydi.
 
+Google qoidalari bo'yicha ilovada bor:
+- **Foydalanuvchi kontenti (UGC):** ro'yxatdan o'tishda foydalanish shartlariga rozilik (`/terms.html` — taqiqlangan kontent,
+  shikoyat va bloklash tartibi), profil va buyurtma sahifasida **«Shikoyat qilish»** va **«Bloklash»**, adminlar shikoyatlarni
+  ko'rib chiqib, kontentni o'chiradi yoki hisobni bloklaydi. Oldin ro'yxatdan o'tganlar shartlarni ilovaga kirganda qabul qiladi.
+- **Joylashuv:** haydovchi navigatsiyasida, telefon ruxsat so'rashidan **oldin**, ilovaning o'zida joylashuv nima uchun va
+  qachon (ekran o'chiq bo'lsa ham) yig'ilishi haqida ogohlantirish chiqadi.
+- **Hisobni o'chirish:** ilova ichida va web sahifa orqali.
+
 ## 0. Avval tayyorlab qo'ying
 
 - [ ] **Railway: Hobby tarifi** (yoki to'liq «Trial»). Ilova jonli saytni ochadi, shuning uchun sayt va bot butun sinov davomida
       ishlab turishi kerak. «Limited Trial»da tashqi tarmoq cheklangan: bot Telegram'ga ulana olmaydi va SMS ketmaydi, shuning
       uchun testerlar ham, Google tekshiruvchilari ham ro'yxatdan o'ta olmaydi. Sinov muddati taxminan 14-noyabrda tugaydi va 14 kunlik yopiq test o'rtasiga to'g'ri keladi.
       Testni boshlashdan oldin Hobby'ga o'ting.
+- [ ] **Baza PostgreSQL'da, rasmlar Volume'da** (README, «Railway'ga joylash»: `SPRING_PROFILES_ACTIVE=prod`, `DB_URL`, `DB_USER`,
+      `DB_PASSWORD`, Volume `/app/uploads`). Deploy loglarida `jdbc:h2` emas, `org.postgresql` chiqishi kerak. Aks holda har
+      deployda testerlarning hisoblari va e'lonlari o'chib ketadi.
 - [ ] Railway'da **`SUPPORT_EMAIL`** o'zgaruvchisi (masalan, o'zingizning Gmail'ingiz). U maxfiylik siyosati va
       "hisobni o'chirish" sahifalarida aloqa sifatida chiqadi. Play Console ham shu emailni so'raydi.
 - [ ] Railway'da **`PUBLIC_URL=https://yukgoo-production.up.railway.app`** (Telegram tugmalari uchun ham kerak).
 - [ ] **Tekshiruvchilar uchun sinov hisobi.** Google xodimlari ilovaga kirib ko'radi, ular O'zbekiston raqamiga keladigan
-      SMS kodni ololmaydi.
+      tasdiqlash kodini (SMS yoki Telegram) ololmaydi.
       Saytda ikkinchi telefon raqamingiz bilan ro'yxatdan o'ting (masalan, "Test Haydovchi"), mashina qo'shing,
       ism-familiya, telefon va parolni yozib qo'ying. Kirish sahifasi ism + familiya + parol bilan ishlaydi,
       «Telefon raqam bilan kirish» tugmasi orqali esa telefon + parol bilan.
+      **Tavsiya:** o'z hisobingizdan bitta sinov e'lon bering va uni sinov haydovchi bilan oling, yozishmada 1–2 ta xabar
+      yozing — shunda tekshiruvchi yozishma, «Shikoyat qilish» va «Bloklash» tugmalarini ko'ra oladi (buyurtma sahifasi,
+      «Haydovchi»/«Yuboruvchi» bloki). Bu buyurtmani yakunlamang va bekor qilmang.
 - [ ] Imzolangan **`app-release.aab`** (README.md, 3-qadam).
 - [ ] **15–20 ta testerning Gmail manzili** (5-bo'lim).
 - [ ] **Android telefon**: dasturchi hisobini tasdiqlash va 4-bo'limdagi 20–30 soniyalik ekran yozuvi uchun.
@@ -79,9 +93,9 @@ YukGo — O'zbekiston bo'ylab yuk tashishni oson qiladigan xizmat: viloyatdan vi
 
 🔒 Ishonch va xavfsizlik
 • Telefon raqamingiz faqat buyurtma tomonlariga ko'rinadi
-• Ro'yxatdan o'tish telefon raqamga SMS kod bilan tasdiqlanadi
+• Ro'yxatdan o'tish telefon raqamga yuboriladigan kod bilan tasdiqlanadi
 • Tekshirilgan haydovchilar: hujjatlarini YukGo jamoasi tekshirgan
-• Reyting, sharhlar va shikoyat qilish imkoniyati
+• Reyting, sharhlar, shikoyat qilish va qoidabuzarni bloklash imkoniyati
 
 YukGo Telegram'da ham bor: @YukGoobot — botga oddiy yozib ham e'lon bera olasiz.
 ```
@@ -117,9 +131,9 @@ YukGo — сервис грузоперевозок по Узбекистану:
 
 🔒 Доверие и безопасность
 • Ваш номер телефона видят только стороны заказа
-• Регистрация подтверждается SMS-кодом на номер телефона
+• Регистрация подтверждается кодом, отправленным на номер телефона
 • Проверенные водители: их документы проверила команда YukGo
-• Рейтинг, отзывы и возможность пожаловаться
+• Рейтинг, отзывы, жалобы и блокировка нарушителей
 
 YukGo есть и в Telegram: @YukGoobot — заявку можно разместить, просто написав боту.
 ```
@@ -134,7 +148,9 @@ Login is required. Open the app → "Kirish" (Log in) and use either option:
 • First name: <test ism>   Last name: <test familiya>   Password: <parol>
 • or tap "Telefon raqam bilan kirish", then Phone: <+998 ...>   Password: <parol>
 The test account has a vehicle, so driver features (offers, navigation) are available.
-New sign-ups need an SMS code sent to an Uzbek phone number, so please use this account.
+It also has an active order (tab "Buyurtmalar") with in-app chat; the "Shikoyat qilish" (Report) and
+"Bloklash" (Block) buttons are on the order page and on every user profile.
+New sign-ups need a verification code delivered to an Uzbek phone number, so please use this account.
 ```
 
 **Ads:** No.
@@ -185,14 +201,30 @@ Ikkilansangiz «Ha» deb belgilashingiz ham mumkin. Unda sahifada «ma'lumot uch
 Haydovchi hujjatlari (guvohnoma va texpasport rasmi) faqat tekshiruv uchun olinadi. Ularni faqat admin ko'radi, qarordan
 keyin o'chiriladi. Ma'lumotlar sotilmaydi va reklama uchun ishlatilmaydi.
 
-**Foreground service permissions** (Android 14+ talabi) → **Location**:
+**Foreground service permissions** (Android 14+ talabi) → **Location** → use case: **Background location updates — navigation**
+(haydovchi navigatsiyasi va yukni kuzatish).
+
+*Description:*
 ```
-Drivers open the in-app navigation for an order they are delivering. While it is open, the app shows an
-ongoing notification and sends the driver's location to the sender of that order, so the sender can track
-the cargo in real time. Tracking starts only when the driver opens navigation and stops when they leave it.
+Drivers open the in-app navigation for an order they are delivering. Before Android asks for location
+permission, the app explains in a dialog what is collected and why. While navigation is open, the app shows
+an ongoing notification and sends the driver's location to the sender of that order, so the sender can track
+the cargo in real time, also when the screen is off. Tracking starts only when the driver opens navigation
+and stops when they leave it or the order is completed.
 ```
-Video havolasi so'raladi: telefonda navigatsiyani ochib, bildirishnoma chiqqanini ko'rsatadigan 20–30 soniyalik
-ekran yozuvini YouTube'ga **Unlisted** qilib yuklang va havolasini qo'ying.
+*User impact if the task is deferred or interrupted:*
+```
+The sender stops seeing where the cargo is, and the driver's route and arrival time stop updating
+until navigation is opened again.
+```
+*Video:* telefonda yozib oling (20–40 soniya): faol buyurtma → «Navigatsiya» → «Joylashuvdan foydalanish» oynasi →
+«Roziman» → Android ruxsati → bildirishnoma chiqadi → ekranni o'chirib-yoqing. YouTube'ga **Unlisted** qilib yuklang va
+havolasini qo'ying.
+
+**Foydalanuvchi kontenti (UGC)** — alohida forma yo'q, lekin tekshiruvchi qaraydi. Agar Google so'rasa:
+foydalanish shartlari — `https://yukgoo-production.up.railway.app/terms.html` (ro'yxatdan o'tishda rozilik belgisi);
+shikoyat — profil va buyurtma sahifasidagi «Shikoyat qilish»; bloklash — «Bloklash», ro'yxat — Profil → Bloklanganlar;
+moderatsiya — admin paneli: Shikoyatlar, foydalanuvchini bloklash, e'lonni bekor qilish, sharhni o'chirish.
 
 **Account deletion:** ilova ichida — Profil → "Hisobni o'chirish"; web havola — `…/delete-account.html`.
 

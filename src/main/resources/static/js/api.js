@@ -24,6 +24,9 @@ export class ApiError extends Error {
 
 let onUnauthorized = () => {};
 export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
+/** 428 — server foydalanish shartlarini qabul qilishni talab qildi (ilova shartlar ekranini ochadi) */
+let onTermsRequired = () => {};
+export function setTermsRequiredHandler(fn) { onTermsRequired = fn; }
 
 /** silent — 401/403 da kirish sahifasiga o'tkazmaydi (ilova ishga tushayotganda: Telegram ichida avval avtomatik kirib ko'ramiz) */
 export async function api(path, { method = 'GET', body, form, query, silent = false } = {}) {
@@ -66,6 +69,7 @@ export async function api(path, { method = 'GET', body, form, query, silent = fa
       auth.user = null;
       if (!silent) onUnauthorized(msg);
     }
+    if (res.status === 428 && !silent) onTermsRequired();
     throw new ApiError(res.status, msg, data);
   }
   return data;

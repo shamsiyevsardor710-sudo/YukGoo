@@ -135,8 +135,23 @@ public class User {
     private Double lastLng;
     private Instant lastLocationAt;
 
+    // ---- Foydalanish shartlari (Terms) ----
+    /** Qabul qilingan shartlar versiyasi. null — hali qabul qilmagan (shu imkoniyatdan oldingi hisoblar) */
+    private Integer termsVersion;
+    private Instant termsAcceptedAt;
+
     private Instant createdAt = Instant.now();
     private Instant lastLoginAt;
+
+    /** Joriy foydalanish shartlarini qabul qilganmi (shartlar yangilansa — qayta qabul qilishi kerak) */
+    public boolean hasAcceptedTerms() {
+        return termsVersion != null && termsVersion >= Terms.VERSION;
+    }
+
+    public void acceptTerms() {
+        termsVersion = Terms.VERSION;
+        termsAcceptedAt = Instant.now();
+    }
 
     public void setNames(String first, String last) {
         this.firstName = first.trim();

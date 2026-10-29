@@ -14,6 +14,7 @@ import uz.yukgo.order.Order;
 import uz.yukgo.order.OrderRepository;
 import uz.yukgo.order.OrderStatus;
 import uz.yukgo.security.CurrentUser;
+import uz.yukgo.user.Terms;
 import uz.yukgo.user.User;
 
 import java.time.Instant;
@@ -46,6 +47,7 @@ public class ReviewService {
     @Transactional
     public ReviewDto create(Long orderId, ReviewRequest req) {
         User me = currentUser.get();
+        Terms.require(me);
         Order o = orderRepository.findById(orderId).orElseThrow(() -> ApiException.notFound("Buyurtma topilmadi"));
         if (o.getStatus() != OrderStatus.DELIVERED) {
             throw ApiException.badRequest("Faqat yetkazilgan buyurtmani baholash mumkin");

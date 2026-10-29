@@ -29,6 +29,47 @@ function locationPermission() {
   });
 }
 
+/** Joylashuv haqidagi ogohlantirish bir marta ko'rsatiladi (rozilik shu qurilmada eslab qolinadi) */
+const DISCLOSURE_KEY = 'yukgo_location_disclosure';
+function disclosureAccepted() {
+  try { return localStorage.getItem(DISCLOSURE_KEY) === '1'; } catch { return false; }
+}
+function rememberDisclosure() {
+  try { localStorage.setItem(DISCLOSURE_KEY, '1'); } catch { /* xotira yopiq — keyingi safar yana so'raladi */ }
+}
+
+/**
+ * Google Play talabi: tizimning ruxsat oynasidan OLDIN ilovaning o'zida joylashuv nima uchun, qachon (shu jumladan
+ * ilova yopiq yoki ekran o'chiq bo'lganda) yig'ilishi va kimga ko'rinishini aytish, foydalanuvchi rozilik bersin.
+ * @returns {Promise<boolean>} true — «Roziman»
+ */
+function locationDisclosure() {
+  return new Promise((resolve) => {
+    let done = false;
+    modal('Joylashuvdan foydalanish', `<div class="stack">
+        <p><b>YukGo bu buyurtmani yetkazayotganingizda joylashuvingizni (GPS) yig'adi</b> va yuk qayerdaligini yuboruvchiga xaritada
+          ko'rsatish uchun serverga yuboradi — <b>ilova yopiq yoki ekran o'chiq bo'lsa ham</b>.</p>
+        <ul class="small disclosure-list">
+          <li>Kuzatuv faqat navigatsiya ochilganda boshlanadi. Shu vaqtda telefoningizda «YukGo: buyurtma bajarilmoqda» bildirishnomasi turadi.</li>
+          <li>Navigatsiyadan chiqsangiz yoki buyurtma yakunlansa, kuzatuv to'xtaydi. Boshqa paytlarda joylashuvingiz yig'ilmaydi.</li>
+          <li>Joylashuvingizni shu buyurtma yuboruvchisi ko'radi (nizo bo'lsa — YukGo adminlari ham). <a href="/privacy.html" data-doc>Maxfiylik siyosati</a></li>
+        </ul>
+        <p class="small muted" style="margin:0">Keyingi qadamda telefon joylashuvga ruxsat so'raydi.</p>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn" data-close>Hozir emas</button>
+          <button class="btn btn-primary" data-ok>Roziman</button>
+        </div></div>`, {
+      onMount: ({ el, close }) => {
+        el.querySelector('[data-ok]').addEventListener('click', () => { done = true; close(); resolve(true); });
+        const obs = new MutationObserver(() => {
+          if (!document.body.contains(el)) { obs.disconnect(); if (!done) resolve(false); }
+        });
+        obs.observe(document.getElementById('modal-root'), { childList: true });
+      },
+    });
+  });
+}
+
 export async function navigationPage(main, { id }) {
   let o = await get('/orders/' + id);
   const cap = nativeApp();
@@ -295,11 +336,27 @@ export async function navigationPage(main, { id }) {
       { okText: 'Sozlamalarni ochish' }).then((r) => { if (r) BG.openSettings(); });
   }
 
+  /** Ogohlantirishga rozilik berilmadi: GPS yuborilmaydi, istalgan payt qayta yoqish mumkin */
+  function disclosureDeclined() {
+    const box = $('#nav-eta', main);
+    box.innerHTML = `GPS yuborilmayapti — yuboruvchi yukni xaritada ko'rmaydi. <button class="link-btn nav-gps-on" type="button">Yoqish</button>`;
+    $('.nav-gps-on', box).addEventListener('click', () => {
+      box.textContent = 'Joylashuvingiz aniqlanmoqda…';
+      startNativeTracking();
+    });
+  }
+
   // Android ilova: fondagi kuzatuv. Har bir yangi nuqtada (kamida 10 soniyada bir) yuboruvchiga uzatamiz —
   // JS taymerlari fonda sekinlashadi, joylashuv chaqiruvlari esa to'xtamaydi.
   async function startNativeTracking() {
     const BG = cap.Plugins.BackgroundGeolocation;
     retryNative = false;
+    if (!disclosureAccepted()) {
+      const ok = await locationDisclosure();
+      if (disposed) return;
+      if (!ok) { disclosureDeclined(); return; }
+      rememberDisclosure();
+    }
     const perm = await locationPermission();
     if (disposed) return;
     if (perm === 'denied') { askForPermission(BG); return; }

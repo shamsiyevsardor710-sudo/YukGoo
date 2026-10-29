@@ -9,7 +9,8 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 ## Imkoniyatlar
 
 ### Ro'yxatdan o'tish va kirish
-- Telefon raqam → **SMS orqali 6 xonali kod** (SMS sozlanmagan bo'lsa — Telegram bot orqali) → ism, familiya, parol va to'liq manzil (viloyat, tuman, qishloq/mahalla, uy).
+- Telefon raqam → **SMS orqali 6 xonali kod** (SMS sozlanmagan bo'lsa — Telegram bot orqali) → ism, familiya, parol va to'liq manzil (viloyat, tuman, qishloq/mahalla, uy) → **foydalanish shartlari va maxfiylik siyosatiga rozilik** (belgi).
+- Shartlar paydo bo'lishidan oldin ro'yxatdan o'tganlarga ilova kirganda bir marta shartlarni ko'rsatadi («Qabul qilaman»). Shartlar jiddiy o'zgarsa — `Terms.VERSION` oshiriladi va hamma qayta qabul qiladi.
 - O'zbekistonning 14 ta hududi va barcha tumanlari bazaga avtomatik yoziladi.
 - Kirish: **ism + familiya + parol** (bir xil ismli odamlar bo'lsa — telefon + parol).
 - Parolni tiklash va telefon raqamni almashtirish ham shu kod orqali.
@@ -39,7 +40,12 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
   admin «Tekshiruv» bo'limida ko'rib tasdiqlaydi yoki sababini yozib rad etadi. Rasmlar bazada saqlanadi, faqat adminga ko'rinadi va
   qaror qilingan zahoti o'chiriladi. Davlat raqami o'zgarsa yoki mashina o'chirilsa — belgi olinadi.
 - Haydovchi voz kechsa buyurtma avtomatik qayta e'lon qilinadi; 30 kun olinmagan e'lonlar avtomatik yopiladi.
-- Shikoyat / adminga murojaat.
+- Shikoyat / adminga murojaat: profil va buyurtma sahifasida (buyurtma tomonlari ham bir-biri haqida), istasa — shikoyat bilan birga bloklash.
+- **Bloklash** (Google Play talabi — 1:1 yozishma bor): bloklangan foydalanuvchi bilan bir-biringizga yoza olmaysiz, taklif bera/qabul qila
+  olmaysiz, bozor, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz, yangi e'lon xabari bormaydi; ochiq takliflar yopiladi.
+  Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Ro'yxat va blokdan chiqarish: Profil → Bloklanganlar.
+- Hujjatlar: `/terms.html` (foydalanish shartlari: taqiqlangan kontent, shikoyat, bloklash), `/privacy.html`, `/delete-account.html` —
+  ilova ichida oynada ochiladi.
 
 ### Hamyon va to'lovlar
 - Daromad tizimi yoqilganda (Boshqaruv → Daromad) haydovchiga buyurtma berilganda komissiya, «Shoshilinch» e'lon uchun to'lov balansdan yechiladi.
@@ -284,6 +290,8 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Parolni tiklash | `POST /api/auth/reset/start`, `POST /api/auth/reset/complete` |
 | Hududlar | `GET /api/locations/regions`, `GET /api/locations/regions/{id}/districts` |
 | Profil | `GET/PUT /api/users/me`, `POST /api/users/me/avatar`, `PUT /api/users/me/vehicle`, `PUT /api/users/me/settings`, `GET /api/users/{id}` |
+| Shartlar | `POST /api/users/me/terms` (qabul qilish). Qabul qilinmagan bo'lsa kontent yaratuvchi so'rovlar **428** qaytaradi |
+| Bloklash | `POST/DELETE /api/users/{id}/block`, `GET /api/users/me/blocks` |
 | Buyurtmalar | `GET /api/orders` (bozor), `POST /api/orders`, `GET /api/orders/my`, `GET /api/orders/{id}` |
 | Takliflar | `POST /api/orders/{id}/offers`, `POST .../offers/{offerId}/accept`, `POST /api/orders/{id}/take` |
 | Holat | `POST /api/orders/{id}/pickup`, `POST /api/orders/{id}/deliver {code}`, `POST /api/orders/{id}/cancel` |

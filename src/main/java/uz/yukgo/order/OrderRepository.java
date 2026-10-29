@@ -28,6 +28,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
      * Tartib: avval shoshilinchlar; keyin olib ketish sanasi bugun va undan keyingilar — eng yaqini birinchi;
      * so'ng sanasi o'tib ketganlar; sanasiz e'lonlar eng oxirida. Bir kunning ichida — eng yangi e'lon birinchi.
      * {@code today} — Toshkent vaqti bo'yicha bugungi sana (server UTC'da ishlaydi, current_date tunda bir kun orqada qoladi).
+     * {@code viewerId} — ko'rayotgan foydalanuvchi: u bilan blok bo'lgan yuboruvchilarning e'lonlari chiqarilmaydi (null — mehmon).
      */
     @Query(value = """
             select o from Shipment o
@@ -39,6 +40,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
               and (:bodyType is null or o.requiredBodyType is null or o.requiredBodyType = :bodyType)
               and (:maxWeight is null or o.weightKg is null or o.weightKg <= :maxWeight)
               and (:q is null or lower(o.title) like :q or lower(o.description) like :q)
+              and (:viewerId is null or (
+                   not exists (select b.id from UserBlock b where b.blockerId = :viewerId and b.blockedId = o.sender.id)
+                   and not exists (select b2.id from UserBlock b2 where b2.blockerId = o.sender.id and b2.blockedId = :viewerId)))
             order by o.urgent desc,
                      case when o.pickupDate is null then 1 else 0 end,
                      case when o.pickupDate < :today then 1 else 0 end,
@@ -55,11 +59,15 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
               and (:bodyType is null or o.requiredBodyType is null or o.requiredBodyType = :bodyType)
               and (:maxWeight is null or o.weightKg is null or o.weightKg <= :maxWeight)
               and (:q is null or lower(o.title) like :q or lower(o.description) like :q)
+              and (:viewerId is null or (
+                   not exists (select b.id from UserBlock b where b.blockerId = :viewerId and b.blockedId = o.sender.id)
+                   and not exists (select b2.id from UserBlock b2 where b2.blockerId = o.sender.id and b2.blockedId = :viewerId)))
             """)
     Page<Order> market(@Param("fromRegion") Long fromRegion, @Param("toRegion") Long toRegion,
                        @Param("cargoType") CargoType cargoType, @Param("scope") DeliveryScope scope,
                        @Param("bodyType") BodyType bodyType, @Param("maxWeight") Double maxWeight,
-                       @Param("q") String q, @Param("today") LocalDate today, Pageable pageable);
+                       @Param("q") String q, @Param("today") LocalDate today,
+                       @Param("viewerId") Long viewerId, Pageable pageable);
 
     @Query("""
             select o from Shipment o where o.sender.id = :userId

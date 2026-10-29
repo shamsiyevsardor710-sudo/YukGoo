@@ -1,14 +1,15 @@
 // YukGo — ilova qobig'i va marshrutlash (hash router)
-import { auth, loadMe, get, setUnauthorizedHandler } from './api.js';
+import { auth, loadMe, get, setUnauthorizedHandler, setTermsRequiredHandler } from './api.js';
 import { $, esc, icon, avatar, toast } from './ui.js';
 import { loginPage, registerPage, forgotPage } from './pages/auth.js';
 import { marketPage, createOrderPage, orderPage, myOrdersPage } from './pages/orders.js';
 import { navigationPage } from './pages/navigation.js';
-import { profilePage, publicProfilePage, notificationsPage, driversPage } from './pages/profile.js';
+import { profilePage, publicProfilePage, notificationsPage, driversPage, deleteAccountModal } from './pages/profile.js';
 import { tripsPage } from './pages/trips.js';
 import { adminPage } from './pages/admin.js';
 import { tg, initTelegram, telegramRoute, telegramAutoLogin, telegramLogout } from './telegram.js';
 import { captureAttribution } from './attribution.js';
+import { bindDocLinks, termsGate } from './legal.js';
 
 const routes = [
   { path: '/', page: marketPage, nav: 'market' },
@@ -76,6 +77,16 @@ async function render() {
   }
   if (route.guest && auth.loggedIn) return redirect('#/');
   if (route.staff && !auth.isStaff) return redirect('#/');
+  // Foydalanish shartlari hali qabul qilinmagan (shartlardan oldingi hisob yoki shartlar yangilangan) — avval shartlar
+  if (auth.user && auth.user.termsAccepted === false) {
+    document.body.classList.remove('bare');
+    $('#topbar').classList.remove('hidden');
+    $('#tabbar').classList.remove('hidden');
+    renderShell(null);
+    window.scrollTo(0, 0);
+    termsGate(main, { onAccepted: () => render(), onLogout: () => logout(), onDelete: deleteAccountModal });
+    return;
+  }
 
   document.body.classList.toggle('bare', !!route.bare);
   $('#topbar').classList.toggle('hidden', !!route.bare);
@@ -169,6 +180,14 @@ export async function logout({ server = true } = {}) {
   redirect('#/login');
 }
 
+// Server shartlarni qabul qilishni talab qildi (masalan, sahifa yangilanmasdan eski holatda qolgan) — shartlar ekrani
+setTermsRequiredHandler(() => {
+  if (!auth.user) return;
+  auth.user.termsAccepted = false;
+  $('#modal-root').innerHTML = '';
+  render();
+});
+
 setUnauthorizedHandler(async (msg) => {
   // Telegram ichida sessiya tugagan bo'lsa — parolsiz qayta kirib ko'ramiz
   if (await telegramAutoLogin()) {
@@ -202,6 +221,7 @@ function nativeBackButton() {
 
 (async function boot() {
   nativeBackButton();
+  bindDocLinks();   // shartlar va maxfiylik siyosati havolalari ilova ichida, oynada ochiladi
   captureAttribution();   // ?src=KOD / ?ref=ID — qaysi kanal, hamkor yoki do'st havolasidan kelgani
   await initTelegram();   // oddiy brauzerda hech narsa qilmaydi
   await loadMe({ silent: true });

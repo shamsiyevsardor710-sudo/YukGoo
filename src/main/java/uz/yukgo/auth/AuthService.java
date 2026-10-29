@@ -63,6 +63,7 @@ public class AuthService {
         u.setVillage(req.village().trim());
         u.setHouse(req.house().trim());
         u.setLastLoginAt(Instant.now());
+        if (Boolean.TRUE.equals(req.acceptTerms())) u.acceptTerms();
         linkRepository.findById(vr.getPhone()).ifPresent(l -> u.setTelegramChatId(l.getChatId()));
         userRepository.save(u);
         telegramAuth.bindAfterPasswordProof(u, req.telegramInitData());

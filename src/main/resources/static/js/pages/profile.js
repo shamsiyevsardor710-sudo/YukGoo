@@ -7,7 +7,7 @@ import {
 } from '../ui.js';
 import { phoneVerification } from './auth.js';
 import { inviteBlock, verifyBlock } from './growth-ui.js';
-import { reportDialog } from './orders.js';
+import { reportDialog, blockUser, unblockUser } from './orders.js';
 import { refreshMe, logout, refreshUnread } from '../app.js';
 import { openTopup, topupAvailable, topupReturn } from './topup.js';
 import { digitalSalesBlocked } from '../platform.js';
@@ -163,7 +163,9 @@ export async function profilePage(main, _p, query) {
         <section class="panel stack-sm">
           <a class="btn btn-ghost" href="#/u/${u.id}">Profilim boshqalarga qanday ko'rinadi</a>
           <button class="btn btn-ghost" id="theme">Mavzu: ${themeLabel()}</button>
-          <a class="btn btn-ghost" href="/privacy.html">Maxfiylik siyosati</a>
+          <button class="btn btn-ghost" id="blocked-list">Bloklanganlar</button>
+          <a class="btn btn-ghost" href="/terms.html" data-doc>Foydalanish shartlari</a>
+          <a class="btn btn-ghost" href="/privacy.html" data-doc>Maxfiylik siyosati</a>
           <button class="btn btn-danger" id="logout">${icon('logout')}Chiqish</button>
           <button class="link-btn danger-link" id="delete-account">Hisobni o'chirish</button>
         </section>
@@ -204,6 +206,7 @@ export async function profilePage(main, _p, query) {
     } catch (err) { toast(err.message, 'err'); }
   });
   $('#delete-account', main).addEventListener('click', deleteAccountModal);
+  $('#blocked-list', main).addEventListener('click', blockedListModal);
   $('#theme', main).addEventListener('click', (e) => { cycleTheme(); e.target.textContent = 'Mavzu: ' + themeLabel(); });
 
   if (u.driver) {
@@ -361,13 +364,13 @@ function editProfileModal(onSaved) {
 }
 
 // ---------- Mavzu (yorug'/qorong'i) ----------
-// Google Play talabi: foydalanuvchi hisobini ilovaning o'zida o'chira olishi kerak
-function deleteAccountModal() {
+// Google Play talabi: foydalanuvchi hisobini ilovaning o'zida o'chira olishi kerak (shartlar ekranidan ham ochiladi)
+export function deleteAccountModal() {
   modal("Hisobni o'chirish", `<form class="stack" novalidate>
       <p>Ismingiz, telefon raqamingiz, manzilingiz, rasmlar, mashina ma'lumotlari va Telegram ulanishi o'chiriladi.
         Buyurtmalar va baholar tarixi «O'chirilgan foydalanuvchi» nomi bilan qoladi.</p>
       <p class="small muted">Bu amalni ortga qaytarib bo'lmaydi. Keyinroq shu raqam bilan qaytadan ro'yxatdan o'tishingiz mumkin.
-        <a href="/delete-account.html">Batafsil</a></p>
+        <a href="/delete-account.html" data-doc>Batafsil</a></p>
       <label class="field"><span>Tasdiqlash uchun parolingiz</span>
         <input class="input" name="password" type="password" autocomplete="current-password" required></label>
       <button class="btn btn-danger" type="submit">Hisobni butunlay o'chirish</button></form>`, {
@@ -386,6 +389,30 @@ function deleteAccountModal() {
       });
     },
   });
+}
+
+/** Men bloklagan foydalanuvchilar: blokdan chiqarish shu yerda */
+function blockedListModal() {
+  const ctx = modal('Bloklanganlar', skeletons(2));
+  const body = $('.modal-body', ctx.el);
+  const load = async () => {
+    let list;
+    try { list = await get('/users/me/blocks'); } catch (err) { body.innerHTML = `<p class="muted">${esc(err.message)}</p>`; return; }
+    if (!document.body.contains(ctx.el)) return;
+    body.innerHTML = list.length
+      ? `<div class="stack-sm">${list.map(b => `<div class="row-between blocked-row">
+            <a class="person" href="#/u/${b.id}">${avatar(b.avatarUrl, b.fullName)}
+              <div style="min-width:0"><div class="person-name">${esc(b.fullName)}</div>
+                <div class="person-sub">${esc(date(b.blockedAt))} da bloklangan</div></div></a>
+            <button class="btn btn-sm" data-unblock="${b.id}">Blokdan chiqarish</button></div>`).join('')}</div>
+         <p class="tiny muted" style="margin-top:12px">Bloklangan foydalanuvchi bilan bir-biringizga yoza olmaysiz va bir-biringizning e'lon, reys va takliflaringizni ko'rmaysiz.</p>`
+      : `<p class="muted">Hech kimni bloklamagansiz. Foydalanuvchini uning profilida yoki buyurtma sahifasida «Bloklash» tugmasi bilan bloklash mumkin.</p>`;
+    // Profilga o'tilganda oyna yopiladi (data-close emas: «Orqaga» tugmasi oxirgi data-close'ni bosadi)
+    $$('a.person', body).forEach(a => a.addEventListener('click', () => ctx.close()));
+    $$('[data-unblock]', body).forEach(btn => btn.addEventListener('click', () =>
+      busy(btn, () => unblockUser(Number(btn.dataset.unblock), load))));
+  };
+  load();
 }
 
 function themeLabel() {
@@ -417,10 +444,20 @@ export async function publicProfilePage(main, { id }) {
     <div class="stack">
       <section class="panel"><h2>Mashinasi</h2><div style="margin-top:14px">${vehicleBlock(u.vehicle, false)}</div></section>
       ${u.telegramLinked ? `<section class="panel panel-tight small">Telegram orqali tasdiqlangan raqam ✅</section>` : ''}
-      ${isMe ? `<a class="btn" href="#/profile">Profilimni tahrirlash</a>` : `<button class="btn btn-ghost btn-sm" id="report">Shikoyat qilish</button>`}
+      ${isMe ? `<a class="btn" href="#/profile">Profilimni tahrirlash</a>`
+        : `<div class="row profile-actions">
+            <button class="btn btn-ghost btn-sm" id="report">Shikoyat qilish</button>
+            ${u.blockedByMe
+              ? `<button class="btn btn-ghost btn-sm" id="unblock">Blokdan chiqarish</button>`
+              : `<button class="btn btn-ghost btn-sm danger-text" id="block">Bloklash</button>`}
+          </div>
+          ${u.blockedByMe ? `<p class="small muted" style="margin:0">Siz bu foydalanuvchini bloklagansiz: bir-biringizga yoza olmaysiz va e'lonlaringizni ko'rmaysiz.</p>` : ''}`}
     </div></div></div>`;
   reviewsBlock($('#reviews', main), u.id);
-  $('#report', main)?.addEventListener('click', () => reportDialog(u.id, null));
+  const again = () => publicProfilePage(main, { id });
+  $('#report', main)?.addEventListener('click', () => reportDialog(u.id, null, { name: u.fullName, onBlocked: again }));
+  $('#block', main)?.addEventListener('click', () => blockUser(u.id, u.fullName, again));
+  $('#unblock', main)?.addEventListener('click', (e) => busy(e.currentTarget, () => unblockUser(u.id, again)));
 }
 
 // =====================================================================

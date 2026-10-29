@@ -33,7 +33,7 @@
   <main>
     <article>
       <h1>Maxfiylik siyosati</h1>
-      <p class="muted">Oxirgi yangilanish: 2026-yil 25-oktabr</p>
+      <p class="muted">Oxirgi yangilanish: 2026-yil 29-oktabr</p>
 
       <p>YukGo — yuk egalari va haydovchilarni bog'laydigan xizmat: veb-sayt, Telegram bot (@YukGoobot), Telegram ichidagi ilova va Android ilova.
         Bu sahifa qanday ma'lumotlar yig'ilishi, nima uchun ishlatilishi, kimga ko'rinishi va qanday o'chirilishini tushuntiradi.</p>
@@ -41,7 +41,8 @@
       <h2>1. Qanday ma'lumotlarni yig'amiz</h2>
       <ul>
         <li><b>Hisob:</b> ism, familiya, telefon raqam, parol (faqat shifrlangan ko'rinishda saqlanadi), viloyat, tuman, mahalla va uy manzili, profil rasmi va o'zingiz haqingizdagi matn.</li>
-        <li><b>Tasdiqlash kodlari:</b> ro'yxatdan o'tish, parolni tiklash va raqamni o'zgartirishda telefoningizga SMS bilan kod yuboriladi.
+        <li><b>Tasdiqlash kodlari:</b> ro'yxatdan o'tish, parolni tiklash va raqamni o'zgartirishda kod telefoningizga SMS bilan
+          (SMS ulanmagan yoki yetib bormagan bo'lsa — Telegram bot orqali) yuboriladi.
           Bazada kodning o'zi emas, faqat shifrlangan izi saqlanadi va 2 kundan keyin o'chiriladi.</li>
         <li><b>Telegram:</b> raqamingizni bot orqali tasdiqlaganingizda yoki YukGo'ni Telegram ichida ochganingizda — Telegram ID raqamingiz (xabar yuborish va avtomatik kirish uchun).</li>
         <li><b>Haydovchilar:</b> mashina markasi, modeli, davlat raqami, rangi, yuk ko'tarish hajmi va mashina rasmi, ishlaydigan viloyatlar.</li>
@@ -55,6 +56,7 @@
         <li><b>Joylashuv (faqat haydovchilar):</b> buyurtmani yetkazayotganda navigatsiya sahifasi ochiq bo'lsa, GPS joylashuvingiz yuboruvchiga ko'rsatish uchun serverga yuboriladi.
           Android ilovada ekran o'chiq bo'lsa ham kuzatuv davom etadi — bu vaqtda telefoningizda doim bildirishnoma ko'rinib turadi va navigatsiyadan chiqishingiz bilan kuzatuv to'xtaydi.
           Boshqa paytlarda joylashuvingiz yig'ilmaydi.</li>
+        <li><b>Bloklash va murojaatlar:</b> siz bloklagan foydalanuvchilar ro'yxati (uni faqat siz ko'rasiz) va adminlarga yuborgan shikoyat yoki murojaatlaringiz.</li>
         <li><b>Balans:</b> balans to'ldirish va komissiya kabi harakatlar (bu imkoniyat yoqilgan bo'lsa).</li>
         <li><b>Onlayn to'lovlar:</b> balansni Click, Payme yoki Paynet orqali to'ldirsangiz — to'lov summasi, vaqti, holati va to'lov tizimidagi
           tranzaksiya raqami. Karta ma'lumotlarini to'lov tizimining o'z sahifasida yoki ilovasida kiritasiz — ular YukGo'ga kelmaydi.</li>
@@ -87,7 +89,7 @@
 
       <h2>4. Qancha vaqt saqlaymiz</h2>
       <p>Ma'lumotlar hisobingiz faol bo'lguncha saqlanadi. Hisobni o'chirsangiz, shaxsiy ma'lumotlaringiz o'chiriladi: ism, telefon, manzil, rasmlar, mashina,
-        Telegram ulanishi, joylashuv va haydovchi sifatidagi GPS yo'llari, reys e'lonlari, bildirishnomalar.
+        Telegram ulanishi, joylashuv va haydovchi sifatidagi GPS yo'llari, reys e'lonlari, bildirishnomalar, bloklanganlar ro'yxati.
         Buyurtmalar, baholar, yozishmalar va balans harakatlari tarixi nizolar va hisob-kitob uchun «O'chirilgan foydalanuvchi» nomi bilan, sizga bog'lanmagan holda qoladi
         (siz yozgan xabar va sharhlar matni ikkinchi tomonda ko'rinib turadi). Boshqa foydalanuvchilarga avval kelgan bildirishnomalardan telefon raqamingiz
         olib tashlanadi, ismingiz esa ularda qolishi mumkin; ularning Telegramiga avval yuborilgan xabarlar o'sha yerda qoladi.
@@ -99,6 +101,8 @@
         <li>Profilingizdagi ma'lumotlarni istalgan vaqtda ko'rish va tahrirlash.</li>
         <li>Telegram bildirishnomalari va yangi buyurtmalar haqidagi xabarlarni profil sozlamalarida o'chirish yoki hisobni Telegramdan butunlay uzish:
           <b>Profil → Telegram → «Telegramdan uzish»</b>. Telegram ichida «Chiqish» bosilsa, keyingi safar YukGo o'zi kirmaydi — parol so'raladi.</li>
+        <li>Foydalanuvchini bloklash yoki u haqida shikoyat qilish: uning profilida yoki buyurtma sahifasida <b>«Bloklash»</b> va <b>«Shikoyat qilish»</b>.
+          Bloklanganlar ro'yxati: <b>Profil → Bloklanganlar</b>.</li>
         <li>Hisobni o'chirish: <b>Profil → Hisobni o'chirish</b>. Batafsil: <a href="/delete-account.html">hisobni o'chirish sahifasi</a>.</li>
       </ul>
 
@@ -112,7 +116,10 @@
       <h2>8. O'zgartirishlar</h2>
       <p>Siyosat o'zgarsa, shu sahifa yangilanadi va yuqoridagi sana o'zgaradi. Muhim o'zgarishlar haqida ilovada xabar beramiz.</p>
 
-      <h2>9. Aloqa</h2>
+      <h2>9. Foydalanish qoidalari</h2>
+      <p>Qanday kontent taqiqlangani, shikoyat va bloklash tartibi: <a href="/terms.html">foydalanish shartlari</a>.</p>
+
+      <h2>10. Aloqa</h2>
       <p>Savol yoki so'rovlaringizni ilovadagi <b>«Shikoyat qilish»</b> tugmasi orqali yuboring — ular adminlarga yetib boradi.
         <span id="support-email" hidden> Elektron pochta: <a href=""></a>.</span></p>
 

@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * To'liq oqim: ro'yxatdan o'tish (dev-kod bilan) → buyurtma → taklif → qabul → yo'lda → topshirish → baho,
- * hamda admin/ega huquqlari.
+ * admin/ega huquqlari, foydalanish shartlari va bloklash.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -57,6 +57,11 @@ class FullFlowTest {
     }
 
     private String register(String phone, String first, String last) throws Exception {
+        return register(phone, first, last, true);
+    }
+
+    /** @param acceptTerms false — shartlar paydo bo'lishidan oldingi (eski) hisob kabi */
+    private String register(String phone, String first, String last, boolean acceptTerms) throws Exception {
         JsonNode start = call("POST", "/api/auth/register/start", Map.of("phone", phone), null, 200);
         String requestId = start.get("requestId").asText();
         String code = start.get("devCode").asText();
@@ -64,7 +69,8 @@ class FullFlowTest {
         long r = firstRegion();
         JsonNode res = call("POST", "/api/auth/register/complete", Map.of(
                 "requestId", requestId, "firstName", first, "lastName", last, "password", "secret123",
-                "regionId", r, "districtId", firstDistrict(r), "village", "Bog'bon mahallasi", "house", "12-uy"), null, 200);
+                "regionId", r, "districtId", firstDistrict(r), "village", "Bog'bon mahallasi", "house", "12-uy",
+                "acceptTerms", acceptTerms), null, 200);
         return res.get("token").asText();
     }
 
@@ -159,5 +165,42 @@ class FullFlowTest {
         // Faqat ega adminni chiqarib yuboradi
         call("POST", "/api/admin/users/" + idA + "/remove", Map.of("reason", "test"), owner, 200);
         call("GET", "/api/users/me", null, adminA, 403);
+    }
+
+    @Test
+    @Order(3)
+    void termsAndBlocking() throws Exception {
+        // Shartlarni qabul qilmagan (eski) hisob kontent yarata olmaydi — 428; qabul qilgach oladi
+        String sender = register("+998906666666", "Eski", "Hisob", false);
+        assertThat(call("GET", "/api/users/me", null, sender, 200).get("termsAccepted").asBoolean()).isFalse();
+        long r = firstRegion();
+        var newOrder = Map.ofEntries(
+                Map.entry("title", "10 qop un"), Map.entry("cargoType", "BUILDING_MATERIALS"),
+                Map.entry("weightKg", 500), Map.entry("from", Map.of("regionId", r, "lat", 41.3, "lng", 69.2)),
+                Map.entry("to", Map.of("regionId", r + 1, "lat", 39.6, "lng", 66.9)),
+                Map.entry("distanceKm", 300), Map.entry("price", 700000),
+                Map.entry("receiverName", "Aziz"), Map.entry("receiverPhone", "+998933333333"));
+        call("POST", "/api/orders", newOrder, sender, 428);
+        assertThat(call("POST", "/api/users/me/terms", null, sender, 200).get("termsAccepted").asBoolean()).isTrue();
+        long orderId = call("POST", "/api/orders", newOrder, sender, 200).get("id").asLong();
+
+        // Yuboruvchi haydovchini bloklaydi: taklif ham, olish ham yopiq, bozorda e'lon ko'rinmaydi
+        String driver = register("+998907777777", "Blok", "Haydovchi");
+        call("PUT", "/api/users/me/vehicle", Map.of("brand", "Isuzu", "plateNumber", "01 b 777 bc",
+                "bodyType", "TENT", "capacityKg", 5000), driver, 200);
+        long driverId = call("GET", "/api/users/me", null, driver, 200).get("id").asLong();
+        call("POST", "/api/users/" + driverId + "/block", null, sender, 200);
+        assertThat(call("GET", "/api/users/me/blocks", null, sender, 200).size()).isEqualTo(1);
+        assertThat(call("GET", "/api/users/" + driverId, null, sender, 200).get("blockedByMe").asBoolean()).isTrue();
+        call("POST", "/api/orders/" + orderId + "/offers", Map.of("price", 650000), driver, 403);
+        call("POST", "/api/orders/" + orderId + "/take", null, driver, 403);
+        boolean visible = false;
+        for (JsonNode o : call("GET", "/api/orders", null, driver, 200).get("items")) visible |= o.get("id").asLong() == orderId;
+        assertThat(visible).isFalse();
+
+        // Blokdan chiqarilgach hammasi odatdagidek
+        call("DELETE", "/api/users/" + driverId + "/block", null, sender, 200);
+        assertThat(call("GET", "/api/users/me/blocks", null, sender, 200).size()).isEqualTo(0);
+        call("POST", "/api/orders/" + orderId + "/offers", Map.of("price", 650000), driver, 200);
     }
 }

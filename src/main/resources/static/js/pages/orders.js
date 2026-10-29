@@ -1,5 +1,5 @@
 // Buyurtmalar: bozor, yaratish, batafsil ko'rinish, mening buyurtmalarim
-import { auth, get, post, upload, regions, config } from '../api.js';
+import { auth, get, post, del, upload, regions, config } from '../api.js';
 import {
   $, $$, esc, icon, money, km, duration, date, dateTime, ago, phoneFmt, avatar, stars, toast, modal, confirmDialog,
   formData, showError, clearError, busy, bindRegionDistrict, regionOptions, options, routeStrip, statusPill,
@@ -439,7 +439,7 @@ export function commissionFor(pr, price) {
 }
 
 export async function orderPage(main, { id }) {
-  let o, timer = null, chatTimer = null, mapCtx = null, driverMark = null, lastMsgId = 0, routeDrawn = false;
+  let o, timer = null, chatTimer = null, mapCtx = null, driverMark = null, lastMsgId = 0, routeDrawn = false, needsRender = false;
   const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
   const pr = cfg.pricing?.enabled ? cfg.pricing : null;   // daromad tizimi o'chiq bo'lsa — null, hech narsa ko'rsatilmaydi
   const urgentFee = pr && pr.urgentFee > 0 ? pr.urgentFee : 0;
@@ -493,16 +493,20 @@ export async function orderPage(main, { id }) {
           </section>
           ${participant && o.driver ? `<section class="panel"><h2>Yozishma</h2>
             <div class="chat" style="margin-top:12px"><div class="chat-list" id="chat-list"></div>
-              <form class="chat-form" id="chat-form"><input class="input" name="text" maxlength="1000" placeholder="Xabar yozing…" autocomplete="off" aria-label="Xabar">
-                <button class="btn btn-route" type="submit">Yuborish</button></form></div></section>` : ''}
+              ${o.block ? `<div class="chat-closed small" role="status">${o.block === 'ME'
+                  ? `Siz bu foydalanuvchini bloklagansiz — yozishma yopiq. <button class="link-btn" type="button" data-unblock>Blokdan chiqarish</button>`
+                  : "Bu buyurtma bo'yicha yozishma yopilgan."}</div>`
+                : `<form class="chat-form" id="chat-form"><input class="input" name="text" maxlength="1000" placeholder="Xabar yozing…" autocomplete="off" aria-label="Xabar">
+                <button class="btn btn-route" type="submit">Yuborish</button></form>`}</div></section>` : ''}
           ${participant || auth.isStaff ? `<section class="panel"><h2>Tarix</h2><ul class="timeline" id="timeline" style="margin-top:14px"></ul></section>` : ''}
         </div>
         <div class="stack">
           <div id="actions" class="stack"></div>
           <section class="panel stack-sm">
             <h3>Yuboruvchi</h3>${personCard(o.sender)}
+            ${isDriver ? counterpartActions() : ''}
           </section>
-          ${o.driver ? `<section class="panel stack-sm"><h3>Haydovchi</h3>${personCard(o.driver, true)}</section>` : ''}
+          ${o.driver ? `<section class="panel stack-sm"><h3>Haydovchi</h3>${personCard(o.driver, true)}${isSender ? counterpartActions() : ''}</section>` : ''}
           ${!participant && auth.user ? `<button class="btn btn-ghost btn-sm" id="report">Shikoyat qilish</button>` : ''}
         </div>
       </div>
@@ -510,8 +514,26 @@ export async function orderPage(main, { id }) {
     renderActions();
     drawMap();
     if ($('#timeline', main)) loadEvents();
-    if ($('#chat-form', main)) initChat();
-    $('#report', main)?.addEventListener('click', () => reportDialog(o.sender.id, o.id));
+    if ($('#chat-list', main)) initChat();
+    // Begona e'lon: shikoyat (istasa — yuboruvchini bloklash ham; shunda e'lonlari bozorda ko'rinmaydi)
+    $('#report', main)?.addEventListener('click', () => reportDialog(o.sender.id, o.id, { name: o.sender.fullName, onBlocked: () => go('#/') }));
+    // Ikkinchi tomon: shikoyat va bloklash (Google Play: 1:1 yozishmada majburiy)
+    const other = isSender ? o.driver : isDriver ? o.sender : null;
+    if (other) {
+      $('[data-report-other]', main)?.addEventListener('click', () => reportDialog(other.id, o.id, { name: other.fullName, onBlocked: load }));
+      $('[data-block-other]', main)?.addEventListener('click', () => blockUser(other.id, other.fullName, load));
+      $$('[data-unblock]', main).forEach(b => b.addEventListener('click', () => unblockUser(other.id, load)));
+    }
+  }
+
+  /** Buyurtmadagi ikkinchi tomon uchun: shikoyat qilish va bloklash / blokdan chiqarish */
+  function counterpartActions() {
+    return `<div class="person-actions">
+        <button class="link-btn" type="button" data-report-other>Shikoyat qilish</button>
+        ${o.block === 'ME'
+          ? `<button class="link-btn" type="button" data-unblock>Blokdan chiqarish</button>`
+          : `<button class="link-btn danger-link" type="button" data-block-other>Bloklash</button>`}
+      </div>`;
   }
 
   function personCard(u, withVehicle) {
@@ -798,7 +820,11 @@ export async function orderPage(main, { id }) {
       try {
         const msgs = await get(`/orders/${id}/messages`, { after: lastMsgId });
         if (!msgs.length) {
-          if (!list.children.length) list.innerHTML = `<p class="muted small" style="margin:auto;text-align:center" id="chat-empty">Yuk bo'yicha savollaringizni shu yerda yozing. Xabar Telegramga ham boradi.</p>`;
+          if (!list.children.length) {
+            list.innerHTML = `<p class="muted small" style="margin:auto;text-align:center" id="chat-empty">${form
+              ? "Yuk bo'yicha savollaringizni shu yerda yozing. Xabar Telegramga ham boradi."
+              : "Xabarlar yo'q."}</p>`;
+          }
           return;
         }
         $('#chat-empty', list)?.remove();
@@ -810,12 +836,16 @@ export async function orderPage(main, { id }) {
         list.scrollTop = list.scrollHeight;
       } catch { /* */ }
     };
-    form.addEventListener('submit', async (e) => {
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const text = form.text.value.trim();
       if (!text) return;
       form.text.value = '';
-      try { await post(`/orders/${id}/messages`, { text }); pull(); } catch (err) { toast(err.message, 'err'); form.text.value = text; }
+      try { await post(`/orders/${id}/messages`, { text }); pull(); } catch (err) {
+        toast(err.message, 'err');
+        form.text.value = text;
+        if (err.status === 403) load();   // masalan, ikkinchi tomon bloklagan — sahifa yopiq yozishmani ko'rsatadi
+      }
     });
     await pull();
     clearInterval(chatTimer);
@@ -828,32 +858,69 @@ export async function orderPage(main, { id }) {
     if (!o || o.status === 'DELIVERED' || o.status === 'CANCELLED') return;
     try {
       const fresh = await get('/orders/' + id);
-      const changed = fresh.status !== o.status || fresh.offersCount !== o.offersCount || fresh.driver?.id !== o.driver?.id;
+      const changed = needsRender || fresh.status !== o.status || fresh.offersCount !== o.offersCount
+        || fresh.driver?.id !== o.driver?.id || fresh.block !== o.block;
       o = fresh;
-      if (changed && !document.activeElement?.closest('form')) { driverMark = null; render(); }
-      else updateDriverMark();
+      // Foydalanuvchi hozir yozayotgan bo'lsa — sahifani qayta chizmaymiz, lekin o'zgarishni unutmaymiz (keyingi safar)
+      if (changed && !document.activeElement?.closest('form')) { needsRender = false; driverMark = null; render(); }
+      else { if (changed) needsRender = true; updateDriverMark(); }
     } catch { /* */ }
   }, 10000);
   return () => { clearInterval(timer); clearInterval(chatTimer); };
 }
 
-export function reportDialog(targetUserId, orderId) {
+/**
+ * Shikoyat yoki murojaat. opts.onBlocked berilsa — «Bloklash ham» belgisi chiqadi (shikoyat bilan birga bloklash).
+ */
+export function reportDialog(targetUserId, orderId, { name, onBlocked } = {}) {
+  const canBlock = !!onBlocked && !!targetUserId;
   modal('Shikoyat yoki murojaat', `<form class="stack" novalidate>
-      <p class="small muted">Murojaatingizni adminlar ko'rib chiqadi va javob Telegramga keladi.</p>
+      <p class="small muted">Murojaatingizni adminlar ko'rib chiqadi, javobi bildirishnomalarda (Telegram ulangan bo'lsa — Telegramda ham) keladi.</p>
       <label class="field"><span>Nima bo'ldi?</span><textarea class="textarea" name="text" minlength="5" maxlength="1000" required></textarea></label>
+      ${canBlock ? `<label class="check"><input type="checkbox" name="alsoBlock">
+        <span>${name ? esc(name) + 'ni' : 'Bu foydalanuvchini'} bloklash ham — bir-biringizga yoza olmaysiz</span></label>` : ''}
       <button class="btn btn-primary" type="submit">Yuborish</button></form>`, {
     onMount: ({ el, close }) => {
       const form = $('form', el);
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const alsoBlock = canBlock && form.alsoBlock.checked;
         try {
-          await busy(form.querySelector('[type=submit]'), () => post('/reports', { targetUserId, orderId, text: form.text.value.trim() }));
-          toast('Murojaat yuborildi', 'ok');
+          await busy(form.querySelector('[type=submit]'), async () => {
+            await post('/reports', { targetUserId, orderId, text: form.text.value.trim() });
+            if (alsoBlock) await post(`/users/${targetUserId}/block`);
+          });
+          toast(alsoBlock ? 'Murojaat yuborildi, foydalanuvchi bloklandi' : 'Murojaat yuborildi', 'ok');
           close();
+          if (alsoBlock) onBlocked();
         } catch (err) { showError(form, err); }
       });
     },
   });
+}
+
+/** Foydalanuvchini bloklash (tasdiqlash oynasi bilan). onDone — sahifani yangilash. */
+export async function blockUser(userId, name, onDone) {
+  const ok = await confirmDialog(`${name || 'Foydalanuvchi'} bloklansinmi?`,
+    "Bir-biringizga yoza olmaysiz, u e'lonlaringizga taklif bera olmaydi, bozor, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz. "
+    + "Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Profil → Bloklanganlar bo'limida istalgan vaqtda blokdan chiqarishingiz mumkin.",
+    { okText: 'Bloklash', danger: true });
+  if (!ok) return false;
+  try {
+    await post(`/users/${userId}/block`);
+    toast('Foydalanuvchi bloklandi', 'ok');
+    if (onDone) onDone();
+    return true;
+  } catch (err) { toast(err.message, 'err'); return false; }
+}
+
+export async function unblockUser(userId, onDone) {
+  try {
+    await del(`/users/${userId}/block`);
+    toast('Blokdan chiqarildi', 'ok');
+    if (onDone) onDone();
+    return true;
+  } catch (err) { toast(err.message, 'err'); return false; }
 }
 
 // =====================================================================

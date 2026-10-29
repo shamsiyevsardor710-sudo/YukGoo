@@ -23,7 +23,9 @@ import uz.yukgo.review.ReviewRepository;
 import uz.yukgo.security.CurrentUser;
 import uz.yukgo.telegram.TelegramClient;
 import uz.yukgo.telegram.TelegramLinkRepository;
+import uz.yukgo.user.BlockService;
 import uz.yukgo.user.BodyType;
+import uz.yukgo.user.Terms;
 import uz.yukgo.user.User;
 import uz.yukgo.user.UserDtos.UserBrief;
 import uz.yukgo.user.UserRepository;
@@ -65,6 +67,7 @@ public class OrderService {
     private final GrowthService growth;
     private final ChannelHooks channels;
     private final uz.yukgo.common.RowLocks locks;
+    private final BlockService blocks;
 
     // =====================================================================
     // Yaratish va ko'rish
@@ -73,6 +76,7 @@ public class OrderService {
     @Transactional
     public OrderDto create(CreateOrderRequest req) {
         User me = currentUser.get();
+        Terms.require(me);
         Region fromRegion = locationService.region(req.from().regionId());
         Region toRegion = locationService.region(req.to().regionId());
         District fromDistrict = req.from().districtId() == null ? null : locationService.district(req.from().districtId(), fromRegion);
@@ -117,19 +121,20 @@ public class OrderService {
         event(o, OrderStatus.NEW, "Buyurtma e'lon qilindi", me);
         notifyDriversAboutNewOrder(o, me);
         channels.orderChanged(o.getId());   // YukGo va hamkor Telegram kanallariga e'lon (saqlangandan keyin)
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     @Transactional
     public OrderDto uploadPhoto(Long orderId, MultipartFile file) {
         User me = currentUser.get();
+        Terms.require(me);
         Order o = find(orderId);
         requireSender(o, me);
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Rasmni faqat yangi buyurtmaga qo'shish mumkin");
         String url = files.storeImage(file, "orders");
         files.delete(o.getPhotoUrl());
         o.setPhotoUrl(url);
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     @Transactional(readOnly = true)
@@ -138,7 +143,7 @@ public class OrderService {
         User viewer = currentUserOrNull();
         String like = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase() + "%";
         var result = orderRepository.market(fromRegion, toRegion, cargoType, scope, bodyType, maxWeight, like,
-                LocalDate.now(TZ), PageRequest.of(Math.max(0, page), 20));
+                LocalDate.now(TZ), viewer == null ? null : viewer.getId(), PageRequest.of(Math.max(0, page), 20));
         return PageResponse.of(result, o -> toDto(o, viewer));
     }
 
@@ -147,7 +152,7 @@ public class OrderService {
         User viewer = currentUser.get();
         Order o = find(id);
         if (!isParticipant(o, viewer)) o.setViewsCount(o.getViewsCount() + 1);
-        return toDto(o, viewer);
+        return toDto(o, viewer, true);
     }
 
     /**
@@ -179,10 +184,14 @@ public class OrderService {
     @Transactional
     public OfferDto makeOffer(Long orderId, OfferRequest req) {
         User me = currentUser.get();
-        Order o = find(orderId);
+        Terms.require(me);
+        // Qator bloklanadi: bir vaqtda bloklash (BlockService ochiq takliflarni shu qator bloklangan holda yopadi) yoki
+        // qabul qilish bilan to'qnashmasin — taklif yopilgandan keyin eski holat bilan qayta «PENDING» bo'lib qolmasin
+        Order o = findForUpdate(orderId);
         requireDriverProfile(me);
         if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizga taklif bera olmaysiz");
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Bu buyurtma endi taklif qabul qilmaydi");
+        blocks.requireNone(me.getId(), o.getSender().getId(), "Bu buyurtmaga taklif bera olmaysiz");
         // Daromad tizimi yoqilgan bo'lsa: qabul qilinganda komissiyani to'lay olishini oldindan tekshiramiz
         // (yangi haydovchining bonusli — komissiyasiz — buyurtmalari bo'lsa, balans shart emas)
         if (wallet.freeDeliveriesLeft(me) <= 0) wallet.requireBalanceForCommission(me, req.price());
@@ -215,9 +224,12 @@ public class OrderService {
         User me = currentUser.get();
         Order o = find(orderId);
         boolean sender = o.getSender().getId().equals(me.getId());
+        // Yuboruvchiga blok bo'lgan haydovchilarning takliflari ko'rsatilmaydi (bloklashda ochiqlari yopiladi)
+        Set<Long> hidden = sender ? blocks.related(me.getId()) : Set.of();
         return offerRepository.findByOrderIdOrderByPriceAscCreatedAtAsc(orderId).stream()
                 .filter(f -> sender || me.getRole().isStaff() || f.getDriver().getId().equals(me.getId()))
                 .filter(f -> f.getStatus() != OfferStatus.WITHDRAWN || !sender)
+                .filter(f -> !hidden.contains(f.getDriver().getId()))
                 .map(OfferDto::of)
                 .toList();
     }
@@ -233,19 +245,22 @@ public class OrderService {
                 .orElseThrow(() -> ApiException.notFound("Taklif topilmadi"));
         if (offer.getStatus() != OfferStatus.PENDING) throw ApiException.badRequest("Bu taklif endi faol emas");
         if (!offer.getDriver().isActive()) throw ApiException.badRequest("Bu haydovchi hisobi faol emas");
+        blocks.requireNone(me.getId(), offer.getDriver().getId(), "Bu taklifni qabul qilib bo'lmaydi");
         assignDriver(o, offer, me);
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     /** Haydovchi e'londagi narxga darhol rozi bo'lib buyurtmani oladi. */
     @Transactional
     public OrderDto take(Long orderId) {
         User me = currentUser.get();
+        Terms.require(me);
         Order o = findForUpdate(orderId);
         requireDriverProfile(me);
         if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizni ola olmaysiz");
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Buyurtma allaqachon band qilingan");
         if (o.getPrice() == null) throw ApiException.badRequest("Bu buyurtmada narx kelishiladi — taklif yuboring");
+        blocks.requireNone(me.getId(), o.getSender().getId(), "Bu buyurtmani ola olmaysiz");
 
         Offer offer = offerRepository.findFirstByOrderIdAndDriverIdAndStatus(orderId, me.getId(), OfferStatus.PENDING)
                 .orElseGet(Offer::new);
@@ -255,7 +270,7 @@ public class OrderService {
         offer.setComment("E'londagi narxga rozi bo'ldi");
         offerRepository.save(offer);
         assignDriver(o, offer, me);
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     /** Yuboruvchi e'lonni shoshilinch qiladi: ro'yxatda eng yuqoriga chiqadi va haydovchilarga qayta xabar boradi. */
@@ -265,7 +280,7 @@ public class OrderService {
         Order o = findForUpdate(orderId);
         requireSender(o, me);
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Faqat haydovchi kutayotgan e'lonni shoshilinch qilish mumkin");
-        if (o.isUrgent()) return toDto(o, me);
+        if (o.isUrgent()) return toDto(o, me, true);
         if (o.getPickupDate() != null && o.getPickupDate().isBefore(LocalDate.now(TZ))) {
             throw ApiException.badRequest("Olib ketish sanasi o'tib ketgan e'lonni shoshilinch qilib bo'lmaydi. Yangi sana bilan qayta joylang.");
         }
@@ -274,7 +289,7 @@ public class OrderService {
         event(o, OrderStatus.NEW, "E'lon shoshilinch qilindi" + (fee > 0 ? " (" + money(fee) + ")" : ""), me);
         notifyDriversAboutNewOrder(o, me);
         channels.orderChanged(o.getId());   // kanal postiga 🔥 belgisi
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     /** Daromad tizimi yoqilgan bo'lsa shoshilinch narxini yuboruvchidan yechadi. @return yechilgan summa */
@@ -380,7 +395,7 @@ public class OrderService {
                         + "Qabul qiluvchiga topshirish kodini ayting: " + o.getDeliveryCode(),
                 "#/orders/" + o.getId());
         notifyReceiver(o);
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     /** Qabul qiluvchi Telegramga ulangan bo'lsa unga ham xabar va kod yuboriladi. */
@@ -418,7 +433,7 @@ public class OrderService {
                 "#/orders/" + o.getId());
         notifications.notify(me, "Buyurtma yakunlandi",
                 "\"" + o.getTitle() + "\" — rahmat! Yuboruvchini baholashni unutmang.", "#/orders/" + o.getId());
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     @Transactional
@@ -473,7 +488,7 @@ public class OrderService {
         } else {
             throw ApiException.forbidden("Ruxsat yo'q");
         }
-        return toDto(o, me);
+        return toDto(o, me, true);
     }
 
     /** Admin istalgan holatdagi (yakunlanmagan) buyurtmani bekor qiladi. */
@@ -637,9 +652,12 @@ public class OrderService {
     @Transactional
     public MessageDto sendMessage(Long orderId, MessageRequest req) {
         User me = currentUser.get();
+        Terms.require(me);
         Order o = find(orderId);
         if (!isParticipant(o, me)) throw ApiException.forbidden("Yozishma faqat yuboruvchi va haydovchi o'rtasida");
         if (o.getDriver() == null) throw ApiException.badRequest("Haydovchi tanlangandan keyin yozishish mumkin");
+        User counterpart = o.getSender().getId().equals(me.getId()) ? o.getDriver() : o.getSender();
+        blocks.requireNone(me.getId(), counterpart.getId(), "Bu foydalanuvchi bilan yozishma cheklangan");
         OrderMessage m = new OrderMessage();
         m.setOrderId(orderId);
         m.setAuthor(me);
@@ -715,6 +733,7 @@ public class OrderService {
     private void notifyDriversAboutNewOrder(Order o, User sender) {
         try {
             List<User> drivers = userRepository.findDriversToNotify(o.getFromRegion().getId(), o.getToRegion().getId(), sender.getId());
+            Set<Long> blocked = blocks.related(sender.getId());   // yuboruvchi bilan blok bo'lganlarga e'lon xabari bormaydi
             String html = (o.isUrgent() ? "🔥 <b>SHOSHILINCH</b>\n" : "") + "📦 <b>Yangi buyurtma</b>: " + TelegramClient.esc(o.getTitle()) + "\n"
                     + "📍 " + TelegramClient.esc(placeName(o.getFromRegion(), o.getFromDistrict())) + " → "
                     + TelegramClient.esc(placeName(o.getToRegion(), o.getToDistrict())) + "\n"
@@ -723,6 +742,7 @@ public class OrderService {
                     + "💰 " + (o.getPrice() != null ? money(o.getPrice()) : "Narx kelishiladi");
             int n = 0;
             for (User d : drivers) {
+                if (blocked.contains(d.getId())) continue;
                 if (o.getRequiredBodyType() != null && d.getVehicle().getBodyType() != null
                         && d.getVehicle().getBodyType() != o.getRequiredBodyType()) continue;
                 if (o.getWeightKg() != null && d.getVehicle().getCapacityKg() != null
@@ -785,6 +805,11 @@ public class OrderService {
     }
 
     OrderDto toDto(Order o, User viewer) {
+        return toDto(o, viewer, false);
+    }
+
+    /** @param withBlock buyurtma sahifasi uchun: tomonlar o'rtasida blok bormi (yozishma yopiladi) — ro'yxatlarda hisoblanmaydi */
+    OrderDto toDto(Order o, User viewer, boolean withBlock) {
         boolean isSender = viewer != null && o.getSender().getId().equals(viewer.getId());
         boolean isDriver = viewer != null && o.getDriver() != null && o.getDriver().getId().equals(viewer.getId());
         boolean isStaff = viewer != null && viewer.getRole().isStaff();
@@ -802,6 +827,12 @@ public class OrderService {
         Boolean reviewed = null;
         if (o.getStatus() == OrderStatus.DELIVERED && (isSender || isDriver)) {
             reviewed = reviewRepository.existsByOrderIdAndAuthorId(o.getId(), viewer.getId());
+        }
+        String block = null;
+        if (withBlock && (isSender || isDriver) && o.getDriver() != null) {
+            String s = blocks.state(viewer.getId(), isSender ? o.getDriver().getId() : o.getSender().getId());
+            // Kim bloklaganini oshkor qilmaymiz: o'zim bloklagan bo'lsam — "ME" (blokdan chiqarish mumkin), aks holda "CLOSED"
+            block = s == null ? null : BlockService.BY_ME.equals(s) ? "ME" : "CLOSED";
         }
         return new OrderDto(
                 o.getId(), o.getTitle(), o.getCargoType(), o.getWeightKg(), o.getVolumeM3(), o.getDescription(),
@@ -822,7 +853,8 @@ public class OrderService {
                 viewerRole, myOffer, reviewed,
                 seeContacts ? o.getDriverLat() : null, seeContacts ? o.getDriverLng() : null,
                 seeContacts ? o.getDriverLocationAt() : null,
-                isDriver || isStaff ? o.getCommission() : null);
+                isDriver || isStaff ? o.getCommission() : null,
+                block);
     }
 
     private static PlaceDto place(Region r, District d, String address, Double lat, Double lng) {

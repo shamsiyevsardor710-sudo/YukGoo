@@ -56,7 +56,12 @@ public final class OrderDtos {
             Boolean reviewedByMe,
             Double driverLat, Double driverLng, Instant driverLocationAt,
             /** Haydovchidan yechilgan komissiya — faqat shu haydovchi va adminlarga ko'rinadi */
-            Long commission) {}
+            Long commission,
+            /**
+             * Faqat buyurtma sahifasida, tomonlar uchun: "ME" — men ikkinchi tomonni bloklaganman, "CLOSED" — yozishma
+             * boshqa sababdan yopiq (kim bloklagani oshkor qilinmaydi), null — blok yo'q
+             */
+            String block) {}
 
     public record OfferRequest(
             @NotNull(message = "Narxni kiriting") @Min(value = 1000, message = "Narx kamida 1 000 so'm") Long price,

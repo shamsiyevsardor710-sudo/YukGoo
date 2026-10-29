@@ -27,23 +27,38 @@ public final class UserDtos {
         }
     }
 
-    /** Hammaga ko'rinadigan profil (phone — null bo'lishi mumkin: yashirilgan) */
+    /**
+     * Hammaga ko'rinadigan profil (phone — null bo'lishi mumkin: yashirilgan).
+     * blockedByMe — faqat ochiq profil sahifasida: ko'rayotgan odam uni bloklaganmi (ro'yxatlarda va o'zi uchun null).
+     */
     public record PublicUserDto(
             Long id, String firstName, String lastName, String fullName, String phone, String avatarUrl,
             String bio, Role role, boolean driver, boolean available, VehicleDto vehicle,
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
-            RegionDto region, DistrictDto district, Instant memberSince, boolean telegramLinked, boolean verified) {
+            RegionDto region, DistrictDto district, Instant memberSince, boolean telegramLinked, boolean verified,
+            Boolean blockedByMe) {
         public static PublicUserDto of(User u) {
             return of(u, true);
         }
 
         /** @param withPhone false — telefon raqami javobga qo'shilmaydi */
         public static PublicUserDto of(User u, boolean withPhone) {
+            return of(u, withPhone, null);
+        }
+
+        public static PublicUserDto of(User u, boolean withPhone, Boolean blockedByMe) {
             return new PublicUserDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), withPhone ? u.getPhone() : null,
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
                     VehicleDto.of(u.getVehicle()), u.getRatingAvg(), u.getRatingCount(), u.getOrdersCreated(),
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
-                    u.getCreatedAt(), u.getTelegramChatId() != null, u.isVerifiedDriver());
+                    u.getCreatedAt(), u.getTelegramChatId() != null, u.isVerifiedDriver(), blockedByMe);
+        }
+    }
+
+    /** Men bloklagan foydalanuvchi (Profil → Bloklanganlar) */
+    public record BlockedUserDto(Long id, String fullName, String avatarUrl, Instant blockedAt) {
+        public static BlockedUserDto of(User u, Instant blockedAt) {
+            return new BlockedUserDto(u.getId(), u.getFullName(), u.getAvatarUrl(), blockedAt);
         }
     }
 
@@ -64,21 +79,24 @@ public final class UserDtos {
         }
     }
 
-    /** Foydalanuvchining o'z profili (qo'shimcha maxfiy maydonlar bilan) */
+    /**
+     * Foydalanuvchining o'z profili (qo'shimcha maxfiy maydonlar bilan).
+     * termsAccepted — joriy foydalanish shartlarini qabul qilganmi (false bo'lsa ilova avval shartlarni ko'rsatadi).
+     */
     public record MeDto(
             Long id, String firstName, String lastName, String fullName, String phone, String avatarUrl,
             String bio, Role role, boolean driver, boolean available, VehicleDto vehicle,
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
             RegionDto region, DistrictDto district, String village, String house,
             boolean telegramLinked, boolean notifyNewOrders, Set<Long> workRegionIds, Instant memberSince,
-            boolean verified) {
+            boolean verified, boolean termsAccepted) {
         public static MeDto of(User u) {
             return new MeDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), u.getPhone(),
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
                     VehicleDto.of(u.getVehicle()), u.getRatingAvg(), u.getRatingCount(), u.getOrdersCreated(),
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
                     u.getVillage(), u.getHouse(), u.getTelegramChatId() != null, u.isNotifyNewOrders(),
-                    Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt(), u.isVerifiedDriver());
+                    Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt(), u.isVerifiedDriver(), u.hasAcceptedTerms());
         }
     }
 
