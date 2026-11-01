@@ -29,6 +29,10 @@ public class DriverVerificationFile {
     @Column(nullable = false, length = 20)
     private String contentType;
 
-    @Column(nullable = false, length = 6_000_000)
+    /**
+     * bytea — PostgreSQL'ning o'z turi, H2 ham (MODE=PostgreSQL) uni biladi. Busiz Hibernate 1 MB dan katta ustunni
+     * H2 uchun "blob" deb yaratadi, H2 esa PostgreSQL rejimida BLOB'ni rad etadi — jadval yaratilmay qolardi.
+     */
+    @Column(nullable = false, length = 6_000_000, columnDefinition = "bytea")
     private byte[] data;
 }
