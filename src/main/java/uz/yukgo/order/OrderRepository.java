@@ -24,50 +24,88 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> lockById(@Param("id") Long id);
 
     /**
-     * Ochiq buyurtmalar bozori (haydovchilar uchun).
-     * Tartib: avval shoshilinchlar; keyin olib ketish sanasi bugun va undan keyingilar — eng yaqini birinchi;
+     * Ochiq e'lonlar bozori.
+     * Tartib: ko'rayotgan odamning uyiga yaqinligi — avval o'z tumanidan (homeDistrict), keyin o'z viloyatidan
+     * (homeRegion), so'ng boshqa viloyatlardan — viloyat markazlari orasidagi masofa bo'yicha (homeLat/homeLng);
+     * har bir joy ichida: shoshilinchlar; olib ketish sanasi bugun va undan keyingilar — eng yaqini birinchi;
      * so'ng sanasi o'tib ketganlar; sanasiz e'lonlar eng oxirida. Bir kunning ichida — eng yangi e'lon birinchi.
+     * Mehmon (home* = null) uchun joy bo'yicha tartib yo'q — faqat shoshilinch va sana.
      * {@code today} — Toshkent vaqti bo'yicha bugungi sana (server UTC'da ishlaydi, current_date tunda bir kun orqada qoladi).
      * {@code viewerId} — ko'rayotgan foydalanuvchi: u bilan blok bo'lgan yuboruvchilarning e'lonlari chiqarilmaydi (null — mehmon).
+     * Tuman bo'yicha filtr: shu tumandagi va tumani ko'rsatilmagan (butun viloyat) e'lonlar.
+     * {@code anyBody} — kuzov turi bo'yicha filtr yo'q; aks holda bodyTypes (eski qiymatlari bilan) yoki kuzovi farqi yo'q.
      */
     @Query(value = """
             select o from Shipment o
             where o.status = uz.yukgo.order.OrderStatus.NEW
+              and (:kind is null or o.kind = :kind)
               and (:fromRegion is null or o.fromRegion.id = :fromRegion)
+              and (:fromDistrict is null or o.fromDistrict is null or o.fromDistrict.id = :fromDistrict)
               and (:toRegion is null or o.toRegion.id = :toRegion)
+              and (:toDistrict is null or o.toDistrict is null or o.toDistrict.id = :toDistrict)
               and (:cargoType is null or o.cargoType = :cargoType)
               and (:scope is null or o.scope = :scope)
-              and (:bodyType is null or o.requiredBodyType is null or o.requiredBodyType = :bodyType)
+              and (:anyBody = true or o.requiredBodyType is null or o.requiredBodyType in :bodyTypes)
               and (:maxWeight is null or o.weightKg is null or o.weightKg <= :maxWeight)
               and (:q is null or lower(o.title) like :q or lower(o.description) like :q)
               and (:viewerId is null or (
                    not exists (select b.id from UserBlock b where b.blockerId = :viewerId and b.blockedId = o.sender.id)
                    and not exists (select b2.id from UserBlock b2 where b2.blockerId = o.sender.id and b2.blockedId = :viewerId)))
-            order by o.urgent desc,
+            order by case when o.fromDistrict.id = :homeDistrict then 0
+                          when o.fromRegion.id = :homeRegion then 1 else 2 end,
+                     (o.fromRegion.lat - :homeLat) * (o.fromRegion.lat - :homeLat)
+                       + (o.fromRegion.lng - :homeLng) * (o.fromRegion.lng - :homeLng) * 0.57,
+                     o.urgent desc,
                      case when o.pickupDate is null then 1 else 0 end,
                      case when o.pickupDate < :today then 1 else 0 end,
                      o.pickupDate asc,
-                     o.createdAt desc
+                     o.createdAt desc,
+                     o.id desc
             """,
             countQuery = """
             select count(o) from Shipment o
             where o.status = uz.yukgo.order.OrderStatus.NEW
+              and (:kind is null or o.kind = :kind)
               and (:fromRegion is null or o.fromRegion.id = :fromRegion)
+              and (:fromDistrict is null or o.fromDistrict is null or o.fromDistrict.id = :fromDistrict)
               and (:toRegion is null or o.toRegion.id = :toRegion)
+              and (:toDistrict is null or o.toDistrict is null or o.toDistrict.id = :toDistrict)
               and (:cargoType is null or o.cargoType = :cargoType)
               and (:scope is null or o.scope = :scope)
-              and (:bodyType is null or o.requiredBodyType is null or o.requiredBodyType = :bodyType)
+              and (:anyBody = true or o.requiredBodyType is null or o.requiredBodyType in :bodyTypes)
               and (:maxWeight is null or o.weightKg is null or o.weightKg <= :maxWeight)
               and (:q is null or lower(o.title) like :q or lower(o.description) like :q)
               and (:viewerId is null or (
                    not exists (select b.id from UserBlock b where b.blockerId = :viewerId and b.blockedId = o.sender.id)
                    and not exists (select b2.id from UserBlock b2 where b2.blockerId = o.sender.id and b2.blockedId = :viewerId)))
             """)
-    Page<Order> market(@Param("fromRegion") Long fromRegion, @Param("toRegion") Long toRegion,
+    Page<Order> market(@Param("kind") OrderKind kind,
+                       @Param("fromRegion") Long fromRegion, @Param("fromDistrict") Long fromDistrict,
+                       @Param("toRegion") Long toRegion, @Param("toDistrict") Long toDistrict,
                        @Param("cargoType") CargoType cargoType, @Param("scope") DeliveryScope scope,
-                       @Param("bodyType") BodyType bodyType, @Param("maxWeight") Double maxWeight,
+                       @Param("anyBody") boolean anyBody, @Param("bodyTypes") Collection<BodyType> bodyTypes,
+                       @Param("maxWeight") Double maxWeight,
                        @Param("q") String q, @Param("today") LocalDate today,
-                       @Param("viewerId") Long viewerId, Pageable pageable);
+                       @Param("viewerId") Long viewerId,
+                       @Param("homeRegion") Long homeRegion, @Param("homeDistrict") Long homeDistrict,
+                       @Param("homeLat") Double homeLat, @Param("homeLng") Double homeLng,
+                       Pageable pageable);
+
+    /**
+     * Yangi reysga mos ochiq e'lonlar (e'lon egalariga «yo'nalishingizda haydovchi bor» xabari uchun):
+     * shu viloyatdan shu viloyatga, sanasi o'tmagan yoki ko'rsatilmagan. Qolgan shartlar (sana oralig'i, tur, joylar
+     * soni, blok) — MatchService'da.
+     */
+    @Query("""
+            select o from Shipment o join fetch o.sender s
+            where o.status = uz.yukgo.order.OrderStatus.NEW
+              and o.fromRegion.id = :fromRegion and o.toRegion.id = :toRegion
+              and s.id <> :driverId and s.status = uz.yukgo.user.UserStatus.ACTIVE
+              and (o.pickupDate is null or o.pickupDate >= :today)
+            order by o.createdAt desc
+            """)
+    List<Order> findOpenOnRoute(@Param("fromRegion") Long fromRegion, @Param("toRegion") Long toRegion,
+                                @Param("driverId") Long driverId, @Param("today") LocalDate today, Pageable pageable);
 
     @Query("""
             select o from Shipment o where o.sender.id = :userId

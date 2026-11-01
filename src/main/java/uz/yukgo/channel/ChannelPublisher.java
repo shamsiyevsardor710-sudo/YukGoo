@@ -130,14 +130,18 @@ public class ChannelPublisher {
         return r == null || r.equals(o.getFromRegion().getId()) || r.equals(o.getToRegion().getId());
     }
 
-    /** Ochiq e'londa: "Taklif berish" (buyurtmani ochadi) va "Yuk e'lon qilish"; yopilganda — faqat ikkinchisi */
+    /**
+     * Ochiq e'londa: "Taklif berish" (yuk) yoki "Olib ketaman" (pochta, yo'lovchi) — e'lonni ochadi, va "E'lon berish";
+     * yopilganda — faqat ikkinchisi
+     */
     Map<String, Object> markup(Order o, ChannelFeed f, String state) {
         String src = f != null && f.getSourceCode() != null ? f.getSourceCode() : "kanal";
         String newParam = ("new_" + src).length() <= 64 ? "new_" + src : "new";
         Map<String, Object> post = button("➕ Yuk e'lon qilish", telegram.deepLink(newParam));
         if (!"OPEN".equals(state)) return Map.of("inline_keyboard", List.of(List.of(post)));
+        String open = o.getKind() == uz.yukgo.order.OrderKind.CARGO ? "📩 Taklif berish" : "🚗 Olib ketaman";
         return Map.of("inline_keyboard", List.of(
-                List.of(button("📩 Taklif berish", orderLink(o.getId(), src))),
+                List.of(button(open, orderLink(o.getId(), src))),
                 List.of(post)));
     }
 

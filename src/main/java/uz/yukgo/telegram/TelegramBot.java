@@ -17,6 +17,7 @@ import uz.yukgo.common.Phones;
 import uz.yukgo.growth.GrowthService;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.Order;
+import uz.yukgo.order.OrderKind;
 import uz.yukgo.order.OrderRepository;
 import uz.yukgo.order.OrderStatus;
 import uz.yukgo.user.User;
@@ -71,8 +72,10 @@ public class TelegramBot {
     private static final Pattern REF_START = Pattern.compile("ref_(\\d{1,18})");
     /** To'ldirilgan forma havolasi shundan uzun bo'lsa — tavsif qisqartiriladi (Telegram juda uzun tugma havolasini rad etadi) */
     private static final int MAX_BUTTON_URL = 2000;
-    private static final String LOAD_HINT = "📦 Yuk e'lon qilmoqchi bo'lsangiz — qayerdan va qayerga ekanini bitta xabarda yozing, "
-            + "masalan: <i>Toshkent - Samarqand, 5 tonna, ertaga, 3 mln</i>";
+    private static final String LOAD_HINT = "📦 E'lon bermoqchi bo'lsangiz — qayerdan va qayerga ekanini bitta xabarda yozing, masalan:\n"
+            + "• <i>Toshkent - Samarqand, 5 tonna, ertaga, 3 mln</i>\n"
+            + "• <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i>\n"
+            + "• <i>Andijon - Toshkent, pochta, bugun</i>";
 
     private volatile boolean running;
     private Thread worker;
@@ -258,6 +261,15 @@ public class TelegramBot {
             client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇\n\n" + LOAD_HINT, TelegramClient.mainMenu());
             return;
         }
+        if (p.driverOffer()) {
+            // "Kosonsoy - Toshkent, yo'lovchi va pochta olaman" — bu haydovchining e'loni: reys formasi ochiladi
+            String route = tripPrefillRoute(p);
+            List<Object> buttons = new ArrayList<>();
+            buttons.add(TelegramClient.appButton("🚗 Reys e'lon qilish", notifications.appUrl(route)));
+            buttons.add(TelegramClient.linkButton("🚗 Reys e'lon qilish", notifications.siteUrl("#" + route)));
+            client.sendNowWithFallbacks(chatId, tripSummary(p), buttons);
+            return;
+        }
         // Uzun matn: tavsif tugma havolasiga sig'guncha qisqartiriladi; Telegram baribir rad etsa — qisqa variant
         String desc = p.description() != null && !p.description().equals(p.title()) ? p.description() : null;
         String route = prefillRoute(p, p.title(), desc);
@@ -273,20 +285,58 @@ public class TelegramBot {
         client.sendNowWithFallbacks(chatId, loadSummary(p), buttons);
     }
 
+    /** Haydovchi e'loni: "Reys e'lon qilmoqchimisiz?" — yo'nalish, sana va bo'sh o'rinlar */
+    static String tripSummary(LoadTextParser.Parsed p) {
+        StringBuilder sb = new StringBuilder("🚗 <b>Reys e'lon qilmoqchimisiz?</b> Men shunday tushundim:\n\n");
+        sb.append("📍 <b>Qayerdan:</b> ").append(esc(p.from().name())).append('\n');
+        sb.append("🏁 <b>Qayerga:</b> ").append(esc(p.to().name())).append('\n');
+        if (p.pickupDate() != null) sb.append("📅 ").append(OrderCard.dateLabel(p.pickupDate())).append('\n');
+        if (p.seats() != null) sb.append("💺 ").append(p.seats()).append(" ta bo'sh o'rin\n");
+        sb.append("\n👇 Formani oching — reys e'lon qilinsa, shu yo'nalishda yo'lovchi, pochta yoki yuk kutayotganlarga "
+                + "avtomatik xabar boradi, yangi e'lonlar esa sizga keladi.");
+        return sb.toString();
+    }
+
+    /** Reys formasi: "/trips?new=1&fr=..&fd=..&tr=..&td=..&d=..&s=.." */
+    static String tripPrefillRoute(LoadTextParser.Parsed p) {
+        StringBuilder q = new StringBuilder("/trips?new=1");
+        q.append("&fr=").append(p.from().regionId());
+        if (p.from().districtId() != null) q.append("&fd=").append(p.from().districtId());
+        q.append("&tr=").append(p.to().regionId());
+        if (p.to().districtId() != null) q.append("&td=").append(p.to().districtId());
+        if (p.pickupDate() != null) q.append("&d=").append(p.pickupDate());
+        if (p.seats() != null) q.append("&s=").append(p.seats());
+        return q.toString();
+    }
+
     static String loadSummary(LoadTextParser.Parsed p) {
-        StringBuilder sb = new StringBuilder("📝 <b>Yuk e'lon qilmoqchimisiz?</b> Men shunday tushundim:\n\n");
+        OrderKind kind = p.kind() == null ? OrderKind.CARGO : p.kind();
+        StringBuilder sb = new StringBuilder(switch (kind) {
+            case PASSENGER -> "🧍 <b>Yo'lovchi sifatida e'lon bermoqchimisiz?</b> Men shunday tushundim:\n\n";
+            case PARCEL -> "✉️ <b>Pochta yubormoqchimisiz?</b> Men shunday tushundim:\n\n";
+            default -> "📝 <b>Yuk e'lon qilmoqchimisiz?</b> Men shunday tushundim:\n\n";
+        });
         sb.append("📍 <b>Qayerdan:</b> ").append(esc(p.from().name())).append('\n');
         sb.append("🏁 <b>Qayerga:</b> ").append(esc(p.to().name())).append('\n');
         List<String> parts = new ArrayList<>();
-        if (p.cargoType() != null && p.cargoType() != uz.yukgo.order.CargoType.GENERAL) parts.add("📦 " + OrderCard.cargoLabel(p.cargoType()));
-        if (p.weightKg() != null) parts.add("⚖️ " + OrderCard.weight(p.weightKg()));
-        if (p.bodyType() != null) parts.add("🚚 " + OrderCard.bodyLabel(p.bodyType()));
+        if (kind == OrderKind.PASSENGER) {
+            parts.add("👥 " + (p.seats() == null ? 1 : p.seats()) + " kishi");
+        } else {
+            if (kind == OrderKind.CARGO && p.cargoType() != null && p.cargoType() != uz.yukgo.order.CargoType.GENERAL) {
+                parts.add("📦 " + OrderCard.cargoLabel(p.cargoType()));
+            }
+            if (p.weightKg() != null) parts.add("⚖️ " + OrderCard.weight(p.weightKg()));
+            if (kind == OrderKind.CARGO && p.bodyType() != null) parts.add("🚚 " + OrderCard.bodyLabel(p.bodyType()));
+        }
         if (!parts.isEmpty()) sb.append(String.join(" · ", parts)).append('\n');
         if (p.pickupDate() != null) sb.append("📅 ").append(OrderCard.dateLabel(p.pickupDate())).append('\n');
         sb.append("💰 ").append(p.price() != null ? OrderCard.money(p.price()) : p.negotiable() ? "Narx kelishiladi" : "Narxni formada kiriting")
                 .append("\n\n");
-        sb.append("👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring, qabul qiluvchini yozing va «E'lon qilish» ni bosing. "
-                + "Telefon raqamingiz e'londa ko'rinmaydi.");
+        sb.append(kind == OrderKind.PASSENGER
+                ? "👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring va «E'lon qilish» ni bosing: shu yo'nalishdagi haydovchilarga "
+                        + "darhol xabar boradi. Telefon raqamingiz e'londa ko'rinmaydi."
+                : "👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring va «E'lon qilish» ni bosing. "
+                        + "Telefon raqamingiz e'londa ko'rinmaydi.");
         return sb.toString();
     }
 
@@ -304,8 +354,10 @@ public class TelegramBot {
         if (p.price() != null) q.append("&p=").append(p.price());
         if (p.negotiable()) q.append("&n=1");
         if (p.pickupDate() != null) q.append("&d=").append(p.pickupDate());
-        if (p.bodyType() != null) q.append("&b=").append(p.bodyType().name());
+        if (p.bodyType() != null) q.append("&b=").append(p.bodyType().canonical().name());
         if (p.cargoType() != null) q.append("&c=").append(p.cargoType().name());
+        if (p.kind() != null && p.kind() != OrderKind.CARGO) q.append("&k=").append(p.kind().name());
+        if (p.seats() != null && p.kind() == OrderKind.PASSENGER) q.append("&s=").append(p.seats());
         if (title != null && !title.isBlank()) q.append("&t=").append(enc(title));
         if (description != null && !description.isBlank()) q.append("&x=").append(enc(description));
         return q.toString();
@@ -478,9 +530,10 @@ public class TelegramBot {
 
     private void onWelcome(long chatId, String src, String ref) {
         boolean linked = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isPresent();
-        String about = "👋 <b>YukGo</b> — viloyatdan viloyatga va shahar ichida yuk yetkazib berish xizmati.\n\n"
-                + "🚚 Haydovchilar — buyurtma topadi va daromad qiladi\n"
-                + "📦 Yuk egalari — ishonchli haydovchi topadi va yukini xaritada kuzatadi\n\n";
+        String about = "👋 <b>YukGo</b> — viloyatdan viloyatga va shahar ichida yuk, pochta va yo'lovchi tashish xizmati.\n\n"
+                + "🚚 Haydovchilar — yo'nalishiga mos yuk, pochta va yo'lovchi topadi, xabar o'zi keladi\n"
+                + "📦 Yuk egalari — ishonchli haydovchi topadi va yukini xaritada kuzatadi\n"
+                + "🧍 Yo'lovchilar — o'z tumanidan ketadigan haydovchini topadi\n\n";
         if (!linked && (src != null || ref != null)) {
             // Havola bilan kelgan yangi foydalanuvchi: ilovani manba bilan ochadigan tugma, keyin raqamni ulash
             growth.rememberStart(chatId, src, ref);
@@ -516,9 +569,11 @@ public class TelegramBot {
     /** Kanal postidagi "➕ Yuk e'lon qilish" */
     private void onNewStart(long chatId, String src) {
         if (userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isEmpty()) growth.rememberStart(chatId, src, null);
-        client.sendNowWithFallbacks(chatId, "📦 <b>Yuk e'lon qilish</b>\n\n"
-                        + "Eng tezi — yukingizni shu yerga <b>bitta xabarda</b> yozing, formani o'zim to'ldirib beraman. Masalan:\n"
-                        + "<i>Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln</i>\n\n"
+        client.sendNowWithFallbacks(chatId, "📦 <b>E'lon berish</b>\n\n"
+                        + "Eng tezi — shu yerga <b>bitta xabarda</b> yozing, formani o'zim to'ldirib beraman. Masalan:\n"
+                        + "• <i>Toshkent - Samarqand, 5 tonna mebel, ertaga, 3 mln</i>\n"
+                        + "• <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i>\n"
+                        + "• <i>Andijon - Toshkent, pochta, bugun</i>\n\n"
                         + "Yoki formani hozir oching 👇",
                 appButtons("➕ Formani ochish", "#/new", src, null));
     }
@@ -618,20 +673,20 @@ public class TelegramBot {
         client.sendNow(chatId, """
                 ℹ️ <b>YukGo qanday ishlaydi?</b>
 
-                <b>Yuk egasi uchun:</b>
-                1. Saytda buyurtma yarating (qayerdan, qayerga, yuk turi, narx)
-                2. Haydovchilar narx taklif qiladi — reyting va mashinasiga qarab tanlaysiz
-                3. Yukni xaritada jonli kuzatasiz
-                4. Qabul qiluvchi 4 xonali kodni haydovchiga aytadi — yuk topshirildi
+                <b>Yuk, pochta yoki yo'lovchi e'loni:</b>
+                1. Qayerdan, qayerga va qachonligini yozing (yo'lovchi — necha kishi)
+                2. Shu yo'nalishdagi haydovchilarga darhol xabar boradi
+                3. Haydovchi «Olaman» desa — bir-biringizning raqamini ko'rasiz
+                4. Yukni xaritada jonli kuzatasiz, qabul qiluvchi 4 xonali kodni aytadi
                 5. Haydovchini baholaysiz ⭐
 
                 <b>Haydovchi uchun:</b>
-                1. Profilga mashina ma'lumotlarini kiriting
-                2. Yangi buyurtmalar shu botga keladi
-                3. Taklif yuboring yoki narxga rozi bo'lib darhol oling
+                1. Profilga mashinangizni qo'shing
+                2. Reys e'lon qiling (masalan, ertaga Kosonsoy → Toshkent yoki «har kuni»)
+                3. Yo'nalishingizga mos yo'lovchi, pochta yoki yuk chiqsa — shu botga xabar keladi
                 4. Ilova ichidagi Yandex xarita bilan yo'lni toping
 
-                <b>Tez e'lon:</b> botga shunchaki yozing — <i>Toshkent - Samarqand, 5 tonna, ertaga, 3 mln</i> — forma o'zi to'ladi.
+                <b>Tez e'lon:</b> botga shunchaki yozing — <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i> — forma o'zi to'ladi.
 
                 Savollar bo'lsa — saytdagi "Shikoyat/murojaat" bo'limi orqali yozing.""",
                 TelegramClient.mainMenu());

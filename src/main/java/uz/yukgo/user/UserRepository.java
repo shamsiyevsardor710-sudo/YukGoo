@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,30 +44,46 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> search(@Param("q") String q, @Param("role") Role role,
                       @Param("status") UserStatus status, Pageable pageable);
 
-    /** viewerId — ko'rayotgan foydalanuvchi: u bilan blok bo'lgan haydovchilar chiqarilmaydi (null — mehmon) */
+    /**
+     * viewerId — ko'rayotgan foydalanuvchi: u bilan blok bo'lgan haydovchilar chiqarilmaydi (null — mehmon).
+     * bodyTypes — kuzov turi va unga tenglashadigan eski qiymatlar ({@link BodyType#withLegacy()}), anyBody=true bo'lsa
+     * e'tiborga olinmaydi (ro'yxat bo'sh bo'lmasin: "in ()" — SQL xatosi).
+     * homeRegion / homeDistrict — ko'rayotgan odamning manzili: avval shu tumandagi, keyin viloyatdagi haydovchilar,
+     * so'ng boshqa viloyatlardagilar — viloyat markazlari orasidagi masofa bo'yicha (homeLat/homeLng).
+     * Viloyati ko'rsatilmagan haydovchilar ham chiqadi (left join), masofa bo'yicha — oxirida.
+     */
     @Query("""
-            select u from User u
+            select u from User u left join u.region ur
             where u.status = uz.yukgo.user.UserStatus.ACTIVE and u.vehicle.brand is not null
               and (:regionId is null or u.region.id = :regionId)
-              and (:bodyType is null or u.vehicle.bodyType = :bodyType)
-              and (:minCapacity is null or u.vehicle.capacityKg >= :minCapacity)
+              and (:anyBody = true or u.vehicle.bodyType in :bodyTypes)
               and (:viewerId is null or (
                    not exists (select b.id from UserBlock b where b.blockerId = :viewerId and b.blockedId = u.id)
                    and not exists (select b2.id from UserBlock b2 where b2.blockerId = u.id and b2.blockedId = :viewerId)))
-            order by (case when u.driverVerified = true then 1 else 0 end) desc,
+            order by (case when u.district.id = :homeDistrict then 0 when u.region.id = :homeRegion then 1 else 2 end),
+                     (case when ur.id is null then 1 else 0 end),
+                     (ur.lat - :homeLat) * (ur.lat - :homeLat) + (ur.lng - :homeLng) * (ur.lng - :homeLng) * 0.57,
+                     (case when u.driverVerified = true then 1 else 0 end) desc,
                      (case when u.ratingCount = 0 then 0 else u.ratingSum * 1.0 / u.ratingCount end) desc,
-                     u.deliveriesCompleted desc
+                     u.deliveriesCompleted desc,
+                     u.id desc
             """)
-    Page<User> searchDrivers(@Param("regionId") Long regionId, @Param("bodyType") BodyType bodyType,
-                             @Param("minCapacity") Integer minCapacity, @Param("viewerId") Long viewerId,
-                             Pageable pageable);
+    Page<User> searchDrivers(@Param("regionId") Long regionId, @Param("anyBody") boolean anyBody,
+                             @Param("bodyTypes") Collection<BodyType> bodyTypes,
+                             @Param("viewerId") Long viewerId, @Param("homeRegion") Long homeRegion,
+                             @Param("homeDistrict") Long homeDistrict,
+                             @Param("homeLat") Double homeLat, @Param("homeLng") Double homeLng, Pageable pageable);
 
-    /** Yangi buyurtma haqida xabar olishi kerak bo'lgan haydovchilar */
+    /**
+     * Yangi e'lon haqida xabar olishi mumkin bo'lgan haydovchilar (viloyat bo'yicha): e'lon haydovchining o'z (uy)
+     * viloyatidan yoki viloyatiga, yoki u tanlagan ishlaydigan viloyatlardan biridan yoki biriga.
+     * Avvalgidek "hamma viloyatlar" emas: uzoqdagi e'lonlar bilan bezovta qilinmaydi.
+     */
     @Query("""
             select distinct u from User u left join u.workRegionIds wr
             where u.status = uz.yukgo.user.UserStatus.ACTIVE and u.vehicle.brand is not null and u.notifyNewOrders = true
               and u.available = true and u.telegramChatId is not null and u.id <> :excludeId
-              and (wr is null or wr = :regionA or wr = :regionB)
+              and (wr = :regionA or wr = :regionB or u.region.id = :regionA or u.region.id = :regionB)
             """)
     List<User> findDriversToNotify(@Param("regionA") Long regionA, @Param("regionB") Long regionB,
                                    @Param("excludeId") Long excludeId);

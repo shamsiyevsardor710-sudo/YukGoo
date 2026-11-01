@@ -3,6 +3,7 @@ package uz.yukgo.user;
 import jakarta.validation.constraints.*;
 import uz.yukgo.location.LocationService.DistrictDto;
 import uz.yukgo.location.LocationService.RegionDto;
+import uz.yukgo.order.OrderKind;
 
 import java.time.Instant;
 import java.util.Set;
@@ -10,20 +11,25 @@ import java.util.Set;
 public final class UserDtos {
     private UserDtos() {}
 
+    /**
+     * Mashina: rusumi (masalan «Chevrolet Cobalt», «Isuzu NPR»), davlat raqami, kuzov turi, ixtiyoriy rangi va rasmi.
+     * Modeli, yili, yuk ko'tarishi va hajmi endi so'ralmaydi — eski ilova versiyalari yuborsa ham qabul qilinadi.
+     * Javobda kuzov turi doim hozirgi 6 turdan biri ({@link BodyType#canonical()}).
+     */
     public record VehicleDto(
-            @NotBlank(message = "Mashina markasini kiriting") @Size(max = 40) String brand,
+            @NotBlank(message = "Mashinangizni yozing, masalan: Chevrolet Cobalt") @Size(max = 60, message = "Mashina nomi juda uzun") String brand,
             @Size(max = 40) String model,
-            @NotBlank(message = "Davlat raqamini kiriting") @Size(max = 15) String plateNumber,
+            @NotBlank(message = "Davlat raqamini kiriting") @Size(max = 15, message = "Davlat raqami juda uzun") String plateNumber,
             @Size(max = 30) String color,
-            @Min(value = 1970, message = "Yil noto'g'ri") @Max(value = 2100, message = "Yil noto'g'ri") Integer year,
-            @NotNull(message = "Kuzov turini tanlang") BodyType bodyType,
-            @Min(value = 1, message = "Yuk ko'tarish noto'g'ri") @Max(value = 100000) Integer capacityKg,
-            @DecimalMin(value = "0.0") @DecimalMax(value = "200.0") Double volumeM3,
+            Integer year,
+            @NotNull(message = "Mashina turini tanlang") BodyType bodyType,
+            Integer capacityKg,
+            Double volumeM3,
             String photoUrl) {
         public static VehicleDto of(Vehicle v) {
             if (v == null || !v.isPresent()) return null;
             return new VehicleDto(v.getBrand(), v.getModel(), v.getPlateNumber(), v.getColor(), v.getYear(),
-                    v.getBodyType(), v.getCapacityKg(), v.getVolumeM3(), v.getPhotoUrl());
+                    BodyType.canonical(v.getBodyType()), v.getCapacityKg(), v.getVolumeM3(), v.getPhotoUrl());
         }
     }
 
@@ -82,6 +88,7 @@ public final class UserDtos {
     /**
      * Foydalanuvchining o'z profili (qo'shimcha maxfiy maydonlar bilan).
      * termsAccepted — joriy foydalanish shartlarini qabul qilganmi (false bo'lsa ilova avval shartlarni ko'rsatadi).
+     * notifyKinds — haydovchi qaysi e'lonlar (yuk, pochta, yo'lovchi) haqida xabar oladi; notifyKindsChosen — o'zi tanlaganmi.
      */
     public record MeDto(
             Long id, String firstName, String lastName, String fullName, String phone, String avatarUrl,
@@ -89,27 +96,31 @@ public final class UserDtos {
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
             RegionDto region, DistrictDto district, String village, String house,
             boolean telegramLinked, boolean notifyNewOrders, Set<Long> workRegionIds, Instant memberSince,
-            boolean verified, boolean termsAccepted) {
+            boolean verified, boolean termsAccepted, Set<OrderKind> notifyKinds, boolean notifyKindsChosen) {
         public static MeDto of(User u) {
             return new MeDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), u.getPhone(),
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
                     VehicleDto.of(u.getVehicle()), u.getRatingAvg(), u.getRatingCount(), u.getOrdersCreated(),
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
                     u.getVillage(), u.getHouse(), u.getTelegramChatId() != null, u.isNotifyNewOrders(),
-                    Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt(), u.isVerifiedDriver(), u.hasAcceptedTerms());
+                    Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt(), u.isVerifiedDriver(), u.hasAcceptedTerms(),
+                    u.effectiveNotifyKinds(), u.getNotifyKinds() != null && !OrderKind.parse(u.getNotifyKinds()).isEmpty());
         }
     }
 
+    /** Qishloq/mahalla va uy endi so'ralmaydi (eski ilova versiyalari yuborsa ham qabul qilinadi, saqlanmaydi) */
     public record UpdateProfileRequest(
             @NotBlank(message = "Ismni kiriting") @Size(min = 2, max = 60, message = "Ism 2-60 belgi bo'lsin") String firstName,
             @NotBlank(message = "Familiyani kiriting") @Size(min = 2, max = 60, message = "Familiya 2-60 belgi bo'lsin") String lastName,
             @Size(max = 500) String bio,
             @NotNull(message = "Viloyatni tanlang") Long regionId,
             @NotNull(message = "Tumanni tanlang") Long districtId,
-            @NotBlank(message = "Qishloq/mahallani kiriting") @Size(max = 120) String village,
-            @NotBlank(message = "Uy manzilini kiriting") @Size(max = 120) String house) {}
+            @Size(max = 120) String village,
+            @Size(max = 120) String house) {}
 
-    public record SettingsRequest(Boolean available, Boolean notifyNewOrders, Set<Long> workRegionIds) {}
+    /** notifyKinds — bo'sh to'plam yuborilsa: mashinasiga qarab (standart) */
+    public record SettingsRequest(Boolean available, Boolean notifyNewOrders, Set<Long> workRegionIds,
+                                  Set<OrderKind> notifyKinds) {}
 
     public record ChangePasswordRequest(
             @NotBlank String oldPassword,

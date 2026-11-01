@@ -3,8 +3,9 @@ import { auth, get, post, put, del, upload, config, regions } from '../api.js';
 import {
   $, $$, esc, icon, avatar, stars, toast, modal, confirmDialog, formData, showError, clearError, busy,
   bindRegionDistrict, regionOptions, options, phoneFmt, date, ago, num, emptyState, skeletons, BODY, ROLE,
-  money, dateTime, verifiedBadge,
+  money, dateTime, verifiedBadge, bodyLabel, bodyCanon, KIND, KIND_ICON,
 } from '../ui.js';
+import { currentTheme, themeLabel, toggleTheme } from '../theme.js';
 import { phoneVerification } from './auth.js';
 import { inviteBlock, verifyBlock } from './growth-ui.js';
 import { reportDialog, blockUser, unblockUser } from './orders.js';
@@ -16,7 +17,7 @@ import { digitalSalesBlocked } from '../platform.js';
 function vehicleBlock(v, editable) {
   if (!v) {
     return editable
-      ? `<div class="stack-sm"><p class="muted">Mashina qo'shsangiz, buyurtmalarni olishingiz va reys e'lon qilishingiz mumkin. Mashina ma'lumotlari profilingizda hammaga ko'rinadi.</p>
+      ? `<div class="stack-sm"><p class="muted">Mashina qo'shsangiz, yo'nalishingizga mos yuk, pochta va yo'lovchilar haqida xabar olasiz, reys e'lon qila olasiz. Mashina ma'lumotlari profilingizda hammaga ko'rinadi.</p>
          <button class="btn btn-primary" id="vehicle-edit">${icon('truck')}Mashina qo'shish</button></div>`
       : `<p class="muted">Mashina ma'lumotlari kiritilmagan.</p>`;
   }
@@ -26,12 +27,10 @@ function vehicleBlock(v, editable) {
         ${editable ? `<label class="avatar-edit" title="Mashina rasmini yuklash">${icon('camera')}<input type="file" accept="image/*" id="vehicle-photo" class="sr"></label>` : ''}
       </div>
       <div class="stack-sm">
-        <div><b style="font-size:18px">${esc(v.brand)} ${esc(v.model || '')}</b>${v.year ? ` <span class="muted">${v.year}</span>` : ''}</div>
+        <div><b style="font-size:18px">${esc(v.brand)}${v.model ? ' ' + esc(v.model) : ''}</b></div>
         <div><span class="plate"><span>${esc(v.plateNumber)}</span><span class="uz">UZ</span></span></div>
         <dl class="kv small">
-          <dt>Kuzov</dt><dd>${esc(BODY[v.bodyType] || '')}</dd>
-          ${v.capacityKg ? `<dt>Yuk ko'tarish</dt><dd class="num">${num(v.capacityKg)} kg</dd>` : ''}
-          ${v.volumeM3 ? `<dt>Hajmi</dt><dd class="num">${num(v.volumeM3, 1)} m³</dd>` : ''}
+          <dt>Turi</dt><dd>${esc(bodyLabel(v.bodyType))}</dd>
           ${v.color ? `<dt>Rangi</dt><dd>${esc(v.color)}</dd>` : ''}
         </dl>
         ${editable ? `<div class="row"><button class="btn btn-sm" id="vehicle-edit">${icon('edit')}O'zgartirish</button><button class="btn btn-ghost btn-sm" id="vehicle-remove">O'chirish</button></div>` : ''}
@@ -57,7 +56,7 @@ async function reviewsBlock(el, userId) {
 }
 
 function heroBlock(u, editable) {
-  const place = [u.region?.name, u.district?.name, editable ? u.village : null].filter(Boolean).join(', ');
+  const place = [u.region?.name, u.district?.name].filter(Boolean).join(', ');
   return `<section class="panel">
     <div class="profile-hero">
       <div class="avatar-wrap">${avatar(u.avatarUrl, u.fullName, 'avatar-xl')}
@@ -80,8 +79,8 @@ function heroBlock(u, editable) {
     </div>
     <div class="stat-row">
       <div><b>${(u.rating || 0).toFixed(1)}</b><span>Reyting (${u.ratingCount} baho)</span></div>
-      <div><b>${num(u.ordersCreated)}</b><span>Bergan buyurtmalari</span></div>
-      <div><b>${num(u.deliveriesCompleted)}</b><span>Yetkazgan yuklari</span></div>
+      <div><b>${num(u.ordersCreated)}</b><span>Bergan e'lonlari</span></div>
+      <div><b>${num(u.deliveriesCompleted)}</b><span>Bajargan buyurtmalari</span></div>
     </div>
   </section>`;
 }
@@ -123,9 +122,12 @@ async function walletHistoryModal() {
 // O'z profilim
 // =====================================================================
 export async function profilePage(main, _p, query) {
+  const route = location.hash.split('?')[0];
   await refreshMe();
   const u = auth.user;
   const cfg = await config();
+  // Sahifa o'zini qayta chizganda (rejim, rasm va h.k.) shu orada boshqa sahifaga o'tilgan bo'lsa — uni bosib ketmaymiz
+  if (location.hash.split('?')[0] !== route) return;
   main.innerHTML = `<div class="page">
     <div class="grid-2">
       <div class="stack">
@@ -147,22 +149,25 @@ export async function profilePage(main, _p, query) {
         <div id="invite-slot"></div>
         ${u.driver ? `<section class="panel stack">
           <h2>Haydovchi sozlamalari</h2>
-          <label class="setting"><span><b>Hozir bo'shman</b><br><span class="small muted">O'chirsangiz, yangi buyurtmalar haqida xabar kelmaydi</span></span>
+          <label class="setting"><span><b>Hozir bo'shman</b><br><span class="small muted">O'chirsangiz, yangi e'lonlar haqida xabar kelmaydi (reyslaringizga moslari bundan mustasno)</span></span>
             <span class="switch"><input type="checkbox" id="s-available" ${u.available ? 'checked' : ''}><span></span></span></label>
-          <label class="setting"><span><b>Yangi buyurtmalar Telegramga</b><br><span class="small muted">Ishlaydigan viloyatlaringiz bo'yicha</span></span>
+          <label class="setting"><span><b>Yangi e'lonlar Telegramga</b><br><span class="small muted">Yo'nalishingiz va hududingiz bo'yicha</span></span>
             <span class="switch"><input type="checkbox" id="s-notify" ${u.notifyNewOrders ? 'checked' : ''}><span></span></span></label>
+          <div><b>Qaysi e'lonlar haqida xabar kelsin</b>
+            <div class="kind-picks" id="s-kinds" role="group" aria-label="E'lon turlari">${Object.keys(KIND).map(k =>
+              `<button type="button" class="kind-pick ${(u.notifyKinds || []).includes(k) ? 'on' : ''}" data-kind="${k}" aria-pressed="${(u.notifyKinds || []).includes(k)}">${icon(KIND_ICON[k])}${esc(KIND[k])}</button>`).join('')}</div>
+            <p class="tiny muted" style="margin-top:6px">${u.notifyKindsChosen ? "O'zingiz tanlagansiz." : 'Mashinangiz turiga qarab tanlangan — xohlasangiz o\'zgartiring.'}</p></div>
           <div><b>Ishlaydigan viloyatlarim</b><p class="small muted" id="work-regions">…</p>
             <button class="btn btn-sm" style="margin-top:8px" id="edit-regions">Tanlash</button></div>
         </section>` : ''}
         <section class="panel stack-sm">
-          <h2>Manzilim</h2>
-          <dl class="kv small"><dt>Viloyat</dt><dd>${esc(u.region?.name || '—')}</dd><dt>Tuman</dt><dd>${esc(u.district?.name || '—')}</dd>
-            <dt>Qishloq / mahalla</dt><dd>${esc(u.village || '—')}</dd><dt>Uy</dt><dd>${esc(u.house || '—')}</dd></dl>
-          <p class="tiny muted">To'liq manzilingizni faqat siz ko'rasiz.</p>
+          <div class="row-between"><h2>Manzilim</h2><button class="btn btn-sm" id="edit-place">${icon('edit')}O'zgartirish</button></div>
+          <p class="place-line">${icon('pin')}<b>${esc([u.district?.name, u.region?.name].filter(Boolean).join(', ') || '—')}</b></p>
+          <p class="tiny muted">Bosh sahifada avval shu tumandan, keyin viloyatingizdan va yaqin hududlardan chiqqan e'lonlar ko'rsatiladi.</p>
         </section>
         <section class="panel stack-sm">
           <a class="btn btn-ghost" href="#/u/${u.id}">Profilim boshqalarga qanday ko'rinadi</a>
-          <button class="btn btn-ghost" id="theme">Mavzu: ${themeLabel()}</button>
+          <button class="btn btn-ghost" id="theme">${icon(currentTheme() === 'dark' ? 'moon' : 'sun')}Rejim: ${esc(themeLabel())}</button>
           <button class="btn btn-ghost" id="blocked-list">Bloklanganlar</button>
           <a class="btn btn-ghost" href="/terms.html" data-doc>Foydalanish shartlari</a>
           <a class="btn btn-ghost" href="/privacy.html" data-doc>Maxfiylik siyosati</a>
@@ -207,7 +212,8 @@ export async function profilePage(main, _p, query) {
   });
   $('#delete-account', main).addEventListener('click', deleteAccountModal);
   $('#blocked-list', main).addEventListener('click', blockedListModal);
-  $('#theme', main).addEventListener('click', (e) => { cycleTheme(); e.target.textContent = 'Mavzu: ' + themeLabel(); });
+  $('#theme', main).addEventListener('click', () => { toggleTheme(); profilePage(main, _p, query); });
+  $('#edit-place', main).addEventListener('click', () => editProfileModal(() => profilePage(main, _p, query)));
 
   if (u.driver) {
     const saveSetting = async (body) => {
@@ -219,13 +225,22 @@ export async function profilePage(main, _p, query) {
     const showRegions = () => {
       const ids = auth.user.workRegionIds || [];
       $('#work-regions', main).textContent = ids.length
-        ? all.filter(r => ids.includes(r.id)).map(r => r.name).join(', ')
-        : "Hamma viloyatlar (cheklov yo'q)";
+        ? `${auth.user.region?.name ? auth.user.region.name + ' (uyingiz), ' : ''}${all.filter(r => ids.includes(r.id) && r.id !== auth.user.region?.id).map(r => r.name).join(', ')}`.replace(/, $/, '')
+        : `${auth.user.region?.name || 'O\'z viloyatingiz'} — uyingiz joylashgan viloyat (shu yerdan va shu yerga e'lonlar)`;
     };
+    // E'lon turlari: kamida bittasi tanlangan bo'lsin
+    $$('#s-kinds .kind-pick', main).forEach(b => b.addEventListener('click', async () => {
+      const on = $$('#s-kinds .kind-pick.on', main).map(x => x.dataset.kind);
+      const next = b.classList.contains('on') ? on.filter(k => k !== b.dataset.kind) : [...on, b.dataset.kind];
+      if (!next.length) { toast("Kamida bitta turni tanlang"); return; }
+      b.classList.toggle('on');
+      b.setAttribute('aria-pressed', b.classList.contains('on'));
+      await saveSetting({ notifyKinds: next });
+    }));
     showRegions();
     $('#edit-regions', main).addEventListener('click', () => {
       const ids = new Set(auth.user.workRegionIds || []);
-      modal('Ishlaydigan viloyatlar', `<form class="stack"><p class="small muted">Hech birini tanlamasangiz, barcha viloyatlardagi buyurtmalar haqida xabar olasiz.</p>
+      modal('Ishlaydigan viloyatlar', `<form class="stack"><p class="small muted">O'z viloyatingizdan va unga keladigan e'lonlar haqida doim xabar olasiz. Boshqa qatnaydigan viloyatlaringizni ham belgilang — ulardan va ularga e'lonlar haqida ham xabar keladi. Reyslaringizga mos e'lonlar haqida esa doim xabar keladi.</p>
           <div class="stack-sm">${all.map(r => `<label class="check"><input type="checkbox" value="${r.id}" ${ids.has(r.id) ? 'checked' : ''}>${esc(r.name)}</label>`).join('')}</div>
           <button class="btn btn-primary" type="submit">Saqlash</button></form>`, {
         onMount: ({ el, close }) => {
@@ -257,28 +272,34 @@ function bindVehicle(main, rerender) {
   });
 }
 
+/** Mashina: faqat nomi, davlat raqami, turi va (ixtiyoriy) rangi — yuk ko'tarish, hajm, yil so'ralmaydi */
 function vehicleModal(onSaved) {
   const v = auth.user.vehicle || {};
-  modal(auth.user.vehicle ? "Mashina ma'lumotlari" : "Mashina qo'shish", `<form class="stack" novalidate>
-      <div class="form-grid">
-        <label class="field"><span>Markasi</span><input class="input" name="brand" value="${esc(v.brand || '')}" placeholder="Isuzu, Chevrolet, KAMAZ" required maxlength="40"></label>
-        <label class="field"><span>Modeli</span><input class="input" name="model" value="${esc(v.model || '')}" placeholder="NPR, Labo" maxlength="40"></label>
-        <label class="field"><span>Davlat raqami</span><input class="input" name="plateNumber" value="${esc(v.plateNumber || '')}" placeholder="01 A 123 BC" required maxlength="15"></label>
-        <label class="field"><span>Kuzov turi</span><select class="select" name="bodyType" required>${options(BODY, v.bodyType || '', 'Tanlang')}</select></label>
-        <label class="field"><span>Yuk ko'tarishi, kg</span><input class="input" name="capacityKg" type="number" min="1" value="${v.capacityKg ?? ''}" inputmode="numeric"></label>
-        <label class="field"><span>Kuzov hajmi, m³</span><input class="input" name="volumeM3" type="number" min="0" step="0.1" value="${v.volumeM3 ?? ''}" inputmode="decimal"></label>
-        <label class="field"><span>Rangi</span><input class="input" name="color" value="${esc(v.color || '')}" maxlength="30"></label>
-        <label class="field"><span>Ishlab chiqarilgan yili</span><input class="input" name="year" type="number" min="1970" max="2100" value="${v.year ?? ''}" inputmode="numeric"></label>
-      </div>
-      <p class="small muted">Bu ma'lumotlar profilingizda hammaga ko'rinadi — yuboruvchilar shunga qarab tanlaydi.</p>
+  const name = [v.brand, v.model].filter(Boolean).join(' ');
+  const body = bodyCanon(v.bodyType);
+  modal(auth.user.vehicle ? 'Mashinam' : "Mashina qo'shish", `<form class="stack" novalidate>
+      <label class="field"><span>Mashina</span><input class="input" name="brand" value="${esc(name)}" placeholder="Masalan: Chevrolet Cobalt, Isuzu NPR, Damas" required maxlength="60" autocomplete="off"></label>
+      <label class="field"><span>Davlat raqami</span><input class="input" name="plateNumber" value="${esc(v.plateNumber || '')}" placeholder="01 A 123 BC" required maxlength="15" autocomplete="off"></label>
+      <fieldset class="field body-picks"><legend>Mashina turi</legend>
+        <div class="choice-grid">${Object.entries(BODY).map(([k, label]) => `<label class="choice">
+          <input type="radio" name="bodyType" value="${k}" ${k === body ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</div></fieldset>
+      <label class="field"><span>Rangi <span class="muted">(ixtiyoriy)</span></span><input class="input" name="color" value="${esc(v.color || '')}" maxlength="30" placeholder="Oq"></label>
+      <p class="small muted">Bu ma'lumotlar profilingizda hammaga ko'rinadi — yo'lovchi va yuk egalari mashinangizni shunga qarab taniydi.</p>
       <button class="btn btn-primary" type="submit">Saqlash</button></form>`, {
     onMount: ({ el, close }) => {
       const form = $('form', el);
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         clearError(form);
+        const d = formData(form);
+        const picked = $('input[name=bodyType]:checked', form);
+        if (!d.brand) return showError(form, { message: 'Mashinangizni yozing, masalan: Chevrolet Cobalt' });
+        if (!d.plateNumber) return showError(form, { message: 'Davlat raqamini kiriting' });
+        if (!picked) return showError(form, { message: 'Mashina turini tanlang' });
         try {
-          auth.user = await busy(form.querySelector('[type=submit]'), () => put('/users/me/vehicle', formData(form)));
+          auth.user = await busy(form.querySelector('[type=submit]'), () => put('/users/me/vehicle', {
+            brand: d.brand, plateNumber: d.plateNumber, color: d.color, bodyType: picked.value,
+          }));
           toast('Saqlandi', 'ok');
           close();
           refreshMe();
@@ -303,8 +324,6 @@ function editProfileModal(onSaved) {
           <label class="field full"><span>O'zim haqimda</span><textarea class="textarea" name="bio" maxlength="500" placeholder="Tajribangiz, qaysi yo'nalishlarda ishlaysiz">${esc(u.bio || '')}</textarea></label>
           <label class="field"><span>Viloyat</span><select class="select" name="regionId" required></select></label>
           <label class="field"><span>Tuman / shahar</span><select class="select" name="districtId" required></select></label>
-          <label class="field"><span>Qishloq / mahalla</span><input class="input" name="village" value="${esc(u.village || '')}" required maxlength="120"></label>
-          <label class="field"><span>Ko'cha, uy</span><input class="input" name="house" value="${esc(u.house || '')}" required maxlength="120"></label>
         </div>
         <button class="btn btn-primary" type="submit">Saqlash</button></form>
     </div>
@@ -363,7 +382,6 @@ function editProfileModal(onSaved) {
   });
 }
 
-// ---------- Mavzu (yorug'/qorong'i) ----------
 // Google Play talabi: foydalanuvchi hisobini ilovaning o'zida o'chira olishi kerak (shartlar ekranidan ham ochiladi)
 export function deleteAccountModal() {
   modal("Hisobni o'chirish", `<form class="stack" novalidate>
@@ -414,23 +432,6 @@ function blockedListModal() {
   };
   load();
 }
-
-function themeLabel() {
-  const t = safeGet('yukgo_theme');
-  return t === 'dark' ? "qorong'i" : t === 'light' ? "yorug'" : 'avtomatik';
-}
-function cycleTheme() {
-  const t = safeGet('yukgo_theme');
-  const next = !t ? 'dark' : t === 'dark' ? 'light' : '';
-  try { next ? localStorage.setItem('yukgo_theme', next) : localStorage.removeItem('yukgo_theme'); } catch { /* */ }
-  applyTheme();
-}
-function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-export function applyTheme() {
-  const t = safeGet('yukgo_theme');
-  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
-}
-applyTheme();
 
 // =====================================================================
 // Ommaviy profil
@@ -485,11 +486,10 @@ export async function notificationsPage(main) {
 // =====================================================================
 export async function driversPage(main) {
   main.innerHTML = `<div class="page">
-    <div class="page-head"><div><h1>Haydovchilar</h1><p class="muted">Avval hujjatlari tekshirilganlar, keyin reyting va yetkazgan yuklari bo'yicha.</p></div></div>
+    <div class="page-head"><div><h1>Haydovchilar</h1><p class="muted">${auth.user?.region ? 'Avval sizning tumaningiz va viloyatingizdagilar, keyin' : 'Avval'} hujjatlari tekshirilganlar va reytingi yuqorilar.</p></div></div>
     <form class="filters" id="f" style="margin-bottom:16px">
       <select class="select" name="regionId" aria-label="Viloyat">${await regionOptions('', 'Barcha viloyatlar')}</select>
       <select class="select" name="bodyType" aria-label="Mashina turi">${options(BODY, '', 'Har qanday mashina')}</select>
-      <input class="input" name="minCapacity" type="number" min="0" placeholder="Kamida necha kg" aria-label="Minimal yuk ko'tarish">
     </form>
     <div id="list">${skeletons()}</div></div>`;
   const f = $('#f', main);
@@ -502,8 +502,7 @@ export async function driversPage(main) {
             <div style="min-width:0"><div class="person-name">${esc(u.fullName)} ${verifiedBadge(u.verified)}</div><div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
             ${u.phone ? `<a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>` : ''}</div>
           <div class="meta">
-            ${u.vehicle ? `<span><b>${esc(u.vehicle.brand)} ${esc(u.vehicle.model || '')}</b></span><span>${esc(BODY[u.vehicle.bodyType] || '')}</span>
-              ${u.vehicle.capacityKg ? `<span>${num(u.vehicle.capacityKg)} kg gacha</span>` : ''}` : ''}
+            ${u.vehicle ? `<span><b>${esc(u.vehicle.brand)}${u.vehicle.model ? ' ' + esc(u.vehicle.model) : ''}</b></span><span>${esc(bodyLabel(u.vehicle.bodyType))}</span>` : ''}
             <span><b>${u.deliveriesCompleted}</b> ta yetkazgan</span>
             ${u.region ? `<span>${esc(u.region.name)}</span>` : ''}
             <span>${u.available ? "Hozir bo'sh" : 'Band'}</span>

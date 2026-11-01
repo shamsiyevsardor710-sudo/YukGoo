@@ -14,6 +14,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,10 +69,10 @@ class FullFlowTest {
         String code = start.get("devCode").asText();
         call("POST", "/api/auth/verify", Map.of("requestId", requestId, "code", code), null, 200);
         long r = firstRegion();
+        // Faqat viloyat va tuman (qishloq va uy manzili endi so'ralmaydi)
         JsonNode res = call("POST", "/api/auth/register/complete", Map.of(
                 "requestId", requestId, "firstName", first, "lastName", last, "password", "secret123",
-                "regionId", r, "districtId", firstDistrict(r), "village", "Bog'bon mahallasi", "house", "12-uy",
-                "acceptTerms", acceptTerms), null, 200);
+                "regionId", r, "districtId", firstDistrict(r), "acceptTerms", acceptTerms), null, 200);
         return res.get("token").asText();
     }
 
@@ -86,9 +88,12 @@ class FullFlowTest {
         assertThat(login.get("user").get("phone").asText()).isEqualTo("+998901111111");
         call("POST", "/api/auth/login", Map.of("firstName", "Ali", "lastName", "Valiyev", "password", "xato"), null, 401);
 
-        // Haydovchi mashina qo'shadi
-        call("PUT", "/api/users/me/vehicle", Map.of("brand", "Isuzu", "model", "NPR", "plateNumber", "01 a 123 bc",
-                "bodyType", "TENT", "capacityKg", 5000), driver, 200);
+        // Haydovchi mashina qo'shadi (eski ilova modeli, tentli turi va yuk ko'tarishni yuborsa ham qabul qilinadi)
+        JsonNode veh = call("PUT", "/api/users/me/vehicle", Map.of("brand", "Isuzu", "model", "NPR", "plateNumber", "01 a 123 bc",
+                "bodyType", "TENT", "capacityKg", 5000), driver, 200).get("vehicle");
+        assertThat(veh.get("brand").asText()).isEqualTo("Isuzu NPR");
+        assertThat(veh.get("bodyType").asText()).isEqualTo("TRUCK");
+        assertThat(veh.get("capacityKg").isNull()).isTrue();
 
         long r = firstRegion();
         JsonNode order = call("POST", "/api/orders", Map.ofEntries(
@@ -187,7 +192,7 @@ class FullFlowTest {
         // Yuboruvchi haydovchini bloklaydi: taklif ham, olish ham yopiq, bozorda e'lon ko'rinmaydi
         String driver = register("+998907777777", "Blok", "Haydovchi");
         call("PUT", "/api/users/me/vehicle", Map.of("brand", "Isuzu", "plateNumber", "01 b 777 bc",
-                "bodyType", "TENT", "capacityKg", 5000), driver, 200);
+                "bodyType", "TRUCK"), driver, 200);
         long driverId = call("GET", "/api/users/me", null, driver, 200).get("id").asLong();
         call("POST", "/api/users/" + driverId + "/block", null, sender, 200);
         assertThat(call("GET", "/api/users/me/blocks", null, sender, 200).size()).isEqualTo(1);
@@ -202,5 +207,64 @@ class FullFlowTest {
         call("DELETE", "/api/users/" + driverId + "/block", null, sender, 200);
         assertThat(call("GET", "/api/users/me/blocks", null, sender, 200).size()).isEqualTo(0);
         call("POST", "/api/orders/" + orderId + "/offers", Map.of("price", 650000), driver, 200);
+    }
+
+    @Test
+    @Order(4)
+    void passengerTripMatching() throws Exception {
+        String driver = register("+998908888881", "Taksi", "Haydovchi");
+        call("PUT", "/api/users/me/vehicle", Map.of("brand", "Chevrolet Cobalt", "plateNumber", "50 a 123 bc", "bodyType", "SEDAN"), driver, 200);
+        long r = firstRegion();
+        long d = firstDistrict(r);
+        // Har kuni qatnaydigan reys: hozircha mos e'lon yo'q
+        JsonNode trip = call("POST", "/api/trips", Map.of("fromRegionId", r, "fromDistrictId", d, "toRegionId", r + 1,
+                "departAt", LocalDate.now(ZoneId.of("Asia/Tashkent")) + "T07:00:00", "daily", true, "seats", 3), driver, 200);
+        assertThat(trip.get("daily").asBoolean()).isTrue();
+        assertThat(trip.get("matches").asInt()).isZero();
+
+        // Yo'lovchi faqat yo'nalish va necha kishi ekanini yozadi
+        String passenger = register("+998908888882", "Yolovchi", "Odam");
+        JsonNode p = call("POST", "/api/orders", Map.of("kind", "PASSENGER", "seats", 2,
+                "from", Map.of("regionId", r, "districtId", d), "to", Map.of("regionId", r + 1)), passenger, 200);
+        long id = p.get("id").asLong();
+        assertThat(p.get("kind").asText()).isEqualTo("PASSENGER");
+        assertThat(p.get("title").asText()).isEqualTo("2 yo'lovchi");
+        assertThat(p.get("receiverPhone").isNull()).isTrue();
+        assertThat(p.get("pickupDate").asText()).isEqualTo(LocalDate.now(ZoneId.of("Asia/Tashkent")).toString());
+
+        // Reysi mos haydovchiga ilova ichida ham xabar
+        boolean notified = false;
+        for (JsonNode n : call("GET", "/api/notifications", null, driver, 200).get("items")) {
+            notified |= n.get("title").asText().contains("Siz uchun yangi yo'lovchi") && n.get("link").asText().equals("#/orders/" + id);
+        }
+        assertThat(notified).isTrue();
+
+        // Bozorda tur va tuman bo'yicha
+        JsonNode market = call("GET", "/api/orders?kind=PASSENGER&fromRegion=" + r + "&fromDistrict=" + d, null, driver, 200);
+        assertThat(market.get("total").asLong()).isEqualTo(1);
+        assertThat(market.get("items").get(0).get("id").asLong()).isEqualTo(id);
+        assertThat(call("GET", "/api/orders?kind=PARCEL&fromRegion=" + r, null, driver, 200).get("total").asLong()).isZero();
+        // Reyslar: avval o'z tumanidan
+        assertThat(call("GET", "/api/trips?fromRegion=" + r + "&fromDistrict=" + d, null, passenger, 200).get("total").asLong()).isEqualTo(1);
+
+        // Narxsiz «Olaman» → ikki tomonga telefon ochiladi → kodsiz «Yetib keldik»
+        JsonNode taken = call("POST", "/api/orders/" + id + "/take", null, driver, 200);
+        assertThat(taken.get("status").asText()).isEqualTo("ACCEPTED");
+        assertThat(taken.get("finalPrice").isNull()).isTrue();
+        assertThat(taken.get("sender").get("phone").asText()).isEqualTo("+998908888882");
+        call("POST", "/api/orders/" + id + "/pickup", null, driver, 200);
+        assertThat(call("POST", "/api/orders/" + id + "/deliver", Map.of(), driver, 200).get("status").asText()).isEqualTo("DELIVERED");
+
+        // Yangi reys — mos e'lon egasiga xabar (keyingi e'lon uchun)
+        long p2 = call("POST", "/api/orders", Map.of("kind", "PARCEL", "from", Map.of("regionId", r), "to", Map.of("regionId", r + 1)),
+                passenger, 200).get("id").asLong();
+        JsonNode trip2 = call("POST", "/api/trips", Map.of("fromRegionId", r, "toRegionId", r + 1,
+                "departAt", LocalDate.now(ZoneId.of("Asia/Tashkent")).plusDays(1) + "T09:00:00", "seats", 2), driver, 200);
+        assertThat(trip2.get("matches").asInt()).isEqualTo(1);
+        boolean told = false;
+        for (JsonNode n : call("GET", "/api/notifications", null, passenger, 200).get("items")) {
+            told |= n.get("title").asText().contains("Yo'nalishingizda haydovchi bor") && n.get("link").asText().equals("#/orders/" + p2);
+        }
+        assertThat(told).isTrue();
     }
 }

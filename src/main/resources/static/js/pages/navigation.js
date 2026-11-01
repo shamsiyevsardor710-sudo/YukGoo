@@ -124,30 +124,39 @@ export async function navigationPage(main, { id }) {
 
   let tgt = await target();
 
+  // Turga qarab matnlar: yo'lovchida «Yo'lovchini oldim» / «Yetib keldik» (kodsiz), yukda — kod bilan topshirish
+  const kind = o.kind || 'CARGO';
+  const passenger = kind === 'PASSENGER';
+  const thing = passenger ? "Yo'lovchini" : kind === 'PARCEL' ? 'Pochtani' : 'Yukni';
+
   function renderSheet() {
     const pickup = tgt.pickup;
-    const contactName = pickup ? o.sender.fullName : o.receiverName;
-    const contactPhone = pickup ? o.sender.phone : o.receiverPhone;
+    // Yo'lovchi o'zi mashinada — yo'lda ham o'ziga qo'ng'iroq qilinadi
+    const toSender = pickup || passenger || !o.receiverPhone;
+    const contactName = toSender ? o.sender.fullName : (o.receiverName || 'Qabul qiluvchi');
+    const contactPhone = toSender ? o.sender.phone : o.receiverPhone;
+    const targetTitle = pickup ? (passenger ? "Yo'lovchini olish" : `${thing} olish`) : (passenger ? 'Manzil' : 'Topshirish');
     $('#sheet', main).innerHTML = `
       <div class="nav-target ${pickup ? '' : 'drop'}"><span class="dot" aria-hidden="true"></span>
-        <div style="min-width:0"><b>${pickup ? 'Yukni olish' : 'Topshirish'}: ${esc(tgt.place.regionName)}${tgt.place.districtName ? ', ' + esc(tgt.place.districtName) : ''}</b>
+        <div style="min-width:0"><b>${esc(targetTitle)}: ${esc(tgt.place.regionName)}${tgt.place.districtName ? ', ' + esc(tgt.place.districtName) : ''}</b>
         <div class="small muted">${esc(tgt.place.address || 'Aniq manzil kiritilmagan')}</div></div></div>
       <div class="nav-actions">
         <a class="btn btn-lg" href="tel:${esc(contactPhone)}" aria-label="${esc(contactName)} ga qo'ng'iroq">${icon('phone')}</a>
         <a class="btn btn-lg" href="#/orders/${o.id}" aria-label="Buyurtma tafsilotlari">${icon('list')}</a>
-        ${pickup ? `<button class="btn btn-primary btn-lg" id="act">Yukni oldim</button>`
-                 : `<button class="btn btn-ok btn-lg" id="act">Topshirish</button>`}
+        ${pickup ? `<button class="btn btn-primary btn-lg" id="act">${esc(thing)} oldim</button>`
+                 : `<button class="btn btn-ok btn-lg" id="act">${passenger ? 'Yetib keldik' : 'Topshirish'}</button>`}
       </div>
-      <p class="tiny muted">${pickup ? 'Yuboruvchi' : 'Qabul qiluvchi'}: ${esc(contactName)}, ${esc(phoneFmt(contactPhone))}</p>`;
+      <p class="tiny muted">${toSender ? (passenger ? "Yo'lovchi" : 'Yuboruvchi') : 'Qabul qiluvchi'}: ${esc(contactName)}, ${esc(phoneFmt(contactPhone))}</p>`;
     $('#act', main).addEventListener('click', pickup ? doPickup : doDeliver);
   }
 
   async function doPickup(e) {
-    const r = await confirmDialog('Yukni oldingizmi?', "Yuboruvchiga yuk yo'lga chiqqani haqida xabar boradi.", { okText: 'Ha, oldim' });
+    const r = await confirmDialog(passenger ? "Yo'lovchini oldingizmi?" : `${thing} oldingizmi?`,
+      passenger ? "Endi borish manziliga yo'l ko'rsatamiz." : "Yuboruvchiga yo'lga chiqqaningiz haqida xabar boradi.", { okText: 'Ha, oldim' });
     if (!r) return;
     try {
       o = await busy($('#act', main), () => post(`/orders/${id}/pickup`));
-      toast("Endi topshirish manziliga yo'l ko'rsatamiz", 'ok');
+      toast(passenger ? "Oq yo'l!" : "Endi topshirish manziliga yo'l ko'rsatamiz", 'ok');
       tgt = await target();
       placeTarget();
       renderSheet();
@@ -160,8 +169,18 @@ export async function navigationPage(main, { id }) {
     void e;
   }
 
-  function doDeliver() {
-    modal('Yukni topshirish', `<form class="stack" novalidate>
+  async function doDeliver() {
+    if (passenger) {
+      const r = await confirmDialog('Manzilga yetib keldingizmi?', "Safar yakunlanadi va yo'lovchiga baholash taklif qilinadi.", { okText: 'Ha, yetdik' });
+      if (!r) return;
+      try {
+        await busy($('#act', main), () => post(`/orders/${id}/deliver`, {}));
+        toast('Safar yakunlandi! Rahmat', 'ok');
+        go('#/orders/' + id);
+      } catch (err) { toast(err.message, 'err'); }
+      return;
+    }
+    modal(kind === 'PARCEL' ? 'Pochtani topshirish' : 'Yukni topshirish', `<form class="stack" novalidate>
         <p class="small muted">Qabul qiluvchidan 4 xonali kodni so'rang va kiriting.</p>
         <input class="input code-input" name="code" inputmode="numeric" maxlength="4" autocomplete="off" required aria-label="Topshirish kodi">
         <button class="btn btn-ok btn-lg" type="submit">Tasdiqlash</button></form>`, {
@@ -172,7 +191,7 @@ export async function navigationPage(main, { id }) {
           try {
             await busy(f.querySelector('[type=submit]'), () => post(`/orders/${id}/deliver`, { code: f.code.value.trim() }));
             close();
-            toast('Yuk topshirildi! Rahmat', 'ok');
+            toast('Topshirildi! Rahmat', 'ok');
             go('#/orders/' + id);
           } catch (err) { showError(f, err); }
         });
@@ -255,7 +274,8 @@ export async function navigationPage(main, { id }) {
     if (!lastRouteAt || (needRoute && since > gap) || since > REFRESH_MS) reroute(!lastRouteAt);
 
     if (haversine(me, tgt.coords) < 150) {
-      $('#nav-eta', main).textContent = tgt.pickup ? 'Siz yuk olish manzilidasiz' : 'Siz topshirish manzilidasiz';
+      $('#nav-eta', main).textContent = tgt.pickup ? (passenger ? "Siz yo'lovchini olish joyidasiz" : 'Siz olish manzilidasiz')
+        : (passenger ? 'Siz manzildasiz' : 'Siz topshirish manzilidasiz');
     }
   }
 

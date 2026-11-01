@@ -42,9 +42,17 @@ public class Trip {
     @ManyToOne(fetch = FetchType.LAZY)
     private District toDistrict;
 
+    /** Jo'nash vaqti (Toshkent vaqti). «Har kuni» reysda — birinchi kun va odatdagi soati */
     @Column(nullable = false)
     private LocalDateTime departAt;
 
+    /** Har kuni shu yo'nalishda qatnaydi (taksi, shatl) — sanasi o'tsa ham faol qoladi. null — eski reyslar (yo'q) */
+    private Boolean daily;
+
+    /** Bo'sh o'rinlar (yo'lovchilar uchun), ixtiyoriy */
+    private Integer seats;
+
+    /** (eski) bo'sh joy, kg va hajm — endi so'ralmaydi */
     private Integer availableKg;
     private Double availableM3;
 
@@ -58,4 +66,8 @@ public class Trip {
     private boolean active = true;
 
     private Instant createdAt = Instant.now();
+
+    public boolean isDaily() {
+        return Boolean.TRUE.equals(daily);
+    }
 }

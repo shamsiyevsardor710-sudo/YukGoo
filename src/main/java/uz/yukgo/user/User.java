@@ -7,6 +7,7 @@ import lombok.Setter;
 import org.hibernate.annotations.DynamicUpdate;
 import uz.yukgo.location.District;
 import uz.yukgo.location.Region;
+import uz.yukgo.order.OrderKind;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -63,10 +64,10 @@ public class User {
     @ManyToOne(fetch = FetchType.LAZY)
     private District district;
 
-    /** Qishloq / mahalla */
+    /** Qishloq / mahalla (endi so'ralmaydi — eski hisoblarda qolgan; profil saqlanganda tozalanadi) */
     private String village;
 
-    /** Ko'cha va uy raqami */
+    /** Ko'cha va uy raqami (endi so'ralmaydi) */
     private String house;
 
     // ---- Profil ----
@@ -124,6 +125,13 @@ public class User {
 
     /** Yangi buyurtmalar haqida Telegram orqali xabar olish */
     private boolean notifyNewOrders = true;
+
+    /**
+     * Qaysi e'lonlar haqida xabar oladi: "CARGO,PARCEL,PASSENGER" dan tanlanganlari. null — o'zi tanlamagan,
+     * mashinasiga qarab ({@link OrderKind#defaultsFor}).
+     */
+    @Column(length = 40)
+    private String notifyKinds;
 
     /** Haydovchi ishlaydigan viloyatlar (bo'sh bo'lsa — hammasi) */
     @ElementCollection(fetch = FetchType.LAZY)
@@ -184,6 +192,17 @@ public class User {
 
     public boolean isDriver() {
         return vehicle != null && vehicle.isPresent();
+    }
+
+    /** Haydovchi qaysi turdagi e'lonlar haqida xabar oladi (o'zi tanlagani yoki mashinasiga qarab) */
+    public Set<OrderKind> effectiveNotifyKinds() {
+        Set<OrderKind> chosen = OrderKind.parse(notifyKinds);
+        if (notifyKinds != null && !chosen.isEmpty()) return chosen;
+        return OrderKind.defaultsFor(vehicle == null ? null : vehicle.getBodyType());
+    }
+
+    public boolean acceptsKind(OrderKind kind) {
+        return effectiveNotifyKinds().contains(kind == null ? OrderKind.CARGO : kind);
     }
 
     public boolean isActive() {

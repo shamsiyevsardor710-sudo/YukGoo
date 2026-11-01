@@ -18,17 +18,21 @@ import java.util.List;
 public class OrderController {
     private final OrderService orderService;
 
-    @Operation(summary = "Ochiq buyurtmalar bozori (filtrlar bilan)")
+    @Operation(summary = "Ochiq e'lonlar (yuk, pochta, yo'lovchi): kirganlarga avval o'z tumani va viloyatidan")
     @GetMapping
-    public PageResponse<OrderDto> market(@RequestParam(required = false) Long fromRegion,
+    public PageResponse<OrderDto> market(@RequestParam(required = false) OrderKind kind,
+                                         @RequestParam(required = false) Long fromRegion,
+                                         @RequestParam(required = false) Long fromDistrict,
                                          @RequestParam(required = false) Long toRegion,
+                                         @RequestParam(required = false) Long toDistrict,
                                          @RequestParam(required = false) CargoType cargoType,
                                          @RequestParam(required = false) DeliveryScope scope,
                                          @RequestParam(required = false) BodyType bodyType,
                                          @RequestParam(required = false) Double maxWeight,
                                          @RequestParam(required = false) String q,
                                          @RequestParam(defaultValue = "0") int page) {
-        return orderService.market(fromRegion, toRegion, cargoType, scope, bodyType, maxWeight, q, page);
+        return orderService.market(new OrderService.MarketFilter(kind, fromRegion, fromDistrict, toRegion, toDistrict,
+                cargoType, scope, bodyType, maxWeight, q), page);
     }
 
     @Operation(summary = "Narxni taxminiy hisoblash (masofa va og'irlik bo'yicha)")
@@ -109,9 +113,9 @@ public class OrderController {
         return orderService.pickUp(id);
     }
 
-    @Operation(summary = "Topshirish — qabul qiluvchidagi 4 xonali kod bilan")
+    @Operation(summary = "Topshirish — qabul qiluvchidagi 4 xonali kod bilan (yo'lovchi e'lonida kod kerak emas)")
     @PostMapping("/{id}/deliver")
-    public OrderDto deliver(@PathVariable Long id, @Valid @RequestBody DeliverRequest req) {
+    public OrderDto deliver(@PathVariable Long id, @Valid @RequestBody(required = false) DeliverRequest req) {
         return orderService.deliver(id, req);
     }
 

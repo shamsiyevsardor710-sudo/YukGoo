@@ -25,6 +25,7 @@ import uz.yukgo.location.LocationService;
 import uz.yukgo.location.Region;
 import uz.yukgo.notification.Notification;
 import uz.yukgo.notification.NotificationRepository;
+import uz.yukgo.order.OrderKind;
 import uz.yukgo.order.OrderRepository;
 import uz.yukgo.order.OrderService;
 import uz.yukgo.order.OrderStatus;
@@ -40,7 +41,9 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -123,8 +126,9 @@ public class UserService {
         u.setBio(blankToNull(req.bio()));
         u.setRegion(region);
         u.setDistrict(locationService.district(req.districtId(), region));
-        u.setVillage(req.village().trim());
-        u.setHouse(req.house().trim());
+        // Qishloq va uy manzili endi so'ralmaydi: eski ilova yuborsa ham saqlanmaydi, eskisi esa tozalanadi
+        u.setVillage(null);
+        u.setHouse(null);
         return MeDto.of(u);
     }
 
@@ -152,16 +156,21 @@ public class UserService {
         Terms.require(u);
         Vehicle v = u.getVehicle() == null ? new Vehicle() : u.getVehicle();
         String oldPlate = v.getPlateNumber();
-        v.setBrand(dto.brand().trim());
-        v.setModel(blankToNull(dto.model()));
+        // Bitta «Mashina» maydoni: rusumi va modeli birga ("Isuzu NPR"). Eski ilova modelni alohida yuborsa — qo'shiladi
+        String name = dto.brand().trim().replaceAll("\\s+", " ");
+        String model = blankToNull(dto.model());
+        if (model != null && !name.toLowerCase().contains(model.toLowerCase())) name = name + " " + model;
+        v.setBrand(name.length() > 60 ? name.substring(0, 60).trim() : name);
+        v.setModel(null);
         v.setPlateNumber(dto.plateNumber().trim().toUpperCase().replaceAll("\\s+", " "));
         // Boshqa mashina — "Tekshirilgan haydovchi" belgisi qayta tekshiruvgacha olinadi
         if (oldPlate != null && !Objects.equals(oldPlate, v.getPlateNumber())) driverVerification.vehicleChanged(u);
         v.setColor(blankToNull(dto.color()));
-        v.setYear(dto.year());
-        v.setBodyType(dto.bodyType());
-        v.setCapacityKg(dto.capacityKg());
-        v.setVolumeM3(dto.volumeM3());
+        // Yili, yuk ko'tarishi va hajmi endi so'ralmaydi — eskisi ham tozalanadi
+        v.setYear(null);
+        v.setBodyType(dto.bodyType().canonical());
+        v.setCapacityKg(null);
+        v.setVolumeM3(null);
         u.setVehicle(v);
         return MeDto.of(u);
     }
@@ -197,6 +206,11 @@ public class UserService {
                 locationService.region(id);
                 u.getWorkRegionIds().add(id);
             }
+        }
+        if (req.notifyKinds() != null) {
+            // Bo'sh tanlov — mashinasiga qarab (standart)
+            Set<OrderKind> kinds = req.notifyKinds().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+            u.setNotifyKinds(kinds.isEmpty() ? null : OrderKind.format(kinds));
         }
         return MeDto.of(u);
     }
@@ -250,11 +264,21 @@ public class UserService {
         u.setLastLocationAt(Instant.now());
     }
 
+    /**
+     * Haydovchilar ro'yxati. Kirgan foydalanuvchiga — avval o'z tumanidagi, keyin viloyatidagi, so'ng yaqin viloyatlardagi.
+     * Bloklangan (yoki meni bloklagan) haydovchilar ko'rinmaydi. Yuk ko'tarish bo'yicha filtr endi yo'q.
+     */
     @Transactional(readOnly = true)
-    public PageResponse<PublicUserDto> drivers(Long regionId, BodyType bodyType, Integer minCapacity, int page) {
-        // Bloklangan (yoki meni bloklagan) haydovchilar ro'yxatda ko'rinmaydi
-        return PageResponse.of(userRepository.searchDrivers(regionId, bodyType, minCapacity, currentUser.idOrNull(),
-                PageRequest.of(page, 20)), PublicUserDto::of);
+    public PageResponse<PublicUserDto> drivers(Long regionId, BodyType bodyType, int page) {
+        Long viewerId = currentUser.idOrNull();
+        User viewer = viewerId == null ? null : userRepository.findById(viewerId).orElse(null);
+        Long homeRegion = viewer != null && viewer.getRegion() != null ? viewer.getRegion().getId() : null;
+        Long homeDistrict = viewer != null && viewer.getDistrict() != null ? viewer.getDistrict().getId() : null;
+        Region home = viewer != null ? viewer.getRegion() : null;
+        List<BodyType> types = bodyType == null ? List.of(BodyType.OTHER) : bodyType.withLegacy();
+        return PageResponse.of(userRepository.searchDrivers(regionId, bodyType == null, types, viewerId, homeRegion,
+                homeDistrict, home == null ? null : home.getLat(), home == null ? null : home.getLng(),
+                PageRequest.of(Math.max(0, page), 20)), PublicUserDto::of);
     }
 
     /**

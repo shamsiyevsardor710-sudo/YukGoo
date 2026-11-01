@@ -1,6 +1,7 @@
-# YukGo — yuk yetkazib berish platformasi
+# YukGo — yuk, pochta va yo'lovchi tashish platformasi
 
-Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun veb-sayt, Telegram bot va REST API (mobil ilova uchun tayyor).
+Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk, pochta (kichik jo'natma) va yo'lovchi tashish uchun veb-sayt,
+Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'lon qiladi — mos e'lonlar haqida xabar o'zi keladi.
 
 **Texnologiyalar:** Java 21, Spring Boot 3.3, Spring Security (JWT), Spring Data JPA, PostgreSQL (ishlab chiqarish) / H2 (sinov), Telegram Bot API, Yandex Maps JS API 2.1, oddiy JavaScript (freymvorksiz SPA).
 
@@ -9,7 +10,9 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 ## Imkoniyatlar
 
 ### Ro'yxatdan o'tish va kirish
-- Telefon raqam → **SMS orqali 6 xonali kod** (SMS sozlanmagan bo'lsa — Telegram bot orqali) → ism, familiya, parol va to'liq manzil (viloyat, tuman, qishloq/mahalla, uy) → **foydalanish shartlari va maxfiylik siyosatiga rozilik** (belgi).
+- Telefon raqam → **SMS orqali 6 xonali kod** (SMS sozlanmagan bo'lsa — Telegram bot orqali) → ism, familiya, parol, **viloyat va tuman**
+  (qishloq va uy manzili so'ralmaydi, parol bir marta — «ko'rsatish» tugmasi bilan) → **foydalanish shartlari va maxfiylik siyosatiga rozilik** (belgi).
+- Ro'yxatdan o'tgach bitta savol: «Men haydovchiman» (mashina qo'shishga) yoki «E'lon beraman» (yangi e'lon formasiga).
 - Shartlar paydo bo'lishidan oldin ro'yxatdan o'tganlarga ilova kirganda bir marta shartlarni ko'rsatadi («Qabul qilaman»). Shartlar jiddiy o'zgarsa — `Terms.VERSION` oshiriladi va hamma qayta qabul qiladi.
 - O'zbekistonning 14 ta hududi va barcha tumanlari bazaga avtomatik yoziladi.
 - Kirish: **ism + familiya + parol** (bir xil ismli odamlar bo'lsa — telefon + parol).
@@ -18,31 +21,54 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 
 ### Profil
 - Rasm yuklash, reyting (⭐ o'rtacha va taqsimot), bergan buyurtmalar va yetkazgan yuklar soni.
-- **«Tahrirlash»** tugmasi ichida: ism-familiya, manzil, o'zi haqida, telefon raqam, parol.
-- Mashina ma'lumotlari (marka, model, davlat raqami, kuzov turi, yuk ko'tarish, hajm, rasm) — **hammaga ko'rinadi**.
+- **«Tahrirlash»** tugmasi ichida: ism-familiya, viloyat va tuman, o'zi haqida, telefon raqam, parol.
+- **Mashina**: nomi (masalan «Chevrolet Cobalt»), davlat raqami, turi — 6 tadan biri: yuk mashinasi, yengil mashina, ochiq bortli,
+  furgon, konteyner tashuvchi, boshqa — ixtiyoriy rangi va rasmi. Yuk ko'tarish, hajm, yil so'ralmaydi. **Hammaga ko'rinadi**.
+  Eski turlar (tentli, refrijerator, samosval, Damas/Labo…) ishga tushishda avtomatik shu 6 tadan biriga o'tkaziladi.
+- **Kunduzgi va kechki rejim**: yuqoridagi quyosh/oy tugmasi (va Profil → Rejim). Birinchi kirishda — kechki; tanlov shu qurilmada eslab qolinadi.
 - Telefon raqam profilda turadi — boshqalar qo'ng'iroq qila oladi.
 - Ommaviy profil sahifasi: boshqa foydalanuvchilar mashina, reyting va sharhlarni ko'radi.
 
 ### Logistika
-- **Buyurtma**: yuk turi, og'irlik, hajm, kerakli mashina, rasm, olish/topshirish manzili (xaritadan belgilanadi), narx yoki «narx kelishiladi», to'lov usuli, kim to'laydi, shoshilinch belgisi, qabul qiluvchi.
+- **E'lon turlari**: 📦 **Yuk** (nima, ixtiyoriy og'irlik va mashina turi), ✉️ **Pochta** (hujjat, kichik quti) va 🧍 **Yo'lovchi**
+  (faqat qayerdan, qayerga, qachon va necha kishi). Hammasida: viloyat va tuman, «Bugun / Ertaga / Indinga» yoki sana, ixtiyoriy narx
+  (bo'sh — «narx kelishiladi»; yo'lovchida — bir kishi uchun), ixtiyoriy izoh. Yuk va pochtada qabul qiluvchi — «O'zim» yoki
+  «Boshqa odam» (telefoni). Aniq manzil, xarita va rasm — yig'ilgan «Aniq manzil va xarita (ixtiyoriy)» bo'limida.
+  To'lov usuli, kim to'lashi, hajm va yuk turi endi so'ralmaydi.
 - **Yo'nalish turi avtomatik**: shahar ichida / shahardan shaharga / viloyatlararo.
 - **Narx hisoblagich**: Yandex marshrut masofasi va og'irlikka qarab taxminiy narx.
-- **Bozor**: filtrlar (qayerdan, qayerga, yuk turi, masofa, mashina turi, qidiruv), ro'yxat yoki xaritada ko'rish.
-- **Takliflar (auksion)**: haydovchilar narx taklif qiladi, yuboruvchi reyting va mashinaga qarab tanlaydi. Yoki haydovchi e'londagi narxga rozi bo'lib darhol oladi.
+- **Bosh sahifa (E'lonlar)**: kirgan foydalanuvchiga **avval o'z tumanidan, keyin o'z viloyatidan, so'ng yaqin viloyatlardan**
+  chiqqan e'lonlar (ro'yxatdan o'tishda ko'rsatgan manzili bo'yicha); har birining ichida shoshilinchlar tepada, keyin sana bo'yicha.
+  Qidiruv: «Qayerdan» va «Qayerga» — viloyat, keyin tuman; tur bo'yicha: Hammasi · Yuk · Pochta · Yo'lovchi. Ro'yxat yoki xarita.
+- **Takliflar (auksion)**: haydovchilar narx taklif qiladi, yuboruvchi reyting va mashinaga qarab tanlaydi. Yoki haydovchi e'londagi narxga
+  rozi bo'lib darhol oladi. Pochta va yo'lovchida narx ko'rsatilmagan bo'lsa ham **«Olaman»** — ikki tomonga bir-birining raqami ochiladi,
+  narxni telefonda kelishadi.
 - **Holatlar**: Haydovchi kutilmoqda → Haydovchi tanlandi → Yo'lda → Yetkazildi (yoki Bekor qilingan) + to'liq tarix.
-- **Topshirish kodi**: 4 xonali kod faqat yuboruvchiga ko'rinadi; haydovchi yukni faqat qabul qiluvchidan olingan kod bilan topshira oladi. Qabul qiluvchi Telegramga ulangan bo'lsa, kod unga bot orqali ham boradi.
+- **Topshirish kodi**: 4 xonali kod faqat yuboruvchiga ko'rinadi; haydovchi yuk va pochtani faqat qabul qiluvchidan olingan kod bilan topshira oladi. Qabul qiluvchi Telegramga ulangan bo'lsa, kod unga bot orqali ham boradi. Yo'lovchida kod yo'q: «Yo'lovchini oldim» → «Manzilga yetib keldik».
 - **Jonli kuzatuv**: haydovchining GPS joylashuvi yuboruvchi xaritasida yangilanib turadi.
 - **Yozishma** yuboruvchi ↔ haydovchi (Telegramga ham boradi).
 - **Baholash**: yetkazilgandan keyin ikki tomon bir-birini baholaydi; reyting profilda.
-- **Reyslar**: haydovchi «Ertaga Toshkent → Samarqand, 2 t bo'sh joy» deb e'lon qiladi.
-- **Haydovchilar katalogi**: avval tekshirilgan haydovchilar, keyin reyting va yetkazgan yuklar bo'yicha.
+- **Reyslar**: haydovchi «Ertaga 07:00 Kosonsoy → Toshkent, 3 ta bo'sh o'rin» yoki **«Har kuni qatnayman»** deb e'lon qiladi
+  (bo'sh o'rin — yengil mashina, furgon va «boshqa» turida; narx va izoh — ixtiyoriy). Ro'yxat ham yaqinlik bo'yicha, viloyat → tuman qidiruvi bilan.
+- **Avtomatik moslash** (`trip/MatchService`):
+  - yangi e'lon → shu yo'nalishda (viloyatdan viloyatga), o'sha kuni yoki ertasi (yoki «har kuni») jo'naydigan reysi bor haydovchilarga
+    «🎯 Siz uchun yangi yo'lovchi / pochta / buyurtma» (ilova ichida ham, Telegramda ham; boshqa tumandan bo'lsa — «Yo'lingizda»);
+    so'ng uyi yoki ishlaydigan viloyati e'lon yo'nalishida bo'lgan bo'sh haydovchilarga Telegram orqali (o'z tumanidagilarga
+    «📍 Tumaningizdan» belgisi bilan, avval ular);
+  - yangi reys → shu yo'nalishda haydovchi kutayotgan e'lon egalariga «🚗 Yo'nalishingizda haydovchi bor» (ism, mashina, telefon);
+    bitta haydovchining reyslari haqida bir odamga 12 soatda bir martadan ortiq xabar bormaydi; haydovchiga mos e'lonlar soni ko'rsatiladi;
+  - haydovchi qaysi e'lonlar haqida xabar olishini tanlaydi (Profil → Haydovchi sozlamalari): standart — yengil mashina: yo'lovchi va pochta,
+    yuk mashinalari: yuk va pochta, furgon va boshqalar: hammasi. Mashina turi so'ralgan yuk mos mashinaga boradi; blok bo'lganlarga bormaydi.
+- E'lon egasi sahifasida **«Yo'nalishingizdagi haydovchilar»**: shu yo'nalishda reys e'lon qilganlar, qo'ng'iroq tugmasi bilan.
+- **Haydovchilar katalogi**: avval o'z tumani va viloyatidagilar, so'ng yaqin viloyatlardagilar; har birining ichida — tekshirilgan
+  haydovchilar, reyting va bajargan buyurtmalar bo'yicha.
 - **«Tekshirilgan haydovchi»**: haydovchi profilda guvohnoma va texpasport rasmini yuboradi (ilova rasmni ~1600px gacha kichraytiradi),
   admin «Tekshiruv» bo'limida ko'rib tasdiqlaydi yoki sababini yozib rad etadi. Rasmlar bazada saqlanadi, faqat adminga ko'rinadi va
   qaror qilingan zahoti o'chiriladi. Davlat raqami o'zgarsa yoki mashina o'chirilsa — belgi olinadi.
 - Haydovchi voz kechsa buyurtma avtomatik qayta e'lon qilinadi; 30 kun olinmagan e'lonlar avtomatik yopiladi.
 - Shikoyat / adminga murojaat: profil va buyurtma sahifasida (buyurtma tomonlari ham bir-biri haqida), istasa — shikoyat bilan birga bloklash.
 - **Bloklash** (Google Play talabi — 1:1 yozishma bor): bloklangan foydalanuvchi bilan bir-biringizga yoza olmaysiz, taklif bera/qabul qila
-  olmaysiz, bozor, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz, yangi e'lon xabari bormaydi; ochiq takliflar yopiladi.
+  olmaysiz, e'lonlar, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz, yangi e'lon va mos reys xabari bormaydi; ochiq takliflar yopiladi.
   Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Ro'yxat va blokdan chiqarish: Profil → Bloklanganlar.
 - Hujjatlar: `/terms.html` (foydalanish shartlari: taqiqlangan kontent, shikoyat, bloklash), `/privacy.html`, `/delete-account.html` —
   ilova ichida oynada ochiladi.
@@ -55,17 +81,19 @@ Viloyatdan viloyatga, shahardan shaharga va shahar ichida yuk yetkazish uchun ve
 
 ### Haydovchilar uchun
 - **Ilova ichidagi navigatsiya** (Yandex xarita sayt ichida ishlaydi, Yandex ilovasiga o'tib ketmaydi): joriy joylashuvdan olish nuqtasigacha, keyin topshirish nuqtasigacha marshrut, qolgan masofa va yetib borish vaqti, tirbandlik qatlami, «meni kuzatish» rejimi, ekran o'chmasligi.
-- Navigatsiya ekranidan to'g'ridan-to'g'ri: qo'ng'iroq, «Yukni oldim», «Topshirish (kod)».
-- «Hozir bo'shman» rejimi, ishlaydigan viloyatlar, yangi mos buyurtmalar Telegramga (kuzov turi va yuk ko'tarishga qarab filtrlanadi).
+- Navigatsiya ekranidan to'g'ridan-to'g'ri: qo'ng'iroq, «Yukni oldim» / «Yo'lovchini oldim», «Topshirish (kod)» / «Yetib keldik».
+- «Hozir bo'shman» rejimi, xabar olinadigan e'lon turlari, ishlaydigan viloyatlar (o'z viloyati doim hisobga olinadi), yangi mos e'lonlar Telegramga.
 
 ### Telegram bot
 - Tasdiqlash kodlarini yuboradi.
-- Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yozishma, yangi buyurtmalar.
+- Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yozishma, yangi mos e'lonlar va yo'nalishdagi haydovchilar.
 - Menyu: 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam.
 - Pastdagi **«YukGo»** tugmasi saytni Telegram ichida (Mini App) ochadi: bir marta parol bilan kirilgach, keyingi safar o'zi kiradi.
-- **Matn bilan e'lon:** foydalanuvchi botga guruhga yozgandek yozadi — *«Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln»*.
-  Bot viloyat va tumanni (lotin, kirill, ruscha yozuv, «-dan/-ga» qo'shimchalari), og'irlik, narx, sana, kuzov va yuk turini tushunadi
-  va to'ldirilgan formani Mini App'da ochadi. Telefon raqamlar formaga o'tmaydi.
+- **Matn bilan e'lon:** foydalanuvchi botga guruhga yozgandek yozadi — *«Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln»*,
+  *«Kosonsoydan Toshkentga 2 kishi, ertaga»* yoki *«Andijon - Toshkent, pochta, bugun»*. Bot viloyat va tumanni (lotin, kirill, ruscha yozuv,
+  «-dan/-ga» qo'shimchalari), og'irlik, narx, sana, mashina va yuk turini, **yo'lovchi va kishilar sonini, pochtani** tushunadi va
+  to'ldirilgan formani Mini App'da ochadi. Telefon raqamlar formaga o'tmaydi. Haydovchining e'loni (*«Kosonsoy - Toshkent, pochta va
+  yo'lovchi olaman, ertaga»*, *«3 ta bo'sh joy bor»*) tanilsa — reys formasi to'ldirilgan holda ochiladi.
 - **Havolalar:** `t.me/BOT?start=o123_ch3` — kanal postidagi «Taklif berish» (buyurtma kartasi + ochish tugmasi), `start=new` — e'lon berish,
   `start=src_KOD` — manba (kanal, hamkor, varaqa, agent), `start=ref_ID` — do'st taklifi. Mini App `startapp=` havolalarini ham tushunadi.
 - **Adminlar uchun ommaviy xabar:** admin yoki ega o'z Telegramidan botga rasm, video, dumaloq video, ovozli xabar, fayl,
@@ -292,13 +320,13 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Profil | `GET/PUT /api/users/me`, `POST /api/users/me/avatar`, `PUT /api/users/me/vehicle`, `PUT /api/users/me/settings`, `GET /api/users/{id}` |
 | Shartlar | `POST /api/users/me/terms` (qabul qilish). Qabul qilinmagan bo'lsa kontent yaratuvchi so'rovlar **428** qaytaradi |
 | Bloklash | `POST/DELETE /api/users/{id}/block`, `GET /api/users/me/blocks` |
-| Buyurtmalar | `GET /api/orders` (bozor), `POST /api/orders`, `GET /api/orders/my`, `GET /api/orders/{id}` |
+| Buyurtmalar | `GET /api/orders` (e'lonlar: `kind`=CARGO/PARCEL/PASSENGER, `fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`, `bodyType`, `q`, `page`; kirgan foydalanuvchiga — yaqinlik bo'yicha), `POST /api/orders` (`kind`, `seats`), `GET /api/orders/my`, `GET /api/orders/{id}` |
 | Takliflar | `POST /api/orders/{id}/offers`, `POST .../offers/{offerId}/accept`, `POST /api/orders/{id}/take` |
-| Holat | `POST /api/orders/{id}/pickup`, `POST /api/orders/{id}/deliver {code}`, `POST /api/orders/{id}/cancel` |
+| Holat | `POST /api/orders/{id}/pickup`, `POST /api/orders/{id}/deliver {code}` (yo'lovchida — kodsiz, `{}`), `POST /api/orders/{id}/cancel` |
 | Kuzatuv | `POST /api/orders/{id}/track {lat,lng}`, `GET /api/orders/{id}/track` |
 | Yozishma | `GET/POST /api/orders/{id}/messages` |
 | Baho | `POST /api/orders/{id}/review`, `GET /api/users/{id}/reviews` |
-| Reyslar | `GET/POST /api/trips`, `GET /api/trips/my` |
+| Reyslar | `GET /api/trips` (`fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`), `POST /api/trips` (`daily`, `seats`; javobda `matches` — mos e'lonlar soni), `GET /api/trips/my` |
 | Taklif | `GET /api/users/me/referral` |
 | Haydovchi tekshiruvi | `GET/POST /api/users/me/driver-verification` (multipart: `license`, `techPassport`) |
 | Balansni to'ldirish | `GET /api/payments/options`, `POST /api/payments/topup {provider, amount}`, `GET /api/payments/{id}` |

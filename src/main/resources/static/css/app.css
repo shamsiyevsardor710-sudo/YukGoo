@@ -175,7 +175,7 @@ p { margin: 0; }
 .btn-ghost:hover { background: var(--surface-2); border-color: transparent; }
 .btn-sm { min-height: 34px; padding: 0 12px; font-size: 14px; border-radius: 8px; }
 .btn-lg { min-height: 54px; padding: 0 24px; font-size: 17px; border-radius: 12px; }
-.btn-block { width: 100%; }
+.btn-block { width: 100%; white-space: normal; text-align: center; line-height: 1.25; }
 .link-btn { background: none; border: 0; padding: 0; color: var(--route); cursor: pointer; font-weight: 500; }
 .link-btn:hover { text-decoration: underline; }
 
@@ -254,23 +254,47 @@ p { margin: 0; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .st-NEW { color: var(--signal); } }
 :root[data-theme="dark"] .st-NEW { color: var(--signal); }
 
-/* ---------- Qidiruv (marshrut tanlagich) ---------- */
+/* ---------- Qidiruv (marshrut tanlagich): qayerdan — viloyat va tuman, qayerga — viloyat va tuman ---------- */
 .route-search {
-  display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 8px;
 }
-.route-search .select { border: 0; background: var(--surface-2); min-height: 52px; font-weight: 600; }
-.swap-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); cursor: pointer; display: grid; place-items: center; }
+.rs-side { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 6px; min-width: 0; }
+.route-search .select { border: 0; background: var(--surface-2); min-height: 50px; font-weight: 600; min-width: 0; text-overflow: ellipsis; }
+.route-search .select[name$="District"] { font-weight: 500; }
+/* Tuman tanlovi viloyat tanlangandan keyin chiqadi — boshida faqat ikkita tanlov, ortiqcha narsa yo'q */
+.route-search .select[name$="District"]:disabled { display: none; }
+.rs-side:has(.select[name$="District"]:disabled) { grid-template-columns: minmax(0, 1fr); }
+.swap-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--asphalt); cursor: pointer; display: grid; place-items: center; }
 .swap-btn svg { width: 18px; height: 18px; }
-@media (max-width: 640px) {
-  .route-search { grid-template-columns: 1fr auto; }
-  .route-search .select:nth-of-type(2) { grid-column: 1; }
-  .route-search .swap-btn { grid-row: 1 / span 2; grid-column: 2; }
+@media (max-width: 860px) {
+  .route-search { grid-template-columns: minmax(0, 1fr) auto; }
+  .route-search .rs-side { grid-column: 1; }
+  .route-search .swap-btn { grid-column: 2; grid-row: 1 / span 2; }
   .route-search .btn { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .rs-side, .rs-side:has(.select[name$="District"]:disabled) { grid-template-columns: minmax(0, 1fr); }
 }
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .filters .select, .filters .input { width: auto; min-height: 40px; padding: 6px 12px; font-size: 14px; border-radius: 999px; }
 .filters .input { min-width: 180px; }
+
+/* E'lon turi bo'yicha filtr: Hammasi · Yuk · Pochta · Yo'lovchi */
+.kind-chips { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.kind-chips::-webkit-scrollbar { display: none; }
+.kind-chips button {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--asphalt); font: 600 14px/1 var(--font); cursor: pointer;
+}
+.kind-chips button svg { width: 17px; height: 17px; }
+.kind-chips button.on { background: var(--asphalt); color: var(--bg); border-color: var(--asphalt); }
+@media (max-width: 480px) {
+  /* Telefonda to'rttasi ham bitta qatorga sig'sin (yon tomonga surmasdan) */
+  .kind-chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow: visible; }
+  .kind-chips button { justify-content: center; padding: 0 4px; font-size: 13.5px; }
+  .kind-chips button svg { display: none; }
+}
 
 /* ---------- Avatar va reyting ---------- */
 .avatar {
@@ -597,3 +621,138 @@ tr:last-child td { border-bottom: 0; }
 .chat-closed { padding: 12px; border-top: 1px solid var(--line); background: var(--surface); color: var(--muted); text-align: center; }
 .blocked-row .person { flex: 1; }
 .nav-instr .nav-gps-on { color: var(--signal); font-weight: 700; }
+
+/* =====================================================================
+   14-paket: kunduzgi/kechki rejim, e'lon turlari (yuk, pochta, yo'lovchi), soddalashtirilgan formalar
+   ===================================================================== */
+/* Kechki rejim tugma orqali yoqilganda ham (tizim mavzusi kunduzgi bo'lsa ham) to'q bloklar to'q qolsin */
+:root[data-theme="dark"] .intro { background: #0C1113; border: 1px solid var(--line); }
+:root[data-theme="dark"] .code-card { background: #0C1113; border: 1px solid var(--line); }
+:root[data-theme="dark"] .nav-instr { background: #0C1113; }
+/* Kechki rejimda och ko'k, yashil va qizil tugmalarda oq yozuv o'qilmaydi — to'q yozuv */
+:root[data-theme="dark"] .btn-route, :root[data-theme="dark"] .btn-ok, :root[data-theme="dark"] .st-IN_TRANSIT,
+:root[data-theme="dark"] .msg.mine, :root[data-theme="dark"] .toast.ok, :root[data-theme="dark"] .toast.err,
+:root[data-theme="dark"] .urgent-flag, :root[data-theme="dark"] .tab-count { color: #0C1113; }
+:root[data-theme="dark"] .btn-primary:hover { background: #FFC21A; }
+.btn-onbar { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .3); }
+.btn-onbar:hover { border-color: rgba(255, 255, 255, .6); }
+@media (max-width: 760px) { .topbar { gap: 12px; } .topbar-right { gap: 8px; } }
+@media (max-width: 420px) { .topbar-right .btn-onbar + .btn-primary { display: none; } }
+
+/* E'lon turi yorlig'i */
+.kind-tag {
+  display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; padding: 1px 8px 1px 6px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; line-height: 1.6; vertical-align: 2px; white-space: nowrap;
+  background: var(--surface-2); color: var(--asphalt-2); border: 1px solid var(--line-soft);
+}
+.kind-tag svg { width: 13px; height: 13px; flex: none; }
+.kind-tag.k-CARGO { background: var(--signal-soft); color: #7A5A00; border-color: transparent; }
+.kind-tag.k-PARCEL { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.kind-tag.k-PASSENGER, .kind-tag.k-DAILY { background: var(--route-soft); color: var(--route); border-color: transparent; }
+:root[data-theme="dark"] .kind-tag.k-CARGO { color: var(--signal); }
+.page-head .row .kind-tag { margin-right: 0; }
+/* Qator sarlavhasi: tor ekranda tur yorlig'idan keyin nomi keyingi qatorga o'tadi, ko'pi bilan 3 qator */
+.order-title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow-wrap: break-word; }
+/* Narx va «Shoshilinch» — o'ng ustunda, nom uchun joy qoladi */
+.order-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.order-side .urgent-flag { margin-right: 0; vertical-align: 0; }
+
+/* Bozor: joy bo'yicha guruh sarlavhasi va qatordagi sana */
+.day-head svg { width: 18px; height: 18px; color: var(--signal); align-self: center; flex: none; }
+.when-tag { display: inline-flex; align-items: center; gap: 4px; color: var(--asphalt); font-weight: 600; }
+.when-tag svg { width: 14px; height: 14px; color: var(--route); }
+.when-tag.is-late { color: var(--warn); }
+
+/* Yangi e'lon: tur tanlash */
+.kind-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.kind-switch button {
+  display: grid; justify-items: center; align-content: start; gap: 4px; padding: 14px 8px; border-radius: 14px;
+  border: 1.5px solid var(--line); background: var(--surface); color: var(--asphalt); cursor: pointer; text-align: center; font: inherit;
+}
+.kind-switch button svg { width: 26px; height: 26px; color: var(--muted); }
+.kind-switch button b { font-size: 16px; }
+.kind-switch button small { color: var(--muted); font-size: 12.5px; line-height: 1.3; }
+.kind-switch button.on { border-color: var(--signal); background: var(--signal-soft); box-shadow: inset 0 0 0 1px var(--signal); }
+.kind-switch button.on svg { color: var(--asphalt); }
+@media (max-width: 400px) { .kind-switch button small { display: none; } }
+
+/* Qayerdan / Qayerga: viloyat va tuman yonma-yon */
+.place-pick { display: grid; gap: 6px; min-width: 0; }
+.place-label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--asphalt-2); }
+.place-label::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); flex: none; }
+.place-pick.is-to .place-label::before { background: var(--asphalt); box-shadow: 0 0 0 3px var(--line-soft); }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+@media (max-width: 480px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+
+/* Qachon: Bugun · Ertaga · Indinga · sana */
+.day-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.day-chips button {
+  min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--asphalt); font: 600 14.5px/1 var(--font); cursor: pointer;
+}
+.day-chips button.on { border-color: var(--route); background: var(--route-soft); color: var(--route); }
+.day-chips .input { width: auto; flex: 1 1 150px; min-height: 44px; }
+
+/* Necha kishi: − 2 + */
+.stepper { display: inline-grid; grid-template-columns: 52px 76px 52px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; width: fit-content; }
+.stepper button { border: 0; background: var(--surface-2); color: var(--asphalt); font: 600 24px/1 var(--font); cursor: pointer; }
+.stepper button:active { background: var(--line-soft); }
+.stepper .input { border: 0; border-radius: 0; text-align: center; font: 700 20px/1 var(--font); min-height: 50px; padding: 0; -moz-appearance: textfield; appearance: textfield; }
+.stepper .input::-webkit-outer-spin-button, .stepper .input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper .input:focus { box-shadow: none; }
+
+/* Ixtiyoriy qismlar yig'ilgan holda: «Aniq manzil va xarita», «O'z narxingizni taklif qilish» */
+details.more { border: 1px solid var(--line-soft); border-radius: var(--r-md); padding: 12px 14px; background: var(--surface-2); }
+details.more > summary { cursor: pointer; font-weight: 600; font-size: 15px; list-style: none; display: flex; align-items: center; gap: 10px; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before {
+  content: "+"; display: inline-grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 7px;
+  background: var(--surface); border: 1px solid var(--line); font-weight: 700; color: var(--asphalt);
+}
+details.more[open] > summary::before { content: "−"; }
+
+/* Profil: e'lon turlari (xabar sozlamasi), mashina turi, manzil */
+.kind-picks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.kind-pick {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: 600 14px/1 var(--font); cursor: pointer;
+}
+.kind-pick svg { width: 16px; height: 16px; }
+.kind-pick.on { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+fieldset.field { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.field > legend { font-size: 14px; font-weight: 600; color: var(--asphalt-2); padding: 0; margin-bottom: 6px; }
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 560px) { .choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.choice { position: relative; display: block; cursor: pointer; }
+.choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice span {
+  display: flex; align-items: center; min-height: 48px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); font-weight: 600; font-size: 15px; line-height: 1.25;
+}
+.choice input:checked + span { border-color: var(--route); background: var(--route-soft); color: var(--route); box-shadow: inset 0 0 0 1px var(--route); }
+.choice input:focus-visible + span { outline: 3px solid var(--route); outline-offset: 2px; }
+.place-line { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.place-line svg { width: 18px; height: 18px; color: var(--signal); flex: none; }
+
+/* Ro'yxatdan o'tish: parolni ko'rsatish va «Siz kimsiz?» */
+.pass-wrap { position: relative; display: block; font: 400 16px/1.5 var(--font); color: var(--asphalt); }
+.pass-wrap .input { padding-right: 52px; }
+.pass-eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 42px; height: 38px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center;
+}
+.pass-eye svg { width: 20px; height: 20px; }
+.pass-eye[aria-pressed="true"] { color: var(--route); }
+.role-pick {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: 1.5px solid var(--line); border-radius: 14px;
+  background: var(--surface); color: var(--asphalt); text-align: left; cursor: pointer; font: inherit;
+}
+.role-pick:hover { border-color: var(--signal); }
+.role-pick svg { width: 30px; height: 30px; flex: none; color: var(--signal); }
+.role-pick b { display: block; font-size: 17px; }
+.role-pick small { display: block; color: var(--muted); font-size: 13.5px; line-height: 1.4; margin-top: 2px; }
+
+/* E'lon sahifasi: yo'nalishdagi haydovchilar */
+.trip-mini { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.trip-mini:last-of-type { border-bottom: 0; }
+.trip-mini .btn { flex: none; width: 42px; padding: 0; }

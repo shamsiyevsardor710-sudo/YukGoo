@@ -68,6 +68,7 @@ public class OrderService {
     private final ChannelHooks channels;
     private final uz.yukgo.common.RowLocks locks;
     private final BlockService blocks;
+    private final uz.yukgo.trip.MatchService matches;
 
     // =====================================================================
     // Yaratish va ko'rish
@@ -77,22 +78,47 @@ public class OrderService {
     public OrderDto create(CreateOrderRequest req) {
         User me = currentUser.get();
         Terms.require(me);
+        OrderKind kind = req.kind() == null ? OrderKind.CARGO : req.kind();
         Region fromRegion = locationService.region(req.from().regionId());
         Region toRegion = locationService.region(req.to().regionId());
         District fromDistrict = req.from().districtId() == null ? null : locationService.district(req.from().districtId(), fromRegion);
         District toDistrict = req.to().districtId() == null ? null : locationService.district(req.to().districtId(), toRegion);
-        if (req.pickupDate() != null && req.pickupDate().isBefore(LocalDate.now(TZ))) {
-            throw ApiException.badRequest("Yukni olish sanasi o'tib ketgan — bugungi yoki keyingi sanani tanlang");
+        LocalDate today = LocalDate.now(TZ);
+        if (req.pickupDate() != null && req.pickupDate().isBefore(today)) {
+            throw ApiException.badRequest((kind == OrderKind.PASSENGER ? "Jo'nash" : "Olib ketish")
+                    + " sanasi o'tib ketgan — bugungi yoki keyingi sanani tanlang");
         }
+        if (req.pickupDate() != null && req.pickupDate().isAfter(today.plusDays(90))) {
+            throw ApiException.badRequest("Sana juda uzoq — 3 oy ichidagi sanani tanlang");
+        }
+        String title = trimToNull(req.title());
+        if (kind == OrderKind.CARGO && title == null) throw ApiException.badRequest("Nima yuborayotganingizni yozing");
+        int seats = req.seats() == null ? 1 : req.seats();
 
         Order o = new Order();
         o.setSender(me);
-        o.setTitle(req.title().trim());
-        o.setCargoType(req.cargoType());
-        o.setWeightKg(req.weightKg());
-        o.setVolumeM3(req.volumeM3());
+        o.setKind(kind);
+        switch (kind) {
+            case PASSENGER -> {
+                // Yo'lovchidan faqat yo'nalish, sana va necha kishi so'raladi
+                o.setSeats(seats);
+                o.setTitle(seats + " yo'lovchi");
+                o.setCargoType(CargoType.GENERAL);
+            }
+            case PARCEL -> {
+                o.setTitle(title == null ? "Pochta" : title);
+                o.setCargoType(CargoType.PARCEL);
+                o.setWeightKg(req.weightKg());
+            }
+            default -> {
+                o.setTitle(title);
+                o.setCargoType(req.cargoType() == null ? CargoType.GENERAL : req.cargoType());
+                o.setWeightKg(req.weightKg());
+                o.setVolumeM3(req.volumeM3());
+                o.setRequiredBodyType(BodyType.canonical(req.requiredBodyType()));
+            }
+        }
         o.setDescription(trimToNull(req.description()));
-        o.setRequiredBodyType(req.requiredBodyType());
         o.setFromRegion(fromRegion);
         o.setFromDistrict(fromDistrict);
         o.setFromAddress(trimToNull(req.from().address()));
@@ -106,20 +132,31 @@ public class OrderService {
         o.setDistanceKm(req.distanceKm());
         o.setDurationMin(req.durationMin());
         o.setScope(scopeOf(fromRegion, fromDistrict, toRegion, toDistrict));
-        o.setPickupDate(req.pickupDate());
+        // Yo'lovchi sanasiz bo'lmaydi: ko'rsatilmasa — bugun
+        o.setPickupDate(req.pickupDate() == null && kind == OrderKind.PASSENGER ? today : req.pickupDate());
         o.setPrice(req.price());
         o.setPaymentMethod(req.paymentMethod() == null ? PaymentMethod.CASH : req.paymentMethod());
         o.setPayer(req.payer() == null ? Payer.SENDER : req.payer());
         o.setUrgent(req.urgent());
-        o.setReceiverName(req.receiverName().trim());
-        o.setReceiverPhone(Phones.normalize(req.receiverPhone()));
+        if (kind != OrderKind.PASSENGER) {
+            // Qabul qiluvchi ko'rsatilmasa — yuboruvchining o'zi (topshirish kodini o'zi aytadi)
+            String phone = trimToNull(req.receiverPhone());
+            if (phone == null) {
+                o.setReceiverName(me.getFullName());
+                o.setReceiverPhone(me.getPhone());
+            } else {
+                o.setReceiverPhone(Phones.normalize(phone));
+                String name = trimToNull(req.receiverName());
+                o.setReceiverName(name != null ? name : o.getReceiverPhone().equals(me.getPhone()) ? me.getFullName() : null);
+            }
+        }
         o.setDeliveryCode(String.format("%04d", RANDOM.nextInt(10_000)));
         orderRepository.save(o);
         if (o.isUrgent()) chargeUrgentFee(o, me);
 
         me.setOrdersCreated(me.getOrdersCreated() + 1);
-        event(o, OrderStatus.NEW, "Buyurtma e'lon qilindi", me);
-        notifyDriversAboutNewOrder(o, me);
+        event(o, OrderStatus.NEW, kind == OrderKind.PASSENGER ? "Yo'lovchi e'loni joylandi" : "Buyurtma e'lon qilindi", me);
+        matches.onNewOrder(o, me);   // reysi mos va yaqindagi haydovchilarga xabar
         channels.orderChanged(o.getId());   // YukGo va hamkor Telegram kanallariga e'lon (saqlangandan keyin)
         return toDto(o, me, true);
     }
@@ -137,15 +174,30 @@ public class OrderService {
         return toDto(o, me, true);
     }
 
+    /**
+     * Ochiq e'lonlar. Kirgan foydalanuvchiga avval o'z tumanidan, keyin o'z viloyatidan, so'ng yaqin viloyatlardan
+     * chiqqan e'lonlar (ro'yxatdan o'tishda ko'rsatgan manzili bo'yicha); har birining ichida shoshilinchlar tepada.
+     * Tuman tanlansa — shu tumandagi va tumani ko'rsatilmagan (butun viloyat) e'lonlar.
+     */
     @Transactional(readOnly = true)
-    public PageResponse<OrderDto> market(Long fromRegion, Long toRegion, CargoType cargoType, DeliveryScope scope,
-                                         BodyType bodyType, Double maxWeight, String q, int page) {
+    public PageResponse<OrderDto> market(MarketFilter f, int page) {
         User viewer = currentUserOrNull();
-        String like = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase() + "%";
-        var result = orderRepository.market(fromRegion, toRegion, cargoType, scope, bodyType, maxWeight, like,
-                LocalDate.now(TZ), viewer == null ? null : viewer.getId(), PageRequest.of(Math.max(0, page), 20));
+        String like = f.q() == null || f.q().isBlank() ? null : "%" + f.q().trim().toLowerCase() + "%";
+        Region home = viewer == null ? null : viewer.getRegion();
+        District homeDistrict = viewer == null ? null : viewer.getDistrict();
+        var result = orderRepository.market(f.kind(), f.fromRegion(), f.fromDistrict(), f.toRegion(), f.toDistrict(),
+                f.cargoType(), f.scope(), f.bodyType() == null,
+                f.bodyType() == null ? List.of(BodyType.OTHER) : f.bodyType().withLegacy(),
+                f.maxWeight(), like, LocalDate.now(TZ), viewer == null ? null : viewer.getId(),
+                home == null ? null : home.getId(), homeDistrict == null ? null : homeDistrict.getId(),
+                home == null ? null : home.getLat(), home == null ? null : home.getLng(),
+                PageRequest.of(Math.max(0, page), 20));
         return PageResponse.of(result, o -> toDto(o, viewer));
     }
+
+    /** Bozor filtrlari (hammasi ixtiyoriy). cargoType, scope, bodyType, maxWeight, q — eski ilova versiyalari uchun */
+    public record MarketFilter(OrderKind kind, Long fromRegion, Long fromDistrict, Long toRegion, Long toDistrict,
+                               CargoType cargoType, DeliveryScope scope, BodyType bodyType, Double maxWeight, String q) {}
 
     @Transactional
     public OrderDto get(Long id) {
@@ -250,24 +302,31 @@ public class OrderService {
         return toDto(o, me, true);
     }
 
-    /** Haydovchi e'londagi narxga darhol rozi bo'lib buyurtmani oladi. */
+    /**
+     * Haydovchi e'lonni darhol oladi: narx ko'rsatilgan bo'lsa — shu narxga rozi bo'lib. Pochta va yo'lovchi e'lonida
+     * narx ko'rsatilmagan bo'lsa ham olish mumkin — ikki tomonga bir-birining telefoni ochiladi va narxni o'zlari
+     * kelishadi (yukda esa narxsiz e'longa taklif yuboriladi).
+     */
     @Transactional
     public OrderDto take(Long orderId) {
         User me = currentUser.get();
         Terms.require(me);
         Order o = findForUpdate(orderId);
         requireDriverProfile(me);
-        if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizni ola olmaysiz");
-        if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Buyurtma allaqachon band qilingan");
-        if (o.getPrice() == null) throw ApiException.badRequest("Bu buyurtmada narx kelishiladi — taklif yuboring");
+        if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z e'loningizni ola olmaysiz");
+        if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Bu e'lonni allaqachon boshqa haydovchi oldi");
+        if (o.getPrice() == null && o.getKind() == OrderKind.CARGO) {
+            throw ApiException.badRequest("Bu buyurtmada narx kelishiladi — taklif yuboring");
+        }
         blocks.requireNone(me.getId(), o.getSender().getId(), "Bu buyurtmani ola olmaysiz");
 
         Offer offer = offerRepository.findFirstByOrderIdAndDriverIdAndStatus(orderId, me.getId(), OfferStatus.PENDING)
                 .orElseGet(Offer::new);
         offer.setOrder(o);
         offer.setDriver(me);
-        offer.setPrice(o.getPrice());
-        offer.setComment("E'londagi narxga rozi bo'ldi");
+        // Narxsiz olish: taklif jadvalida narx majburiy — 0 yoziladi (yakuniy narx «kelishiladi» bo'lib qoladi)
+        offer.setPrice(o.getPrice() != null ? o.getPrice() : 0L);
+        offer.setComment(o.getPrice() != null ? "E'londagi narxga rozi bo'ldi" : "Oldi — narxni telefonda kelishadi");
         offerRepository.save(offer);
         assignDriver(o, offer, me);
         return toDto(o, me, true);
@@ -287,7 +346,7 @@ public class OrderService {
         long fee = chargeUrgentFee(o, me);
         o.setUrgent(true);
         event(o, OrderStatus.NEW, "E'lon shoshilinch qilindi" + (fee > 0 ? " (" + money(fee) + ")" : ""), me);
-        notifyDriversAboutNewOrder(o, me);
+        matches.onNewOrder(o, me);   // haydovchilarga qayta xabar
         channels.orderChanged(o.getId());   // kanal postiga 🔥 belgisi
         return toDto(o, me, true);
     }
@@ -344,36 +403,51 @@ public class OrderService {
         // hisobni o'chirish bilan teskari tartibda bloklanib qolmasin)
         wallet.lockWallet(accepted.getDriver().getId());
         boolean freeRide = wallet.freeDeliveriesLeft(accepted.getDriver()) > 0;
-        long fee = freeRide ? 0 : wallet.chargeCommission(accepted.getDriver(), o.getId(), accepted.getPrice(), o.getTitle(), byDriver);
+        // Narxsiz olingan (pochta, yo'lovchi) e'lon: taklif narxi 0 — yakuniy narx «kelishiladi»
+        Long agreed = accepted.getPrice() != null && accepted.getPrice() > 0 ? accepted.getPrice() : null;
+        long fee = freeRide ? 0 : wallet.chargeCommission(accepted.getDriver(), o.getId(), agreed, o.getTitle(), byDriver);
         o.setCommission(fee > 0 ? fee : null);
 
         accepted.setStatus(OfferStatus.ACCEPTED);
         o.setDriver(accepted.getDriver());
-        o.setFinalPrice(accepted.getPrice());
+        o.setFinalPrice(agreed);
         o.setStatus(OrderStatus.ACCEPTED);
         o.setAcceptedAt(Instant.now());
         for (Offer other : offerRepository.findByOrderIdAndStatus(o.getId(), OfferStatus.PENDING)) {
             if (other.getId().equals(accepted.getId())) continue;
             other.setStatus(OfferStatus.REJECTED);
-            notifications.notify(other.getDriver(), "Buyurtma boshqa haydovchiga berildi",
+            notifications.notify(other.getDriver(), "E'lon boshqa haydovchiga berildi",
                     "\"" + o.getTitle() + "\" — boshqa taklif tanlandi", null);
         }
         o.setOffersCount(0);
         User driver = accepted.getDriver();
-        event(o, OrderStatus.ACCEPTED, "Haydovchi tanlandi: " + driver.getFullName() + ", narx " + money(accepted.getPrice()), actor);
+        event(o, OrderStatus.ACCEPTED, "Haydovchi tanlandi: " + driver.getFullName() + ", narx " + money(agreed), actor);
         channels.orderChanged(o.getId());   // kanalda: "✅ Haydovchi topildi"
 
-        notifications.notify(driver, "✅ Buyurtma sizga berildi!",
+        boolean passenger = o.isPassenger();
+        String who = passenger ? "Yo'lovchi" : "Yuboruvchi";
+        notifications.notify(driver, passenger ? "✅ Yo'lovchi sizniki!" : "✅ Buyurtma sizga berildi!",
                 "\"" + o.getTitle() + "\" — " + o.getFromRegion().getName() + " → " + o.getToRegion().getName()
-                        + ", narx " + money(accepted.getPrice()) + ". Yuboruvchi: " + o.getSender().getFullName()
+                        + ", narx " + money(agreed) + ". " + who + ": " + o.getSender().getFullName()
                         + ", " + o.getSender().getPhone()
+                        + (agreed == null ? ". Narxni telefonda kelishib oling" : "")
                         + (fee > 0 ? ". Balansingizdan " + money(fee) + " komissiya yechildi" : ""),
                 "#/orders/" + o.getId());
         if (!actor.getId().equals(o.getSender().getId())) {
-            notifications.notify(o.getSender(), "Haydovchi buyurtmangizni oldi",
-                    driver.getFullName() + " (" + driver.getPhone() + ") \"" + o.getTitle() + "\" ni olib ketadi",
+            notifications.notify(o.getSender(), passenger ? "🚗 Haydovchi topildi!" : "Haydovchi buyurtmangizni oldi",
+                    driver.getFullName() + " (" + driver.getPhone() + ")" + vehicleNote(driver)
+                            + (passenger ? " sizni olib ketadi" : " \"" + o.getTitle() + "\" ni olib ketadi")
+                            + (agreed == null ? ". Narxni telefonda kelishib oling" : ""),
                     "#/orders/" + o.getId());
         }
+    }
+
+    /** ", Chevrolet Cobalt, 01 A 123 BC" — haydovchini kutib turgan yo'lovchi mashinani tanishi uchun */
+    private static String vehicleNote(User driver) {
+        if (driver.getVehicle() == null || !driver.getVehicle().isPresent()) return "";
+        var v = driver.getVehicle();
+        return ", " + v.getBrand() + (v.getModel() != null ? " " + v.getModel() : "")
+                + (v.getPlateNumber() != null ? ", " + v.getPlateNumber() : "");
     }
 
     // =====================================================================
@@ -389,8 +463,14 @@ public class OrderService {
         if (o.getStatus() != OrderStatus.ACCEPTED) throw ApiException.badRequest("Buyurtma holati mos emas");
         o.setStatus(OrderStatus.IN_TRANSIT);
         o.setPickedUpAt(Instant.now());
-        event(o, OrderStatus.IN_TRANSIT, "Yuk olindi, haydovchi yo'lda", me);
-        notifications.notify(o.getSender(), "🚚 Yukingiz yo'lda",
+        if (o.isPassenger()) {
+            event(o, OrderStatus.IN_TRANSIT, "Yo'lovchi olindi, yo'lga chiqildi", me);
+            notifications.notify(o.getSender(), "🚗 Oq yo'l!",
+                    "Safaringiz bexatar bo'lsin. Manzilga yetgach haydovchini baholashni unutmang.", "#/orders/" + o.getId());
+            return toDto(o, me, true);
+        }
+        event(o, OrderStatus.IN_TRANSIT, (o.getKind() == OrderKind.PARCEL ? "Pochta" : "Yuk") + " olindi, haydovchi yo'lda", me);
+        notifications.notify(o.getSender(), o.getKind() == OrderKind.PARCEL ? "✉️ Pochtangiz yo'lda" : "🚚 Yukingiz yo'lda",
                 me.getFullName() + " \"" + o.getTitle() + "\" ni oldi. Xaritada kuzatishingiz mumkin. "
                         + "Qabul qiluvchiga topshirish kodini ayting: " + o.getDeliveryCode(),
                 "#/orders/" + o.getId());
@@ -400,6 +480,7 @@ public class OrderService {
 
     /** Qabul qiluvchi Telegramga ulangan bo'lsa unga ham xabar va kod yuboriladi. */
     private void notifyReceiver(Order o) {
+        if (o.getReceiverPhone() == null || o.getReceiverPhone().equals(o.getSender().getPhone())) return;
         linkRepository.findById(o.getReceiverPhone()).ifPresent(link -> telegram.sendWithButton(link.getChatId(),
                 "📦 <b>Sizga yuk kelyapti!</b>\n" + TelegramClient.esc(o.getTitle()) + "\n"
                         + "Yuboruvchi: " + TelegramClient.esc(o.getSender().getFullName()) + "\n"
@@ -414,9 +495,15 @@ public class OrderService {
         User me = currentUser.get();
         Order o = findForUpdate(orderId);
         requireDriver(o, me);
-        if (o.getStatus() != OrderStatus.IN_TRANSIT) throw ApiException.badRequest("Avval yukni olganingizni belgilang");
-        if (!o.getDeliveryCode().equals(req.code().trim())) {
-            throw ApiException.badRequest("Topshirish kodi noto'g'ri. Kodni qabul qiluvchidan so'rang");
+        boolean passenger = o.isPassenger();
+        if (o.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw ApiException.badRequest(passenger ? "Avval yo'lovchini olganingizni belgilang" : "Avval yukni olganingizni belgilang");
+        }
+        // Yo'lovchi o'zi mashinada — kod kerak emas; yuk va pochta faqat qabul qiluvchidagi kod bilan topshiriladi
+        String code = req == null || req.code() == null ? "" : req.code().trim();
+        if (!passenger && !o.getDeliveryCode().equals(code)) {
+            throw ApiException.badRequest(code.isEmpty() ? "Topshirish kodini kiriting"
+                    : "Topshirish kodi noto'g'ri. Kodni qabul qiluvchidan so'rang");
         }
         // Ikki tomon qatori ID tartibida bloklanadi va bazadan qayta o'qiladi: bir vaqtda A B uchun, B A uchun yetkazsa ham
         // (taklif bonusi ikkala hisobni o'zgartiradi) tranzaksiyalar bir-birini kutib qolmaydi, bir haydovchining ikki
@@ -426,13 +513,20 @@ public class OrderService {
         o.setStatus(OrderStatus.DELIVERED);
         o.setDeliveredAt(Instant.now());
         me.setDeliveriesCompleted(me.getDeliveriesCompleted() + 1);
-        event(o, OrderStatus.DELIVERED, "Yuk qabul qiluvchiga topshirildi", me);
+        event(o, OrderStatus.DELIVERED, passenger ? "Manzilga yetib kelindi" : "Qabul qiluvchiga topshirildi", me);
         growth.onDelivered(o);   // taklif havolasi orqali kelganlarga birinchi yetkazishda bonus
-        notifications.notify(o.getSender(), "🎉 Yuk yetkazildi!",
-                "\"" + o.getTitle() + "\" qabul qiluvchiga topshirildi. Iltimos, haydovchini baholang.",
-                "#/orders/" + o.getId());
-        notifications.notify(me, "Buyurtma yakunlandi",
-                "\"" + o.getTitle() + "\" — rahmat! Yuboruvchini baholashni unutmang.", "#/orders/" + o.getId());
+        if (passenger) {
+            notifications.notify(o.getSender(), "🎉 Manzilga yetdingiz!",
+                    "Safar yakunlandi. Iltimos, haydovchini baholang.", "#/orders/" + o.getId());
+            notifications.notify(me, "Safar yakunlandi",
+                    "\"" + o.getTitle() + "\" — rahmat! Yo'lovchini baholashni unutmang.", "#/orders/" + o.getId());
+        } else {
+            notifications.notify(o.getSender(), o.getKind() == OrderKind.PARCEL ? "🎉 Pochta yetkazildi!" : "🎉 Yuk yetkazildi!",
+                    "\"" + o.getTitle() + "\" qabul qiluvchiga topshirildi. Iltimos, haydovchini baholang.",
+                    "#/orders/" + o.getId());
+            notifications.notify(me, "Buyurtma yakunlandi",
+                    "\"" + o.getTitle() + "\" — rahmat! Yuboruvchini baholashni unutmang.", "#/orders/" + o.getId());
+        }
         return toDto(o, me, true);
     }
 
@@ -482,7 +576,7 @@ public class OrderService {
             notifications.notify(o.getSender(), "Haydovchi voz kechdi",
                     me.getFullName() + " \"" + o.getTitle() + "\" ni olib keta olmasligini bildirdi. Buyurtmangiz qayta e'lon qilindi.",
                     "#/orders/" + o.getId());
-            notifyDriversAboutNewOrder(o, o.getSender());
+            matches.onNewOrder(o, o.getSender(), me.getId());   // e'lon qayta ochildi — mos haydovchilarga (voz kechganning o'zidan boshqa) xabar
         } else if (me.getRole().isStaff()) {
             adminCancel(o, reason, me);
         } else {
@@ -730,31 +824,6 @@ public class OrderService {
         return orderRepository.lockById(id).orElseThrow(() -> ApiException.notFound("Buyurtma topilmadi"));
     }
 
-    private void notifyDriversAboutNewOrder(Order o, User sender) {
-        try {
-            List<User> drivers = userRepository.findDriversToNotify(o.getFromRegion().getId(), o.getToRegion().getId(), sender.getId());
-            Set<Long> blocked = blocks.related(sender.getId());   // yuboruvchi bilan blok bo'lganlarga e'lon xabari bormaydi
-            String html = (o.isUrgent() ? "🔥 <b>SHOSHILINCH</b>\n" : "") + "📦 <b>Yangi buyurtma</b>: " + TelegramClient.esc(o.getTitle()) + "\n"
-                    + "📍 " + TelegramClient.esc(placeName(o.getFromRegion(), o.getFromDistrict())) + " → "
-                    + TelegramClient.esc(placeName(o.getToRegion(), o.getToDistrict())) + "\n"
-                    + (o.getWeightKg() != null ? "⚖️ " + fmt(o.getWeightKg()) + " kg\n" : "")
-                    + (o.getDistanceKm() != null ? "🛣 " + Math.round(o.getDistanceKm()) + " km\n" : "")
-                    + "💰 " + (o.getPrice() != null ? money(o.getPrice()) : "Narx kelishiladi");
-            int n = 0;
-            for (User d : drivers) {
-                if (blocked.contains(d.getId())) continue;
-                if (o.getRequiredBodyType() != null && d.getVehicle().getBodyType() != null
-                        && d.getVehicle().getBodyType() != o.getRequiredBodyType()) continue;
-                if (o.getWeightKg() != null && d.getVehicle().getCapacityKg() != null
-                        && d.getVehicle().getCapacityKg() < o.getWeightKg()) continue;
-                notifications.telegramOnly(d, html, "#/orders/" + o.getId());
-                if (++n >= 300) break;
-            }
-        } catch (Exception e) {
-            log.warn("Haydovchilarga xabar yuborishda xato: {}", TelegramClient.safe(e));
-        }
-    }
-
     private void event(Order o, OrderStatus status, String text, User actor) {
         OrderEvent e = new OrderEvent();
         e.setOrderId(o.getId());
@@ -854,7 +923,7 @@ public class OrderService {
                 seeContacts ? o.getDriverLat() : null, seeContacts ? o.getDriverLng() : null,
                 seeContacts ? o.getDriverLocationAt() : null,
                 isDriver || isStaff ? o.getCommission() : null,
-                block);
+                block, o.getKind(), o.getSeats());
     }
 
     private static PlaceDto place(Region r, District d, String address, Double lat, Double lng) {
@@ -862,18 +931,10 @@ public class OrderService {
                 address, lat, lng);
     }
 
-    private static String placeName(Region r, District d) {
-        return d == null ? r.getName() : r.getName() + ", " + d.getName();
-    }
-
     static String money(Long v) {
         if (v == null) return "kelishiladi";
         NumberFormat nf = NumberFormat.getIntegerInstance(Locale.FRANCE);
         return nf.format(v).replace(' ', ' ').replace(' ', ' ') + " so'm";
-    }
-
-    private static String fmt(double d) {
-        return d == Math.floor(d) ? String.valueOf((long) d) : String.valueOf(d);
     }
 
     private static long roundTo(long v, long step) {

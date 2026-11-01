@@ -2,6 +2,7 @@
 // Oddiy brauzerda bu modul hech narsa qilmaydi va telegram.org skripti umuman yuklanmaydi.
 import { auth, post } from './api.js';
 import { parseStartParam, rememberAttribution } from './attribution.js';
+import { currentTheme, onThemeChange } from './theme.js';
 
 const SCRIPT = 'https://telegram.org/js/telegram-web-app.js';
 const INIT_KEY = 'yukgo_tg_init';
@@ -69,14 +70,12 @@ function loadScript(src, timeoutMs) {
 // Bot tugmalari sahifani "?r=/orders/5" ko'rinishida beradi — faqat ilova ichidagi yo'l bo'lsin
 const safeRoute = (p) => typeof p === 'string' && /^\/[A-Za-z0-9_\-./?=&%]*$/.test(p) && !p.startsWith('//');
 
+/**
+ * Telegram ichida sarlavha va fon rangi ilova rejimiga moslanadi. Rejim — YukGo'ning o'zi (birinchi kirishda kechki,
+ * keyin foydalanuvchi tanlagani); Telegram mavzusi uni o'zgartirmaydi.
+ */
 function syncTheme(app) {
-  let chosen = null;
-  try { chosen = localStorage.getItem('yukgo_theme'); } catch { /* */ }
-  // Foydalanuvchi saytda mavzuni o'zi tanlamagan bo'lsa — Telegram mavzusiga moslashamiz
-  if (!chosen && (app.colorScheme === 'dark' || app.colorScheme === 'light')) {
-    document.documentElement.dataset.theme = app.colorScheme;
-  }
-  const dark = document.documentElement.dataset.theme === 'dark';
+  const dark = currentTheme() === 'dark';
   try {
     app.setHeaderColor?.(dark ? '#0C1113' : '#1F2A30');
     app.setBackgroundColor?.(dark ? '#12181B' : '#EEF1F0');
@@ -119,7 +118,7 @@ export async function initTelegram() {
       app.disableVerticalSwipes?.();   // xaritani pastga surganda ilova yopilib ketmasin
     } catch { /* */ }
     syncTheme(app);
-    try { app.onEvent?.('themeChanged', () => syncTheme(app)); } catch { /* */ }
+    onThemeChange(() => syncTheme(app));   // foydalanuvchi kunduzgi/kechki rejimni almashtirganda
     // Telegram'ning "Orqaga" tugmasi: birinchi ochilgan sahifada bo'lsak — bosh sahifaga, aks holda bir qadam orqaga
     try {
       app.BackButton?.onClick(() => {

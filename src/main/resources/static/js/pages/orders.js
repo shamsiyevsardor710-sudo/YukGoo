@@ -1,43 +1,54 @@
-// Buyurtmalar: bozor, yaratish, batafsil ko'rinish, mening buyurtmalarim
+// E'lonlar: bozor (yuk, pochta, yo'lovchi), yaratish, batafsil ko'rinish, mening buyurtmalarim
 import { auth, get, post, del, upload, regions, config } from '../api.js';
 import {
   $, $$, esc, icon, money, km, duration, date, dateTime, ago, phoneFmt, avatar, stars, toast, modal, confirmDialog,
-  formData, showError, clearError, busy, bindRegionDistrict, regionOptions, options, routeStrip, statusPill,
-  emptyState, skeletons, CARGO, BODY, SCOPE, PAYMENT, PAYER, num, verifiedBadge,
+  formData, showError, clearError, busy, bindRegionDistrict, bindRouteSearch, options, routeStrip, statusPill,
+  emptyState, skeletons, CARGO, BODY, num, verifiedBadge, KIND, KIND_ICON, kindOf, kindTag, headline, bodyLabel,
+  bodyCanon, dayWord, tripWhen,
 } from '../ui.js';
 import { createMap, pin, drawRoute, reverseGeocode, myPosition, UZ_CENTER } from '../maps.js';
 import { go, refreshMe } from '../app.js';
 import { digitalSalesBlocked } from '../platform.js';
 
 // =====================================================================
-// Bozor (bosh sahifa)
+// Bozor (bosh sahifa): kirgan foydalanuvchiga avval o'z tumani, keyin viloyati va yaqin hududlardan
 // =====================================================================
 export async function marketPage(main, _p, query) {
+  const me = auth.user;
+  const qid = (k) => (/^\d{1,18}$/.test(query.get(k) || '') ? query.get(k) : '');
+  const kinds = ['', ...Object.keys(KIND)];
   const f = {
-    fromRegion: query.get('from') || '', toRegion: query.get('to') || '', cargoType: '', scope: '', bodyType: '', q: '',
+    kind: kinds.includes(query.get('kind') || '') ? (query.get('kind') || '') : '',
+    fromRegion: qid('from'), fromDistrict: qid('fd'), toRegion: qid('to'), toDistrict: qid('td'),
   };
   let page = 0, view = 'list', mapCtx = null;
   const stats = await get('/stats/public').catch(() => null);
+  const home = me?.region ? [me.district?.name, me.region.name].filter(Boolean).join(', ') : '';
 
   main.innerHTML = `<div class="page">
     ${auth.loggedIn ? '' : intro(stats)}
     <div class="page-head">
-      <div><h1>Yuk buyurtmalari</h1><p class="muted">Haydovchi kutayotgan ochiq buyurtmalar. Marshrutni tanlang.</p></div>
+      <div><h1>E'lonlar</h1><p class="muted">${home
+        ? `Avval ${esc(home)} bo'yicha, keyin yaqin hududlardan.`
+        : "Yuk, pochta va yo'lovchilar — haydovchi kutayotgan e'lonlar."}</p></div>
       <div class="seg" role="tablist">
-        <button class="on" data-view="list">${'Ro\'yxat'}</button><button data-view="map">Xarita</button>
+        <button class="on" data-view="list">Ro'yxat</button><button data-view="map">Xarita</button>
       </div>
     </div>
     <form class="route-search" id="rs">
-      <select class="select" name="fromRegion" aria-label="Qayerdan">${await regionOptions(f.fromRegion, 'Qayerdan: hamma viloyatlar')}</select>
+      <div class="rs-side">
+        <select class="select" name="fromRegion" aria-label="Qayerdan: viloyat"></select>
+        <select class="select" name="fromDistrict" aria-label="Qayerdan: tuman"></select>
+      </div>
       <button type="button" class="swap-btn" id="swap" aria-label="Yo'nalishni almashtirish">${icon('swap')}</button>
-      <select class="select" name="toRegion" aria-label="Qayerga">${await regionOptions(f.toRegion, 'Qayerga: hamma viloyatlar')}</select>
+      <div class="rs-side">
+        <select class="select" name="toRegion" aria-label="Qayerga: viloyat"></select>
+        <select class="select" name="toDistrict" aria-label="Qayerga: tuman"></select>
+      </div>
       <button class="btn btn-primary btn-lg" type="submit">Qidirish</button>
     </form>
-    <div class="filters">
-      <select class="select" name="cargoType" aria-label="Yuk turi">${options(CARGO, '', 'Har qanday yuk')}</select>
-      <select class="select" name="scope" aria-label="Yo'nalish turi">${options(SCOPE, '', 'Har qanday masofa')}</select>
-      <select class="select" name="bodyType" aria-label="Mashina turi">${options(BODY, auth.user?.vehicle?.bodyType || '', 'Har qanday mashina')}</select>
-      <input class="input" name="q" type="search" placeholder="Qidiruv: mebel, un, sement…" aria-label="Qidiruv">
+    <div class="kind-chips" id="kinds" role="group" aria-label="E'lon turi">
+      ${kinds.map(k => `<button type="button" data-kind="${k}" class="${k === f.kind ? 'on' : ''}" aria-pressed="${k === f.kind}">${k ? icon(KIND_ICON[k]) + esc(KIND[k]) : 'Hammasi'}</button>`).join('')}
     </div>
     <div id="results" style="margin-top:16px">${skeletons()}</div>
     <div id="map-view" class="hidden" style="margin-top:16px"><div class="map map-tall" id="market-map"></div></div>
@@ -45,13 +56,17 @@ export async function marketPage(main, _p, query) {
   </div>`;
 
   const rs = $('#rs', main);
-  f.bodyType = $('[name=bodyType]', main).value;
-  $('#swap', main).addEventListener('click', () => {
-    const a = rs.fromRegion.value; rs.fromRegion.value = rs.toRegion.value; rs.toRegion.value = a;
-    reload();
+  const search = await bindRouteSearch(rs, {
+    from: { regionId: f.fromRegion, districtId: f.fromDistrict },
+    to: { regionId: f.toRegion, districtId: f.toDistrict },
+    onChange: () => reload(),
   });
   rs.addEventListener('submit', (e) => { e.preventDefault(); reload(); });
-  $$('.filters [name]', main).forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'change' : 'change', reload));
+  $$('#kinds button', main).forEach(b => b.addEventListener('click', () => {
+    f.kind = b.dataset.kind;
+    $$('#kinds button', main).forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); });
+    reload();
+  }));
   $('#more', main).addEventListener('click', () => load(true));
   $$('[data-view]', main).forEach(b => b.addEventListener('click', () => {
     view = b.dataset.view;
@@ -61,28 +76,38 @@ export async function marketPage(main, _p, query) {
     if (view === 'map') reload();
   }));
 
-  let items = [];
+  let items = [], loadSeq = 0;
   function reload() {
-    f.fromRegion = rs.fromRegion.value; f.toRegion = rs.toRegion.value;
-    for (const el of $$('.filters [name]', main)) f[el.name] = el.value;
+    Object.assign(f, search.values());
+    // Manzil satrida qidiruv saqlanadi (sahifa yangilansa yoki ulashilsa ham shu natija)
+    const q = new URLSearchParams();
+    if (f.kind) q.set('kind', f.kind);
+    if (f.fromRegion) q.set('from', f.fromRegion);
+    if (f.fromDistrict) q.set('fd', f.fromDistrict);
+    if (f.toRegion) q.set('to', f.toRegion);
+    if (f.toDistrict) q.set('td', f.toDistrict);
+    try { history.replaceState(history.state, '', '#/' + (q.toString() ? '?' + q : '')); } catch { /* */ }
     page = 0; items = [];
     load(false);
   }
   async function load(more) {
     if (more) page++;
+    const my = ++loadSeq;
     const res = $('#results', main);
     if (!more) res.innerHTML = skeletons();
     try {
       const data = await get('/orders', { ...f, page });
+      if (my !== loadSeq) return;   // shu orada boshqa qidiruv boshlandi
       items = items.concat(data.items);
       res.innerHTML = items.length
-        ? groupedByDay(items)
-        : emptyState("Bu yo'nalishda hozircha buyurtma yo'q", "Filtrlarni o'zgartiring yoki birinchi bo'lib buyurtma bering.",
-          `<a class="btn btn-primary" href="#/new">Buyurtma berish</a>`);
+        ? (me?.region ? groupedByPlace(items, me) : groupedByDay(items))
+        : emptyState("Bu yo'nalishda hozircha e'lon yo'q", "Boshqa tuman yoki viloyatni tanlang yoki birinchi bo'lib e'lon bering.",
+          `<a class="btn btn-primary" href="#/new">E'lon berish</a>`);
       $('#more', main).classList.toggle('hidden', data.page + 1 >= data.totalPages);
       if (view === 'map') showOnMap();
     } catch (e) {
-      res.innerHTML = emptyState("Buyurtmalarni yuklab bo'lmadi", e.message);
+      if (my !== loadSeq) return;
+      res.innerHTML = emptyState("E'lonlarni yuklab bo'lmadi", e.message);
     }
   }
   async function showOnMap() {
@@ -101,10 +126,10 @@ export async function marketPage(main, _p, query) {
         }
         if (!c) continue;
         const p = new ymaps.Placemark(c, {
-          balloonContentHeader: esc(o.title),
+          balloonContentHeader: esc(`${KIND[kindOf(o)]}: ${headline(o)}`),
           balloonContentBody: `${esc(o.from.regionName)} → ${esc(o.to.regionName)}<br><b>${esc(money(o.price))}</b>`,
           balloonContentFooter: `<a href="#/orders/${o.id}">Batafsil ko'rish</a>`,
-          hintContent: esc(o.title),
+          hintContent: esc(headline(o)),
         }, { preset: o.urgent ? 'islands#redDotIcon' : 'islands#yellowDotIcon' });
         marks.push(p);
       }
@@ -119,13 +144,13 @@ export async function marketPage(main, _p, query) {
 function intro(stats) {
   return `<section class="intro">
     <div>
-      <h1>Yukingizni viloyatdan viloyatga ishonchli yetkazamiz</h1>
-      <p>Buyurtma bering, haydovchilar narx taklif qiladi. Reyting bo'yicha tanlang va yukingizni xaritada jonli kuzating.</p>
+      <h1>Yuk, pochta va yo'lovchi — viloyatdan viloyatga</h1>
+      <p>E'lon bering — yo'nalishingizdagi haydovchilarga darhol xabar boradi. Reyting bo'yicha tanlang, yukingizni xaritada jonli kuzating.</p>
       <div class="row"><a class="btn btn-primary btn-lg" href="#/register">Ro'yxatdan o'tish</a><a class="btn btn-lg" href="#/login">Kirish</a></div>
       ${stats ? `<div class="intro-facts">
-        <div><b class="num">${num(stats.openOrders)}</b>ochiq buyurtma</div>
+        <div><b class="num">${num(stats.openOrders)}</b>ochiq e'lon</div>
         <div><b class="num">${num(stats.drivers)}</b>haydovchi</div>
-        <div><b class="num">${num(stats.delivered)}</b>yetkazilgan yuk</div></div>` : ''}
+        <div><b class="num">${num(stats.delivered)}</b>bajarilgan buyurtma</div></div>` : ''}
     </div>
     <div class="intro-road" aria-hidden="true">
       <svg viewBox="0 0 320 140" fill="none">
@@ -138,7 +163,7 @@ function intro(stats) {
   </section>`;
 }
 
-// ---- Olib ketish sanasi bo'yicha guruhlar: Shoshilinch → Bugun → Ertaga → Indinga → sanalar → muddati o'tgan → sanasiz ----
+// ---- Mehmon uchun: olib ketish sanasi bo'yicha guruhlar: Shoshilinch → Bugun → Ertaga → Indinga → sanalar → muddati o'tgan → sanasiz ----
 // (backenddagi OrderRepository.market tartibi bilan bir xil, shuning uchun "Yana ko'rsatish" guruhlarni buzmaydi)
 const WEEKDAYS = ['yakshanba', 'dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba'];
 
@@ -183,28 +208,57 @@ export function groupedByDay(items) {
     .sort((a, b) => dayRank(a[0]).localeCompare(dayRank(b[0])))
     .map(([k, list]) => `<section class="day-group">
         <h2 class="day-head${k === 'urgent' ? ' is-urgent' : k === 'late' ? ' is-late' : ''}">${k === 'urgent' ? '🔥 ' : ''}${esc(dayLabel(k, today))}<span>${list.length} ta</span></h2>
-        <div class="orders">${list.map(orderRow).join('')}</div></section>`)
+        <div class="orders">${list.map(o => orderRow(o)).join('')}</div></section>`)
     .join('');
 }
 
-export function orderRow(o) {
+/**
+ * Kirgan foydalanuvchi uchun: e'lon chiqqan joy bo'yicha guruhlar — «📍 Kosonsoydan», «Namangan viloyatidan»,
+ * keyin boshqa viloyatlar yaqinidan boshlab (server shu tartibda beradi, shuning uchun "Yana ko'rsatish" ham buzmaydi).
+ * Har bir qatorda sana («Bugun», «Ertaga»).
+ */
+export function placeKey(o, me) {
+  if (me?.district && o.from.districtId === me.district.id) return 'd';
+  if (me?.region && o.from.regionId === me.region.id) return 'r';
+  return 'x' + o.from.regionId;
+}
+export function groupedByPlace(items, me) {
+  const groups = new Map();
+  for (const o of items) {
+    const k = placeKey(o, me);
+    if (!groups.has(k)) groups.set(k, { label: placeLabel(k, o, me), list: [] });
+    groups.get(k).list.push(o);
+  }
+  return [...groups.entries()].map(([k, g]) => `<section class="day-group">
+      <h2 class="day-head${k === 'd' ? ' is-home' : ''}">${k === 'd' ? icon('pin') : ''}${esc(g.label)}<span>${g.list.length} ta</span></h2>
+      <div class="orders">${g.list.map(o => orderRow(o, { when: true })).join('')}</div></section>`).join('');
+}
+function placeLabel(k, o, me) {
+  if (k === 'd') return `${me.district.name}dan`;
+  if (k === 'r') return `${me.region.name}dan`;
+  return `${o.from.regionName}dan`;
+}
+
+/** @param when — qatorda sana yorlig'i («Bugun», «Ertaga»): joy bo'yicha guruhlanganda */
+export function orderRow(o, { when = false } = {}) {
+  const k = kindOf(o);
   const late = o.status === 'NEW' && o.pickupDate && o.pickupDate < localISO();
   const meta = [
+    when && o.pickupDate ? `<span class="when-tag${late ? ' is-late' : ''}">${icon('calendar')}${esc(dayWord(o.pickupDate))}</span>` : '',
     o.distanceKm ? `<span class="only-mobile"><b>${esc(km(o.distanceKm))}</b></span>` : '',
-    `<span>${esc(CARGO[o.cargoType] || o.cargoType)}</span>`,
-    o.weightKg ? `<span><b>${num(o.weightKg, 1)}</b> kg</span>` : '',
-    o.volumeM3 ? `<span><b>${num(o.volumeM3, 1)}</b> m³</span>` : '',
-    o.pickupDate ? `<span>Olib ketish: <b>${esc(date(o.pickupDate + 'T00:00:00'))}</b>${late ? ' <em class="late">kechikkan</em>' : ''}</span>` : '',
-    o.requiredBodyType ? `<span>${esc(BODY[o.requiredBodyType])}</span>` : '',
+    k === 'CARGO' && o.cargoType && o.cargoType !== 'GENERAL' ? `<span>${esc(CARGO[o.cargoType] || '')}</span>` : '',
+    k !== 'PASSENGER' && o.weightKg ? `<span><b>${num(o.weightKg, 1)}</b> kg</span>` : '',
+    !when && o.pickupDate ? `<span>${k === 'PASSENGER' ? "Jo'nash" : 'Olib ketish'}: <b>${esc(date(o.pickupDate + 'T00:00:00'))}</b>${late ? ' <em class="late">kechikkan</em>' : ''}</span>` : '',
+    k === 'CARGO' && o.requiredBodyType ? `<span>${esc(bodyLabel(o.requiredBodyType))}</span>` : '',
     o.status === 'NEW' && o.offersCount ? `<span><b>${o.offersCount}</b> ta taklif</span>` : '',
     `<span>${esc(ago(o.createdAt))}</span>`,
   ].filter(Boolean).join('');
   return `<a class="order-row" href="#/orders/${o.id}">
     <div class="order-top">
-      <div class="order-title">${o.urgent ? '<span class="urgent-flag">Shoshilinch</span>' : ''}${esc(o.title)}</div>
-      ${o.status === 'NEW'
+      <div class="order-title">${kindTag(o)}${esc(headline(o))}</div>
+      <div class="order-side">${o.status === 'NEW'
         ? `<div class="price ${o.price ? '' : 'nego'}">${esc(money(o.price))}</div>`
-        : statusPill(o.status)}
+        : statusPill(o.status)}${o.urgent ? '<span class="urgent-flag">Shoshilinch</span>' : ''}</div>
     </div>
     ${routeStrip(o)}
     <div class="meta">${meta}</div>
@@ -214,8 +268,12 @@ export function orderRow(o) {
 // =====================================================================
 // Yangi buyurtma
 // =====================================================================
+const LAST_KIND = 'yukgo_last_kind';
+function lastKind() { try { const k = localStorage.getItem(LAST_KIND); return KIND[k] ? k : null; } catch { return null; } }
+function rememberKind(k) { try { localStorage.setItem(LAST_KIND, k); } catch { /* */ } }
+
 /**
- * Botga yozilgan e'londan to'ldirilgan forma: "#/new?bot=1&fr=1&fd=5&tr=12&w=5000&p=3000000&d=2026-10-23&b=TENT&c=FURNITURE&t=..&x=.."
+ * Botga yozilgan e'londan to'ldirilgan forma: "#/new?bot=1&k=PASSENGER&s=2&fr=1&fd=5&tr=12&w=5000&p=3000000&d=2026-10-23&b=TRUCK&c=FURNITURE&t=..&x=.."
  * Noto'g'ri yoki eskirgan qiymatlar jim e'tiborsiz qoldiriladi.
  */
 function prefillFrom(query, today) {
@@ -224,17 +282,45 @@ function prefillFrom(query, today) {
   const positive = (k) => { const v = Number(q.get(k)); return Number.isFinite(v) && v > 0 ? v : null; };
   const d = q.get('d') || '';
   const known = (map, k) => Object.prototype.hasOwnProperty.call(map, k);   // eski WebView'larda Object.hasOwn yo'q
+  const b = q.get('b') || '';
+  const seats = Math.round(positive('s') || 0);
+  const kind = known(KIND, q.get('k') || '') ? q.get('k') : null;
+  const okSeats = seats >= 1 && seats <= 30 ? seats : null;
+  // Botdagi narx — jami; yo'lovchi formasida narx bir kishi uchun so'raladi (yuborishda kishilar soniga ko'paytiriladi)
+  let price = positive('p');
+  if (price && kind === 'PASSENGER' && okSeats > 1) price = Math.max(1000, Math.round(price / okSeats / 1000) * 1000);
   return {
     fromBot: q.get('bot') === '1',
+    kind,
+    seats: okSeats,
     fr: id('fr'), fd: id('fd'), tr: id('tr'), td: id('td'),
-    weight: positive('w'), price: positive('p'), negotiable: q.get('n') === '1',
+    weight: positive('w'), price, negotiable: q.get('n') === '1',
     date: /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= today ? d : today,
-    body: known(BODY, q.get('b') || '') ? q.get('b') : '',
+    body: b && (bodyCanon(b) !== 'OTHER' || b === 'OTHER') ? bodyCanon(b) : '',
     cargo: known(CARGO, q.get('c') || '') ? q.get('c') : 'GENERAL',
     title: (q.get('t') || '').slice(0, 120),
     description: (q.get('x') || '').slice(0, 1500),
   };
 }
+
+/** Turga qarab matnlar */
+const FORM_TEXT = {
+  CARGO: {
+    what: 'Nima yuborasiz?', whatPh: 'Masalan: 20 qop sement, divan va 2 ta shkaf',
+    price: "Narx, so'm", note: 'Qavat, lift bormi, yuklashga yordam kerakmi…',
+    fromAddr: 'Yukni olish manzili', toAddr: 'Topshirish manzili',
+  },
+  PARCEL: {
+    what: 'Nima yuborasiz?', whatPh: 'Masalan: hujjatlar, kichik quti, dori',
+    price: "Narx, so'm", note: "Masalan: qabul qiluvchi avtovokzalda kutib oladi",
+    fromAddr: 'Pochtani olish manzili', toAddr: 'Topshirish manzili',
+  },
+  PASSENGER: {
+    what: '', whatPh: '',
+    price: "Bir kishi uchun narx, so'm", note: 'Masalan: ertalab 7 da, Kosonsoy bozori oldidan',
+    fromAddr: 'Qayerdan olib ketish', toAddr: 'Qayerga borasiz',
+  },
+};
 
 export async function createOrderPage(main, _p, query) {
   const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
@@ -246,74 +332,87 @@ export async function createOrderPage(main, _p, query) {
   const urgentFree = !!wallet?.urgentFreeAvailable;
   // Android ilova va Telegram ichida pullik «Shoshilinch» taklif qilinmaydi (do'kon qoidalari) — bepul bo'lsa qoladi
   const urgentHidden = urgentFee > 0 && !urgentFree && digitalSalesBlocked();
-  main.innerHTML = `<div class="page">
-    <div class="page-head"><div><h1>Yangi buyurtma</h1><p class="muted">Yukingiz haqida yozing — mos haydovchilarga Telegram orqali darhol xabar boradi.</p></div></div>
-    ${pre.fromBot ? `<div class="prefill-note">${icon('check')}<div><b>Botga yozgan e'loningizdan to'ldirildi.</b> Tekshirib chiqing, qabul qiluvchini yozing va «E'lon qilish» ni bosing.</div></div>` : ''}
-    <form id="order-form" class="grid-2" novalidate>
-      <div class="stack">
-        <section class="panel stack">
-          <h2>Yuk</h2>
-          <div class="form-grid">
-            <label class="field full"><span>Nima yuboryapsiz?</span><input class="input" name="title" maxlength="120" placeholder="Masalan: 20 qop sement, divan va 2 ta shkaf" value="${esc(pre.title)}" required></label>
-            <label class="field"><span>Yuk turi</span><select class="select" name="cargoType" required>${options(CARGO, pre.cargo)}</select></label>
-            <label class="field"><span>Kerakli mashina</span><select class="select" name="requiredBodyType">${options(BODY, pre.body, 'Farqi yo\'q')}</select></label>
-            <label class="field"><span>Og'irligi, kg</span><input class="input" name="weightKg" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="500" value="${pre.weight ?? ''}"></label>
-            <label class="field"><span>Hajmi, m³</span><input class="input" name="volumeM3" type="number" min="0" step="0.1" inputmode="decimal" placeholder="ixtiyoriy"></label>
-            <label class="field full"><span>Qo'shimcha ma'lumot</span><textarea class="textarea" name="description" maxlength="1500" placeholder="Qavat, lift bormi, yuklashga yordam kerakmi, qadoqlanganmi…">${esc(pre.description)}</textarea></label>
-            <label class="field full"><span>Yuk rasmi (ixtiyoriy)</span><input class="input" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
-          </div>
-        </section>
-
-        <section class="panel stack">
-          <h2>Marshrut</h2>
-          <div class="form-grid">
-            <label class="field"><span>Qayerdan: viloyat</span><select class="select" name="fromRegionId" required></select></label>
-            <label class="field"><span>Tuman / shahar</span><select class="select" name="fromDistrictId"></select></label>
-            <label class="field full"><span>Yukni olish manzili</span><input class="input" name="fromAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing"></label>
-            <label class="field"><span>Qayerga: viloyat</span><select class="select" name="toRegionId" required></select></label>
-            <label class="field"><span>Tuman / shahar</span><select class="select" name="toDistrictId"></select></label>
-            <label class="field full"><span>Topshirish manzili</span><input class="input" name="toAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing"></label>
-          </div>
-          <div class="map-tools">
-            <div class="seg" id="pick-mode"><button type="button" class="on" data-mode="from">Olish nuqtasi</button><button type="button" data-mode="to">Topshirish nuqtasi</button></div>
-            <button type="button" class="btn btn-sm" id="my-loc">${icon('locate')}Mening joylashuvim</button>
-          </div>
-          <div class="map" id="pick-map"></div>
-          <p class="small muted" id="route-info">Xaritaga bosib olish va topshirish nuqtalarini belgilang — masofa avtomatik hisoblanadi.</p>
-        </section>
+  let kind = pre.kind || (pre.fromBot ? 'CARGO' : lastKind()) || 'CARGO';
+  const kindBtn = (k, sub) => `<button type="button" role="radio" data-kind="${k}" aria-checked="${k === kind}" class="${k === kind ? 'on' : ''}">
+      ${icon(KIND_ICON[k])}<b>${esc(KIND[k])}</b><small>${esc(sub)}</small></button>`;
+  main.innerHTML = `<div class="page page-narrow">
+    <div class="page-head"><div><h1>Yangi e'lon</h1><p class="muted">Yo'nalishingizdagi haydovchilarga darhol xabar boradi.</p></div></div>
+    ${pre.fromBot ? `<div class="prefill-note">${icon('check')}<div><b>Botga yozgan e'loningizdan to'ldirildi.</b> Tekshirib chiqing va «E'lon qilish» ni bosing.</div></div>` : ''}
+    <form id="order-form" class="stack" novalidate>
+      <div class="kind-switch" role="radiogroup" aria-label="Nima kerak?">
+        ${kindBtn('CARGO', "Yuk jo'nataman")}${kindBtn('PARCEL', 'Hujjat, kichik quti')}${kindBtn('PASSENGER', "O'zim boraman")}
       </div>
 
-      <div class="stack">
-        <section class="panel stack">
-          <h2>Narx va to'lov</h2>
-          <div class="panel-sunk hidden" id="estimate"></div>
-          <label class="field"><span>Taklif qilayotgan narxingiz, so'm</span>
-            <input class="input" name="price" type="number" min="1000" step="1000" inputmode="numeric" placeholder="300000" value="${pre.negotiable ? '' : (pre.price ?? '')}" ${pre.negotiable ? 'disabled' : ''}></label>
-          <label class="check"><input type="checkbox" name="negotiable" ${pre.negotiable ? 'checked' : ''}> Narx kelishiladi — haydovchilar o'zi taklif qilsin</label>
-          <div class="form-grid">
-            <label class="field"><span>To'lov usuli</span><select class="select" name="paymentMethod">${options(PAYMENT, 'CASH')}</select></label>
-            <label class="field"><span>Kim to'laydi</span><select class="select" name="payer">${options(PAYER, 'SENDER')}</select></label>
+      <section class="panel stack">
+        <div class="place-pick"><span class="place-label">Qayerdan</span>
+          <div class="pair"><select class="select" name="fromRegionId" required aria-label="Qayerdan: viloyat"></select>
+            <select class="select" name="fromDistrictId" aria-label="Qayerdan: tuman"></select></div></div>
+        <div class="place-pick is-to"><span class="place-label">Qayerga</span>
+          <div class="pair"><select class="select" name="toRegionId" required aria-label="Qayerga: viloyat"></select>
+            <select class="select" name="toDistrictId" aria-label="Qayerga: tuman"></select></div></div>
+        <div class="field"><span id="when-label">Qachon</span>
+          <div class="day-chips" role="group" aria-labelledby="when-label">
+            <button type="button" data-day="0">Bugun</button><button type="button" data-day="1">Ertaga</button><button type="button" data-day="2">Indinga</button>
+            <input class="input" type="date" name="pickupDate" min="${today}" value="${pre.date}" aria-label="Boshqa sana"></div></div>
+      </section>
+
+      <section class="panel stack" data-for="CARGO PARCEL">
+        <label class="field"><span id="what-label">Nima yuborasiz?</span>
+          <input class="input" name="title" maxlength="120" value="${esc(pre.title)}"></label>
+        <div class="form-grid" data-for="CARGO">
+          <label class="field"><span>Og'irligi, kg <span class="muted">(ixtiyoriy)</span></span><input class="input" name="weightKg" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="500" value="${pre.weight ?? ''}"></label>
+          <label class="field"><span>Qanday mashina kerak?</span><select class="select" name="requiredBodyType">${options(BODY, pre.body, "Farqi yo'q")}</select></label>
+        </div>
+      </section>
+
+      <section class="panel stack" data-for="PASSENGER">
+        <div class="field"><span id="seats-label">Necha kishi?</span>
+          <div class="stepper" role="group" aria-labelledby="seats-label">
+            <button type="button" data-step="-1" aria-label="Kamaytirish">−</button>
+            <input class="input" name="seats" type="number" min="1" max="30" value="${pre.seats || 1}" inputmode="numeric" aria-label="Necha kishi">
+            <button type="button" data-step="1" aria-label="Ko'paytirish">+</button></div></div>
+      </section>
+
+      <section class="panel stack">
+        <label class="field"><span><span id="price-label">Narx, so'm</span> <span class="muted">(ixtiyoriy)</span></span>
+          <input class="input" name="price" type="number" min="1000" step="1000" inputmode="numeric" placeholder="Masalan: 300000" value="${pre.negotiable ? '' : (pre.price ?? '')}">
+          <small id="price-hint">Bo'sh qoldirsangiz — narx kelishiladi.</small></label>
+        <div class="panel-sunk hidden" id="estimate"></div>
+        <div class="field" data-for="CARGO PARCEL"><span>Kim qabul qiladi?</span>
+          <div class="seg" id="receiver-mode"><button type="button" class="on" data-r="me">O'zim</button><button type="button" data-r="other">Boshqa odam</button></div>
+          <div class="form-grid hidden" id="receiver-other">
+            <label class="field"><span>Telefon raqami</span><input class="input" name="receiverPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" autocomplete="off"></label>
+            <label class="field"><span>Ismi <span class="muted">(ixtiyoriy)</span></span><input class="input" name="receiverName" maxlength="120" autocomplete="off"></label>
           </div>
-          <label class="field"><span>Yukni olish sanasi</span><input class="input" name="pickupDate" type="date" min="${today}" value="${pre.date}"></label>
-          ${urgentHidden ? '' : `<label class="check"><input type="checkbox" name="urgent"> Shoshilinch — ro'yxatda doim eng yuqorida turadi${urgentFee
-            ? (urgentFree ? ` <b class="fee fee-free">Bepul</b> <s class="tiny muted">${esc(money(urgentFee))}</s>` : ` <b class="fee">${esc(money(urgentFee))}</b>`) : ''}</label>
-          ${urgentFee ? `<p class="tiny muted">${urgentFree ? "Birinchi shoshilinch e'loningiz bepul — balansdan hech narsa yechilmaydi."
-            : "Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi."}</p>` : ''}`}
-        </section>
-        <section class="panel stack">
-          <h2>Qabul qiluvchi</h2>
-          <label class="field"><span>Ism-familiyasi</span><input class="input" name="receiverName" maxlength="120" required></label>
-          <label class="field"><span>Telefon raqami</span><input class="input" name="receiverPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" required>
-            <small>Yuk yo'lga chiqqach, topshirish kodi sizga ko'rinadi. Uni qabul qiluvchiga aytasiz — haydovchi shu kod bilan yukni topshiradi.</small></label>
-          <label class="check"><input type="checkbox" id="me-receiver"> Qabul qiluvchi — o'zim</label>
-        </section>
-        <button class="btn btn-primary btn-lg btn-block" type="submit">Buyurtmani e'lon qilish</button>
-        ${cfg.channelPosting ? `<p class="tiny muted" style="text-align:center">📣 E'loningiz YukGo Telegram kanallarida ham chiqadi — ismingiz va telefoningiz u yerda ko'rsatilmaydi.</p>` : ''}
-      </div>
+          <small>Yo'lga chiqqach topshirish kodi sizga ko'rinadi — qabul qiluvchi uni haydovchiga aytadi.</small></div>
+        <label class="field"><span>Izoh <span class="muted">(ixtiyoriy)</span></span>
+          <textarea class="textarea" name="description" maxlength="1500" rows="2">${esc(pre.description)}</textarea></label>
+        <details class="more" id="more-box">
+          <summary>Aniq manzil va xarita <span class="muted">(ixtiyoriy)</span></summary>
+          <div class="stack" style="margin-top:14px">
+            <label class="field"><span id="from-addr-label">Olish manzili</span><input class="input" name="fromAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing"></label>
+            <label class="field"><span id="to-addr-label">Topshirish manzili</span><input class="input" name="toAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing"></label>
+            <div class="map-tools">
+              <div class="seg" id="pick-mode"><button type="button" class="on" data-mode="from">Olish nuqtasi</button><button type="button" data-mode="to">Borish nuqtasi</button></div>
+              <button type="button" class="btn btn-sm" id="my-loc">${icon('locate')}Mening joylashuvim</button>
+            </div>
+            <div class="map" id="pick-map"></div>
+            <p class="small muted" id="route-info">Xaritaga bosib nuqtalarni belgilang — masofa avtomatik hisoblanadi.</p>
+            <label class="field" data-for="CARGO"><span>Yuk rasmi</span><input class="input" name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
+          </div>
+        </details>
+        ${urgentHidden ? '' : `<label class="check"><input type="checkbox" name="urgent"> <span>Shoshilinch — o'z hududidagi e'lonlar ichida eng yuqorida turadi${urgentFee
+          ? (urgentFree ? ` <b class="fee fee-free">Bepul</b> <s class="tiny muted">${esc(money(urgentFee))}</s>` : ` <b class="fee">${esc(money(urgentFee))}</b>`) : ''}</span></label>
+        ${urgentFee ? `<p class="tiny muted">${urgentFree ? "Birinchi shoshilinch e'loningiz bepul — balansdan hech narsa yechilmaydi."
+          : "Shoshilinch narxi e'lon joylanganda balansingizdan yechiladi."}</p>` : ''}`}
+      </section>
+      <button class="btn btn-primary btn-lg btn-block" type="submit">E'lon qilish</button>
+      ${cfg.channelPosting ? `<p class="tiny muted" style="text-align:center">📣 E'loningiz YukGo Telegram kanallarida ham chiqadi — ismingiz va telefoningiz u yerda ko'rsatilmaydi.</p>` : ''}
     </form>
   </div>`;
 
   const form = $('#order-form', main);
+  const titleInput = form.querySelector('[name=title]');   // form.title — formaning o'z "title" xossasi bilan adashmasin
   const me = auth.user;
   await Promise.all([
     bindRegionDistrict(form.fromRegionId, form.fromDistrictId, pre.fr
@@ -321,24 +420,88 @@ export async function createOrderPage(main, _p, query) {
       : { regionId: me?.region?.id, districtId: me?.district?.id, allowEmptyDistrict: true }),
     bindRegionDistrict(form.toRegionId, form.toDistrictId, { regionId: pre.tr, districtId: pre.td, allowEmptyDistrict: true }),
   ]);
-  $('#me-receiver', main).addEventListener('change', (e) => {
-    form.receiverName.value = e.target.checked ? me.fullName : '';
-    form.receiverPhone.value = e.target.checked ? me.phone : '';
-  });
-  form.negotiable.addEventListener('change', () => { form.price.disabled = form.negotiable.checked; });
 
-  // ---- Xarita bilan nuqta tanlash ----
+  // ---- Tur: yuk, pochta, yo'lovchi ----
+  function setKind(k) {
+    kind = k;
+    const t = FORM_TEXT[k];
+    $$('.kind-switch button', main).forEach(b => {
+      const on = b.dataset.kind === k;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+    });
+    $$('[data-for]', main).forEach(el => el.classList.toggle('hidden', !el.dataset.for.split(' ').includes(k)));
+    if (t.what) {
+      $('#what-label', main).innerHTML = esc(t.what) + (k === 'PARCEL' ? ' <span class="muted">(ixtiyoriy)</span>' : '');
+      titleInput.placeholder = t.whatPh;
+    }
+    $('#price-label', main).textContent = t.price;
+    form.description.placeholder = t.note;
+    $('#from-addr-label', main).textContent = t.fromAddr;
+    $('#to-addr-label', main).textContent = t.toAddr;
+    $$('#pick-mode button', main)[0].textContent = k === 'PASSENGER' ? 'Olib ketish nuqtasi' : 'Olish nuqtasi';
+    updatePriceHint();
+  }
+  $$('.kind-switch button', main).forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
+
+  // ---- Qachon: Bugun / Ertaga / Indinga yoki sana ----
+  const syncDays = () => {
+    $$('.day-chips button', main).forEach(b => b.classList.toggle('on', form.pickupDate.value === addDays(today, Number(b.dataset.day))));
+  };
+  $$('.day-chips button', main).forEach(b => b.addEventListener('click', () => {
+    form.pickupDate.value = addDays(today, Number(b.dataset.day));
+    syncDays();
+  }));
+  form.pickupDate.addEventListener('change', syncDays);
+  syncDays();
+
+  // ---- Necha kishi ----
+  const seatsVal = () => Math.min(30, Math.max(1, Math.round(Number(form.seats.value) || 1)));
+  $$('.stepper [data-step]', main).forEach(b => b.addEventListener('click', () => {
+    form.seats.value = Math.min(30, Math.max(1, seatsVal() + Number(b.dataset.step)));
+    updatePriceHint();
+  }));
+  form.seats.addEventListener('input', updatePriceHint);
+
+  function updatePriceHint() {
+    const hint = $('#price-hint', main);
+    const p = Number(form.price.value) || 0;
+    if (kind === 'PASSENGER' && p > 0 && seatsVal() > 1) {
+      hint.textContent = `Jami: ${money(p * seatsVal())} (${seatsVal()} kishi)`;
+    } else {
+      hint.textContent = kind === 'CARGO' ? "Bo'sh qoldirsangiz — haydovchilar o'z narxini taklif qiladi."
+        : "Bo'sh qoldirsangiz — haydovchi bilan telefonda kelishasiz.";
+    }
+  }
+  form.price.addEventListener('input', updatePriceHint);
+
+  // ---- Qabul qiluvchi: o'zim yoki boshqa odam ----
+  let receiverOther = false;
+  $$('#receiver-mode button', main).forEach(b => b.addEventListener('click', () => {
+    receiverOther = b.dataset.r === 'other';
+    $$('#receiver-mode button', main).forEach(x => x.classList.toggle('on', x === b));
+    $('#receiver-other', main).classList.toggle('hidden', !receiverOther);
+    if (receiverOther) form.receiverPhone.focus();
+  }));
+
+  // ---- Xarita bilan aniq nuqta (ixtiyoriy, ochilganda yuklanadi) ----
   const pts = { from: null, to: null };
   let route = { distanceKm: null, durationMin: null };
-  let mode = 'from', ctx = null, marks = {}, routeObj = null;
+  let mode = 'from', ctx = null, marks = {}, routeObj = null, mapStarted = false;
   $$('#pick-mode button', main).forEach(b => b.addEventListener('click', () => {
     mode = b.dataset.mode;
     $$('#pick-mode button', main).forEach(x => x.classList.toggle('on', x === b));
   }));
-  try {
-    ctx = await createMap($('#pick-map', main), { center: me?.region ? [me.region.lat, me.region.lng] : UZ_CENTER, zoom: me?.region ? 10 : 6 });
-    ctx.map.events.add('click', (e) => setPoint(mode, e.get('coords'), true));
-  } catch { /* xabar xaritada */ }
+  const startMap = async () => {
+    if (mapStarted) return;
+    mapStarted = true;
+    try {
+      const r = (await regions()).find(x => x.id === Number(form.fromRegionId.value));
+      ctx = await createMap($('#pick-map', main), { center: r ? [r.lat, r.lng] : UZ_CENTER, zoom: r ? 10 : 6 });
+      ctx.map.events.add('click', (e) => setPoint(mode, e.get('coords'), true));
+    } catch { /* xabar xaritada */ }
+  };
+  $('#more-box', main).addEventListener('toggle', (e) => { if (e.currentTarget.open) startMap(); });
 
   const centerOn = async (sel) => {
     if (!ctx) return;
@@ -346,7 +509,7 @@ export async function createOrderPage(main, _p, query) {
     if (r) ctx.map.setCenter([r.lat, r.lng], 9, { duration: 300 });
   };
   form.fromRegionId.addEventListener('change', () => { mode = 'from'; centerOn(form.fromRegionId); });
-  form.toRegionId.addEventListener('change', () => { mode = 'to'; $$('#pick-mode button', main)[1].click(); centerOn(form.toRegionId); });
+  form.toRegionId.addEventListener('change', () => { if (ctx) $$('#pick-mode button', main)[1].click(); centerOn(form.toRegionId); });
 
   $('#my-loc', main).addEventListener('click', async () => {
     try {
@@ -356,18 +519,18 @@ export async function createOrderPage(main, _p, query) {
     } catch (e) { toast(e.message, 'err'); }
   });
 
-  async function setPoint(kind, coords, fill) {
+  async function setPoint(k, coords, fill) {
     if (!ctx) return;
-    pts[kind] = coords;
-    if (marks[kind]) ctx.map.geoObjects.remove(marks[kind]);
-    marks[kind] = pin(ctx.ymaps, coords, kind, { label: kind === 'from' ? 'Olish' : 'Topshirish', draggable: true });
-    marks[kind].events.add('dragend', () => setPoint(kind, marks[kind].geometry.getCoordinates(), true));
-    ctx.map.geoObjects.add(marks[kind]);
+    pts[k] = coords;
+    if (marks[k]) ctx.map.geoObjects.remove(marks[k]);
+    marks[k] = pin(ctx.ymaps, coords, k, { label: k === 'from' ? 'Olish' : 'Borish', draggable: true });
+    marks[k].events.add('dragend', () => setPoint(k, marks[k].geometry.getCoordinates(), true));
+    ctx.map.geoObjects.add(marks[k]);
     if (fill) {
       const addr = await reverseGeocode(ctx.ymaps, coords);
-      if (addr) form[kind === 'from' ? 'fromAddress' : 'toAddress'].value = addr;
+      if (addr) form[k === 'from' ? 'fromAddress' : 'toAddress'].value = addr;
     }
-    if (kind === 'from' && !pts.to) $$('#pick-mode button', main)[1].click();
+    if (k === 'from' && !pts.to) $$('#pick-mode button', main)[1].click();
     if (pts.from && pts.to) {
       if (routeObj) ctx.map.geoObjects.remove(routeObj);
       $('#route-info', main).textContent = 'Marshrut hisoblanmoqda…';
@@ -382,7 +545,7 @@ export async function createOrderPage(main, _p, query) {
   }
 
   async function estimate() {
-    if (!route.distanceKm) return;
+    if (!route.distanceKm || kind !== 'CARGO') return;
     const scope = Number(form.fromRegionId.value) !== Number(form.toRegionId.value) ? 'INTERREGION'
       : (form.fromDistrictId.value && form.fromDistrictId.value === form.toDistrictId.value ? 'CITY' : 'INTERCITY');
     try {
@@ -393,38 +556,55 @@ export async function createOrderPage(main, _p, query) {
         <p style="font-size:22px;font-weight:700" class="num">${esc(money(e.suggested))}</p>
         <p class="small muted">${esc(money(e.min))} dan ${esc(money(e.max))} gacha</p>
         <button type="button" class="btn btn-sm" style="margin-top:8px" id="use-est">Shu narxni qo'yish</button>`;
-      $('#use-est', main).addEventListener('click', () => { form.negotiable.checked = false; form.price.disabled = false; form.price.value = e.suggested; });
+      $('#use-est', main).addEventListener('click', () => { form.price.value = e.suggested; updatePriceHint(); });
     } catch { /* */ }
   }
   form.weightKg.addEventListener('change', estimate);
+
+  setKind(kind);
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearError(form);
     const d = formData(form);
-    if (!d.negotiable && !d.price) return showError(form, { message: "Narxni kiriting yoki \"Narx kelishiladi\" ni belgilang" });
+    if (!d.fromRegionId) return showError(form, { message: 'Qayerdan — viloyatni tanlang' });
+    if (!d.toRegionId) return showError(form, { message: 'Qayerga — viloyatni tanlang' });
+    if (kind === 'CARGO' && !d.title) { titleInput.focus(); return showError(form, { message: 'Nima yuborayotganingizni yozing' }); }
+    if (kind !== 'PASSENGER' && receiverOther && !d.receiverPhone) {
+      form.receiverPhone.focus();
+      return showError(form, { message: 'Qabul qiluvchining telefon raqamini yozing' });
+    }
+    const seats = seatsVal();
+    const price = d.price ? Math.round(kind === 'PASSENGER' ? d.price * seats : d.price) : null;
     const body = {
-      title: d.title, cargoType: d.cargoType, weightKg: d.weightKg, volumeM3: d.volumeM3, description: d.description,
-      requiredBodyType: d.requiredBodyType || null,
+      kind,
+      title: kind === 'PASSENGER' ? null : d.title,
+      seats: kind === 'PASSENGER' ? seats : null,
+      weightKg: kind === 'CARGO' ? d.weightKg : null,
+      requiredBodyType: kind === 'CARGO' ? (d.requiredBodyType || null) : null,
+      cargoType: kind === 'CARGO' && pre.cargo !== 'GENERAL' ? pre.cargo : null,
+      description: d.description,
       from: { regionId: Number(d.fromRegionId) || null, districtId: Number(d.fromDistrictId) || null, address: d.fromAddress, lat: pts.from?.[0], lng: pts.from?.[1] },
       to: { regionId: Number(d.toRegionId) || null, districtId: Number(d.toDistrictId) || null, address: d.toAddress, lat: pts.to?.[0], lng: pts.to?.[1] },
       distanceKm: route.distanceKm, durationMin: route.durationMin,
-      pickupDate: d.pickupDate, price: d.negotiable ? null : d.price,
-      paymentMethod: d.paymentMethod, payer: d.payer, urgent: !!d.urgent,
-      receiverName: d.receiverName, receiverPhone: d.receiverPhone,
+      pickupDate: d.pickupDate || today, price,
+      urgent: !!d.urgent,
+      receiverName: kind !== 'PASSENGER' && receiverOther ? d.receiverName : null,
+      receiverPhone: kind !== 'PASSENGER' && receiverOther ? d.receiverPhone : null,
     };
     try {
       const o = await busy(form.querySelector('[type=submit]'), async () => {
         const created = await post('/orders', body);
-        const file = form.photo.files[0];
+        const file = kind === 'CARGO' ? form.photo.files[0] : null;
         if (file) await upload(`/orders/${created.id}/photo`, file).catch(err => toast('Rasm yuklanmadi: ' + err.message, 'err'));
         return created;
       });
-      toast("Buyurtma e'lon qilindi! Takliflar kelishini kuting", 'ok');
+      rememberKind(kind);
+      toast(kind === 'PASSENGER' ? "E'lon joylandi! Yo'nalishingizdagi haydovchilarga xabar yuborildi"
+        : "E'lon joylandi! Haydovchilarga xabar yuborildi", 'ok');
       go('#/orders/' + o.id);
     } catch (err) { showError(form, err); }
   });
-  void cfg;
 }
 
 // =====================================================================
@@ -454,16 +634,40 @@ export async function orderPage(main, { id }) {
     render();
   }
 
+  /** E'lon tafsilotlari — turga qarab (yo'lovchida: sana, necha kishi; yukda: og'irlik, mashina, qabul qiluvchi) */
+  function detailsHtml(participant) {
+    const k = kindOf(o);
+    const seats = o.seats || 1;
+    const price = o.finalPrice ?? o.price;
+    const rows = [];
+    if (k === 'PASSENGER') {
+      if (o.pickupDate) rows.push(["Jo'nash", `${dayWord(o.pickupDate)}, ${date(o.pickupDate + 'T00:00:00')}`]);
+      rows.push(['Necha kishi', `${seats} kishi`]);
+      if (price && seats > 1) rows.push(['Bir kishiga', money(Math.round(price / seats))]);
+    } else {
+      if (k === 'CARGO' && o.cargoType && o.cargoType !== 'GENERAL') rows.push(['Turi', CARGO[o.cargoType]]);
+      if (o.weightKg) rows.push(["Og'irligi", `${num(o.weightKg, 1)} kg`]);
+      if (k === 'CARGO' && o.requiredBodyType) rows.push(['Mashina', bodyLabel(o.requiredBodyType)]);
+      if (o.pickupDate) rows.push(['Olib ketish', `${dayWord(o.pickupDate)}, ${date(o.pickupDate + 'T00:00:00')}`]);
+    }
+    if (o.distanceKm) rows.push(['Masofa', km(o.distanceKm) + (o.durationMin ? `, ~${duration(o.durationMin)}` : '')]);
+    const receiver = participant && k !== 'PASSENGER' && o.receiverPhone
+      ? `<dt>Qabul qiluvchi</dt><dd>${o.receiverName ? esc(o.receiverName) + ', ' : ''}<a href="tel:${esc(o.receiverPhone)}">${esc(phoneFmt(o.receiverPhone))}</a></dd>` : '';
+    return `<dl class="kv">${rows.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}${receiver}</dl>`;
+  }
+
   function render() {
     const role = o.viewerRole;
     const isSender = role === 'SENDER', isDriver = role === 'DRIVER';
     const participant = isSender || isDriver;
+    const k = kindOf(o);
+    const who = k === 'PASSENGER' ? "Yo'lovchi" : k === 'PARCEL' ? "Jo'natuvchi" : 'Yuk egasi';
     main.innerHTML = `<div class="page">
       <div class="page-head">
         <div>
-          <div class="row" style="margin-bottom:8px">${statusPill(o.status)}<span class="muted small">#${o.id}, ${esc(ago(o.createdAt))}</span>
+          <div class="row" style="margin-bottom:8px">${kindTag(o)}${statusPill(o.status)}<span class="muted small">#${o.id}, ${esc(ago(o.createdAt))}</span>
             ${o.urgent ? '<span class="urgent-flag">Shoshilinch</span>' : ''}</div>
-          <h1>${esc(o.title)}</h1>
+          <h1>${esc(k === 'PASSENGER' ? `Yo'lovchi: ${o.seats || 1} kishi` : headline(o))}</h1>
         </div>
         <div class="price ${o.finalPrice || o.price ? '' : 'nego'}" style="font-size:24px">${esc(money(o.finalPrice ?? o.price))}</div>
       </div>
@@ -471,23 +675,15 @@ export async function orderPage(main, { id }) {
         <div class="stack">
           <section class="panel stack">
             ${routeStrip(o, { large: true })}
-            <div class="map" id="order-map"></div>
-            ${participant && o.from.address ? `<dl class="kv small">
-              <dt>Olish manzili</dt><dd>${esc(o.from.address)}</dd>
-              <dt>Topshirish manzili</dt><dd>${esc(o.to.address || '—')}</dd></dl>` : ''}
+            ${o.from.lat != null || o.to.lat != null || (participant && (o.status === 'ACCEPTED' || o.status === 'IN_TRANSIT'))
+              ? '<div class="map" id="order-map"></div>' : ''}
+            ${participant && (o.from.address || o.to.address) ? `<dl class="kv small">
+              ${o.from.address ? `<dt>${k === 'PASSENGER' ? 'Olib ketish' : 'Olish manzili'}</dt><dd>${esc(o.from.address)}</dd>` : ''}
+              ${o.to.address ? `<dt>${k === 'PASSENGER' ? 'Borish manzili' : 'Topshirish manzili'}</dt><dd>${esc(o.to.address)}</dd>` : ''}</dl>` : ''}
           </section>
           <section class="panel">
-            <h2>Yuk haqida</h2>
-            <dl class="kv">
-              <dt>Turi</dt><dd>${esc(CARGO[o.cargoType])}</dd>
-              ${o.weightKg ? `<dt>Og'irligi</dt><dd class="num">${num(o.weightKg, 1)} kg</dd>` : ''}
-              ${o.volumeM3 ? `<dt>Hajmi</dt><dd class="num">${num(o.volumeM3, 1)} m³</dd>` : ''}
-              ${o.requiredBodyType ? `<dt>Mashina</dt><dd>${esc(BODY[o.requiredBodyType])}</dd>` : ''}
-              <dt>Yo'nalish</dt><dd>${esc(SCOPE[o.scope])}${o.distanceKm ? ', ' + esc(km(o.distanceKm)) : ''}</dd>
-              ${o.pickupDate ? `<dt>Olib ketish</dt><dd>${esc(date(o.pickupDate))}</dd>` : ''}
-              <dt>To'lov</dt><dd>${esc(PAYMENT[o.paymentMethod])}, ${esc(PAYER[o.payer]).toLowerCase()}</dd>
-              ${participant ? `<dt>Qabul qiluvchi</dt><dd>${esc(o.receiverName)}, <a href="tel:${esc(o.receiverPhone)}">${esc(phoneFmt(o.receiverPhone))}</a></dd>` : ''}
-            </dl>
+            <h2>${k === 'PASSENGER' ? 'Safar haqida' : k === 'PARCEL' ? 'Pochta haqida' : 'Yuk haqida'}</h2>
+            ${detailsHtml(participant)}
             ${o.description ? `<p style="margin-top:14px;white-space:pre-line">${esc(o.description)}</p>` : ''}
             ${o.photoUrl ? `<img src="${esc(o.photoUrl)}" alt="Yuk rasmi" style="margin-top:14px;border-radius:12px;max-height:320px;object-fit:cover">` : ''}
           </section>
@@ -501,9 +697,10 @@ export async function orderPage(main, { id }) {
           ${participant || auth.isStaff ? `<section class="panel"><h2>Tarix</h2><ul class="timeline" id="timeline" style="margin-top:14px"></ul></section>` : ''}
         </div>
         <div class="stack">
+          <div id="route-trips"></div>
           <div id="actions" class="stack"></div>
           <section class="panel stack-sm">
-            <h3>Yuboruvchi</h3>${personCard(o.sender)}
+            <h3>${who}</h3>${personCard(o.sender)}
             ${isDriver ? counterpartActions() : ''}
           </section>
           ${o.driver ? `<section class="panel stack-sm"><h3>Haydovchi</h3>${personCard(o.driver, true)}${isSender ? counterpartActions() : ''}</section>` : ''}
@@ -513,6 +710,7 @@ export async function orderPage(main, { id }) {
     </div>`;
     renderActions();
     drawMap();
+    if (isSender && o.status === 'NEW') loadRouteTrips();
     if ($('#timeline', main)) loadEvents();
     if ($('#chat-list', main)) initChat();
     // Begona e'lon: shikoyat (istasa — yuboruvchini bloklash ham; shunda e'lonlari bozorda ko'rinmaydi)
@@ -539,12 +737,12 @@ export async function orderPage(main, { id }) {
   function personCard(u, withVehicle) {
     // Server raqamni faqat buyurtma tomonlariga yuboradi; boshqalarga sababini tushuntiramiz
     const lockText = o.status === 'NEW' && auth.user?.driver
-      ? "Raqam buyurtma sizga berilgach ko'rinadi"
+      ? "Raqam «Olaman» bosilgach yoki taklifingiz qabul qilingach ko'rinadi"
       : "Raqam faqat buyurtma tomonlariga ko'rinadi";
     return `<a class="person" href="#/u/${u.id}">${avatar(u.avatarUrl, u.fullName)}
       <div style="min-width:0"><div class="person-name">${esc(u.fullName)} ${verifiedBadge(u.verified)}</div>
         <div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
-      ${withVehicle && u.vehicle ? `<div class="small muted">${esc(u.vehicle.brand)} ${esc(u.vehicle.model || '')}, ${esc(BODY[u.vehicle.bodyType] || '')}
+      ${withVehicle && u.vehicle ? `<div class="small muted">${esc(u.vehicle.brand)}${u.vehicle.model ? ' ' + esc(u.vehicle.model) : ''}, ${esc(bodyLabel(u.vehicle.bodyType))}${u.vehicle.color ? ', ' + esc(u.vehicle.color) : ''}
         <span class="plate" style="font-size:13px;margin-left:6px"><span>${esc(u.vehicle.plateNumber)}</span></span></div>` : ''}
       ${u.phone
         ? `<a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>`
@@ -555,6 +753,8 @@ export async function orderPage(main, { id }) {
     const box = $('#actions', main);
     const me = auth.user;
     const role = o.viewerRole;
+    const k = kindOf(o);
+    const passenger = k === 'PASSENGER';
     let html = '';
 
     if (role === 'SENDER') {
@@ -562,48 +762,62 @@ export async function orderPage(main, { id }) {
         html += `<section class="panel"><div class="row-between"><h2>Takliflar</h2><span class="muted small">${o.offersCount} ta</span></div><div id="offers">${skeletons(2)}</div></section>`;
         const late = o.pickupDate && o.pickupDate < localISO();   // sanasi o'tgan e'lonni server shoshilinch qilmaydi
         if (late) {
-          html += `<section class="panel stack-sm"><h2>Olib ketish sanasi o'tdi</h2>
-            <p class="small muted">Sanasi o'tganiga 7 kun bo'lgach e'lon avtomatik yopiladi. Yuk hali jo'natilmagan bo'lsa, bu e'lonni bekor qilib, yangi sana bilan qayta joylang.</p></section>`;
+          html += `<section class="panel stack-sm"><h2>${passenger ? "Jo'nash" : 'Olib ketish'} sanasi o'tdi</h2>
+            <p class="small muted">Sanasi o'tganiga 7 kun bo'lgach e'lon avtomatik yopiladi. Hali kerak bo'lsa, bu e'lonni bekor qilib, yangi sana bilan qayta joylang.</p></section>`;
         } else if (!o.urgent && !urgentHidden) {
           html += `<section class="panel stack-sm"><h2>Tezroq haydovchi topish</h2>
-            <p class="small muted">Shoshilinch e'lon ro'yxatda doim eng yuqorida turadi va haydovchilarga qayta xabar boradi.</p>
+            <p class="small muted">Shoshilinch e'lon o'z hududidagi e'lonlar ichida eng yuqorida turadi va haydovchilarga qayta xabar boradi.</p>
             <button class="btn btn-primary btn-block" id="make-urgent">🔥 Shoshilinch qilish${urgentFee ? ' — ' + (urgentFree ? 'bepul' : esc(money(urgentFee))) : ''}</button></section>`;
         }
       }
-      if (o.status === 'ACCEPTED' || o.status === 'IN_TRANSIT') {
+      if (!passenger && (o.status === 'ACCEPTED' || o.status === 'IN_TRANSIT')) {
         html += `<div class="code-card"><p>Topshirish kodi</p><span class="code">${esc(o.deliveryCode)}</span>
-          <p>Bu kodni faqat qabul qiluvchiga ayting. Haydovchi yukni topshirganda shu kodni kiritadi.</p></div>`;
+          <p>Bu kodni faqat qabul qiluvchiga ayting. Haydovchi topshirganda shu kodni kiritadi.</p></div>`;
+      }
+      if (passenger && o.status === 'ACCEPTED') {
+        html += `<section class="panel stack-sm"><h2>Haydovchi topildi</h2>
+          <p class="small muted">Haydovchi bilan telefonda kelishib oling: qayerda va qachon kutib turasiz. Mashinasi va raqami pastda.</p></section>`;
       }
       if (o.status === 'NEW' || o.status === 'ACCEPTED') {
-        html += `<button class="btn btn-danger btn-block" id="cancel">Buyurtmani bekor qilish</button>`;
+        html += `<button class="btn btn-danger btn-block" id="cancel">${passenger ? "E'lonni bekor qilish" : 'Buyurtmani bekor qilish'}</button>`;
       }
     } else if (role === 'DRIVER') {
       if (o.status === 'ACCEPTED') {
-        html += `<section class="panel stack-sm"><h2>Yukni olishga boring</h2>
-          <p class="small muted">Navigatsiya yuk olish manziligacha yo'l ko'rsatadi, yuboruvchi esa sizni xaritada kuzatadi.</p>
-          <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiyani boshlash</a>
-          <button class="btn btn-primary btn-lg btn-block" id="pickup">Yukni oldim, yo'lga chiqdim</button>
-          <button class="btn btn-danger btn-block" id="cancel">Voz kechish</button>
-          ${o.commission ? `<p class="tiny muted">Bu buyurtma uchun balansingizdan ${esc(money(o.commission))} komissiya yechilgan.</p>` : ''}</section>`;
+        html += passenger
+          ? `<section class="panel stack-sm"><h2>Yo'lovchini olishga boring</h2>
+            <p class="small muted">Yo'lovchiga qo'ng'iroq qilib, qayerda kutishini kelishib oling.</p>
+            <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiyani boshlash</a>
+            <button class="btn btn-primary btn-lg btn-block" id="pickup">Yo'lovchini oldim, yo'lga chiqdik</button>
+            <button class="btn btn-danger btn-block" id="cancel">Voz kechish</button>`
+          : `<section class="panel stack-sm"><h2>${k === 'PARCEL' ? 'Pochtani' : 'Yukni'} olishga boring</h2>
+            <p class="small muted">Navigatsiya olish manziligacha yo'l ko'rsatadi, yuboruvchi esa sizni xaritada kuzatadi.</p>
+            <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiyani boshlash</a>
+            <button class="btn btn-primary btn-lg btn-block" id="pickup">${k === 'PARCEL' ? 'Pochtani' : 'Yukni'} oldim, yo'lga chiqdim</button>
+            <button class="btn btn-danger btn-block" id="cancel">Voz kechish</button>`;
+        html += `${o.commission ? `<p class="tiny muted">Bu buyurtma uchun balansingizdan ${esc(money(o.commission))} komissiya yechilgan.</p>` : ''}</section>`;
       }
       if (o.status === 'IN_TRANSIT') {
-        html += `<section class="panel stack-sm"><h2>Yuk yo'lda</h2>
-          <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiya: topshirish manziliga</a>
-          <form id="deliver-form" class="stack-sm" novalidate>
-            <label class="field"><span>Qabul qiluvchidan olingan 4 xonali kod</span>
-              <input class="input code-input" name="code" inputmode="numeric" maxlength="4" required></label>
-            <button class="btn btn-ok btn-lg btn-block" type="submit">Yukni topshirdim</button></form></section>`;
+        html += passenger
+          ? `<section class="panel stack-sm"><h2>Yo'ldasiz</h2>
+            <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiya: borish manziliga</a>
+            <button class="btn btn-ok btn-lg btn-block" id="arrived">Manzilga yetib keldik</button></section>`
+          : `<section class="panel stack-sm"><h2>${k === 'PARCEL' ? 'Pochta' : 'Yuk'} yo'lda</h2>
+            <a class="btn btn-route btn-lg btn-block" href="#/nav/${o.id}">${icon('nav')}Navigatsiya: topshirish manziliga</a>
+            <form id="deliver-form" class="stack-sm" novalidate>
+              <label class="field"><span>Qabul qiluvchidan olingan 4 xonali kod</span>
+                <input class="input code-input" name="code" inputmode="numeric" maxlength="4" required></label>
+              <button class="btn btn-ok btn-lg btn-block" type="submit">Topshirdim</button></form></section>`;
       }
     } else if (o.status === 'NEW' && me && o.sender.id !== me.id) {
       if (!me.driver) {
-        html += `<section class="panel stack-sm"><h2>Bu buyurtmani olmoqchimisiz?</h2>
-          <p class="small muted">Taklif yuborish uchun profilingizga mashina ma'lumotlarini kiriting.</p>
+        html += `<section class="panel stack-sm"><h2>${passenger ? "Bu yo'lovchini olib ketmoqchimisiz?" : 'Bu buyurtmani olmoqchimisiz?'}</h2>
+          <p class="small muted">Buning uchun profilingizga mashinangizni qo'shing — 1 daqiqa.</p>
           <a class="btn btn-primary btn-block" href="#/profile?vehicle=1">Mashina qo'shish</a></section>`;
       } else if (o.myOffer) {
         html += `<section class="panel stack-sm"><h2>Sizning taklifingiz</h2>
           <p style="font-size:22px;font-weight:700" class="num">${esc(money(o.myOffer.price))}</p>
           ${o.myOffer.comment ? `<p class="small">${esc(o.myOffer.comment)}</p>` : ''}
-          <p class="small muted">Yuboruvchi tanlashini kuting — javob Telegramga keladi.</p>
+          <p class="small muted">${passenger ? "Yo'lovchi" : 'Yuboruvchi'} tanlashini kuting — javob Telegramga keladi.</p>
           <div class="row"><button class="btn btn-sm" id="edit-offer">Narxni o'zgartirish</button>
           <button class="btn btn-danger btn-sm" id="withdraw">Taklifni qaytarish</button></div></section>`;
       } else {
@@ -613,7 +827,7 @@ export async function orderPage(main, { id }) {
     if (o.status === 'DELIVERED' && (role === 'SENDER' || role === 'DRIVER')) {
       html += o.reviewedByMe
         ? `<section class="panel"><h2>Rahmat!</h2><p class="muted small" style="margin-top:6px">Siz bu buyurtmani baholadingiz.</p></section>`
-        : `<section class="panel stack-sm"><h2>${role === 'SENDER' ? 'Haydovchini baholang' : 'Yuboruvchini baholang'}</h2>
+        : `<section class="panel stack-sm"><h2>${role === 'SENDER' ? 'Haydovchini baholang' : passenger ? "Yo'lovchini baholang" : 'Yuboruvchini baholang'}</h2>
           <form id="review-form" class="stack-sm">
             <div class="star-pick" role="radiogroup" aria-label="Baho">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-s="${n}" aria-label="${n} yulduz">★</button>`).join('')}</div>
             <textarea class="textarea" name="comment" maxlength="1000" placeholder="Fikringiz (ixtiyoriy)"></textarea>
@@ -629,16 +843,55 @@ export async function orderPage(main, { id }) {
     bindActions();
   }
 
+  /**
+   * Shu yo'nalishda reys e'lon qilgan haydovchilar (e'lon egasiga): qo'ng'iroq qilib darhol kelishish mumkin.
+   * Sanasi mos (o'sha kuni yoki ertasi, yoki «har kuni») reyslar birinchi.
+   */
+  async function loadRouteTrips() {
+    const box = $('#route-trips', main);
+    if (!box) return;
+    try {
+      const q = { fromRegion: o.from.regionId, toRegion: o.to.regionId };
+      if (o.from.districtId) q.fromDistrict = o.from.districtId;
+      const data = await get('/trips', q);
+      const fits = (t) => {
+        if (t.daily || !o.pickupDate) return true;
+        const d = t.departAt.slice(0, 10);
+        return d === o.pickupDate || d === addDays(o.pickupDate, 1);
+      };
+      const list = data.items.filter(t => t.driver && t.driver.id !== auth.user?.id)
+        .sort((a, b) => Number(fits(b)) - Number(fits(a))).slice(0, 5);
+      if (!list.length || !document.body.contains(box)) return;
+      box.innerHTML = `<section class="panel stack-sm"><h3>Yo'nalishingizdagi haydovchilar</h3>
+        <p class="small muted">Bular shu yo'nalishda reys e'lon qilgan — qo'ng'iroq qilib kelishishingiz mumkin. Sanasi va turi mos kelganlariga e'loningiz haqida xabar ham yuborildi.</p>
+        ${list.map(t => `<div class="trip-mini">
+          <a class="person" href="#/u/${t.driver.id}">${avatar(t.driver.avatarUrl, t.driver.fullName)}
+            <div style="min-width:0"><div class="person-name">${esc(t.driver.fullName)} ${verifiedBadge(t.driver.verified, { short: true })}</div>
+            <div class="person-sub">${esc(tripWhen(t))}${t.seats ? `, ${t.seats} ta bo'sh o'rin` : ''}${t.driver.vehicle ? ' · ' + esc(t.driver.vehicle.brand) : ''}</div></div></a>
+          ${t.driver.phone ? `<a class="btn btn-sm btn-route" href="tel:${esc(t.driver.phone)}" aria-label="${esc(t.driver.fullName)} ga qo'ng'iroq">${icon('phone')}</a>` : ''}
+        </div>`).join('')}
+        <a class="small" href="#/trips?from=${o.from.regionId}&to=${o.to.regionId}">Barcha reyslar</a></section>`;
+    } catch { /* ixtiyoriy blok */ }
+  }
+
+  /**
+   * Haydovchi uchun: yukda — narxga rozi bo'lib olish yoki o'z narxini taklif qilish; pochta va yo'lovchida narx
+   * ko'rsatilmagan bo'lsa ham «Olaman» (narx telefonda kelishiladi), o'z narxini taklif qilish — qo'shimcha.
+   */
   function offerForm(existing) {
-    return `<section class="panel stack-sm" id="offer-box"><h2>${existing ? 'Taklifni yangilash' : 'Narx taklif qiling'}</h2>
-      ${o.price && !existing ? `<button class="btn btn-primary btn-lg btn-block" id="take">${esc(money(o.price))} ga roziman, olaman</button>
-        <p class="small muted" style="text-align:center">yoki o'z narxingizni taklif qiling</p>` : ''}
-      <form id="offer-form" class="stack-sm" novalidate>
+    const k = kindOf(o);
+    const quick = !existing && (o.price || k !== 'CARGO');
+    const takeText = o.price ? `${money(o.price)}ga roziman, olaman` : 'Olaman';
+    const form = `<form id="offer-form" class="stack-sm" novalidate>
         <label class="field"><span>Narxingiz, so'm</span><input class="input" name="price" type="number" min="1000" step="1000" inputmode="numeric" value="${existing?.price || ''}" required></label>
-        <label class="field"><span>Qachon olib keta olasiz?</span><select class="select" name="pickupInHours">
+        <label class="field"><span>Qachon ${k === 'PASSENGER' ? 'jo\'nay olasiz' : 'olib keta olasiz'}?</span><select class="select" name="pickupInHours">
           <option value="1">1 soat ichida</option><option value="3">3 soat ichida</option><option value="24" selected>Bugun-ertaga</option><option value="72">3 kun ichida</option></select></label>
-        <label class="field"><span>Izoh</span><textarea class="textarea" name="comment" maxlength="500" placeholder="Masalan: yuklashga yordam beraman, tentli Isuzu">${esc(existing?.comment || '')}</textarea></label>
-        <button class="btn ${o.price && !existing ? '' : 'btn-primary'} btn-block" type="submit">Taklif yuborish</button></form>
+        <label class="field"><span>Izoh</span><textarea class="textarea" name="comment" maxlength="500" placeholder="${k === 'PASSENGER' ? 'Masalan: Cobalt, konditsioner bor, ertalab 7 da chiqaman' : 'Masalan: yuklashga yordam beraman'}">${esc(existing?.comment || '')}</textarea></label>
+        <button class="btn ${quick ? '' : 'btn-primary'} btn-block" type="submit">Taklif yuborish</button></form>`;
+    return `<section class="panel stack-sm" id="offer-box"><h2>${existing ? 'Taklifni yangilash' : quick ? (k === 'PASSENGER' ? "Yo'lovchini olib ketasizmi?" : 'Olib ketasizmi?') : 'Narx taklif qiling'}</h2>
+      ${quick ? `<button class="btn btn-primary btn-lg btn-block" id="take">${esc(takeText)}</button>
+        <p class="small muted" style="text-align:center">Bossangiz — ikkalangizga bir-biringizning telefon raqami ko'rinadi${o.price ? '' : ', narxni telefonda kelishasiz'}.</p>
+        <details class="more"><summary>O'z narxingizni taklif qilish</summary><div style="margin-top:12px">${form}</div></details>` : form}
       ${pr && freeLeft > 0 ? `<p class="tiny muted">🎁 Sizda yana <b>${freeLeft} ta</b> komissiyasiz buyurtma bor — bu buyurtma sizga berilsa, balansdan hech narsa yechilmaydi.</p>`
         : pr ? `<p class="tiny muted">Buyurtma sizga berilsa, balansingizdan komissiya yechiladi: narxning ${esc(num(pr.commissionPercent, 1))}%${pr.commissionMin ? `, kamida ${esc(money(pr.commissionMin))}` : ''}${o.price ? ` — shu narxda ${esc(money(commissionFor(pr, o.price)))}` : ''}.
         Yuboruvchi bekor qilsa, komissiya qaytariladi.</p>` : ''}</section>`;
@@ -648,8 +901,8 @@ export async function orderPage(main, { id }) {
     const on = (sel, fn) => { const el = $(sel, main); if (el) el.addEventListener('click', fn); };
     on('#cancel', async () => {
       const isDriver = o.viewerRole === 'DRIVER';
-      const r = await confirmDialog(isDriver ? 'Buyurtmadan voz kechasizmi?' : 'Buyurtmani bekor qilasizmi?',
-        isDriver ? "Buyurtma qayta e'lon qilinadi. Tez-tez voz kechish reytingingizga ta'sir qiladi."
+      const r = await confirmDialog(isDriver ? 'Voz kechasizmi?' : "E'lonni bekor qilasizmi?",
+        isDriver ? "E'lon qayta ochiladi va boshqa haydovchilarga xabar boradi. Tez-tez voz kechish reytingingizga ta'sir qiladi."
             + (o.commission ? ` Yechilgan komissiya (${money(o.commission)}) qaytarilmaydi.` : '')
           : "Haydovchilar va takliflar bekor bo'ladi.",
         { danger: true, okText: isDriver ? 'Voz kechish' : 'Bekor qilish', withReason: true });
@@ -664,6 +917,17 @@ export async function orderPage(main, { id }) {
     on('#pickup', async (e) => {
       try { o = await busy(e.currentTarget, () => post(`/orders/${id}/pickup`)); toast("Yo'lingiz bexatar bo'lsin!", 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
     });
+    on('#arrived', async (e) => {
+      const btn = e.currentTarget;
+      const r = await confirmDialog('Manzilga yetib keldingizmi?', "Safar yakunlanadi va yo'lovchiga baholash taklif qilinadi.", { okText: 'Ha, yetdik' });
+      if (!r) return;
+      try {
+        o = await busy(btn, () => post(`/orders/${id}/deliver`, {}));
+        toast('Ajoyib! Safar yakunlandi', 'ok');
+        refreshMe();
+        render();
+      } catch (err) { toast(err.message, 'err'); }
+    });
     on('#make-urgent', async (e) => {
       const btn = e.currentTarget;   // await dan keyin currentTarget null bo'lib qoladi
       const r = await confirmDialog("E'lonni shoshilinch qilasizmi?",
@@ -673,13 +937,20 @@ export async function orderPage(main, { id }) {
       if (!r) return;
       try { o = await busy(btn, () => post(`/orders/${id}/urgent`)); toast("E'lon shoshilinch qilindi", 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
     });
-    on('#take', async (e) => {
-      const fee = freeLeft > 0 ? 0 : commissionFor(pr, o.price);
-      const r = await confirmDialog('Buyurtmani olasizmi?', `${money(o.price)} narxda. Yuboruvchiga darhol xabar boradi.`
+    on('#take', async () => {
+      const passenger = kindOf(o) === 'PASSENGER';
+      const fee = freeLeft > 0 ? 0 : (pr ? commissionFor(pr, o.price || 0) || pr.commissionMin || 0 : 0);
+      const r = await confirmDialog(passenger ? "Yo'lovchini olasizmi?" : 'Buyurtmani olasizmi?',
+        (o.price ? `${money(o.price)} narxda. ` : 'Narxni telefonda kelishasiz. ')
+        + `${passenger ? "Yo'lovchiga" : 'Yuboruvchiga'} darhol xabar boradi va ikkalangizga bir-biringizning raqami ochiladi.`
         + (fee ? ` Balansingizdan ${money(fee)} komissiya yechiladi.` : (pr && freeLeft > 0 ? ' Komissiya olinmaydi (yangi haydovchi bonusi).' : '')),
         { okText: 'Olaman' });
       if (!r) return;
-      try { o = await busy($('#take', main), () => post(`/orders/${id}/take`)); toast('Buyurtma sizniki! Yuboruvchiga qo\'ng\'iroq qiling', 'ok'); render(); } catch (err) { toast(err.message, 'err'); }
+      try {
+        o = await busy($('#take', main), () => post(`/orders/${id}/take`));
+        toast(passenger ? "Yo'lovchi sizniki! Qo'ng'iroq qilib kelishib oling" : "Buyurtma sizniki! Yuboruvchiga qo'ng'iroq qiling", 'ok');
+        render();
+      } catch (err) { toast(err.message, 'err'); }
     });
     on('#withdraw', async () => {
       const r = await confirmDialog('Taklifni qaytarasizmi?', '', { danger: true, okText: 'Qaytarish' });
@@ -753,7 +1024,7 @@ export async function orderPage(main, { id }) {
             <div class="person-sub">${stars(f.driver.rating, f.driver.ratingCount)}, ${f.driver.deliveriesCompleted} ta yetkazish</div></div></a>
           <div class="price">${esc(money(f.price))}</div>
           <div class="small muted" style="grid-column:1/-1">
-            ${f.driver.vehicle ? `${esc(f.driver.vehicle.brand)} ${esc(f.driver.vehicle.model || '')}, ${esc(BODY[f.driver.vehicle.bodyType] || '')}${f.driver.vehicle.capacityKg ? ', ' + num(f.driver.vehicle.capacityKg) + ' kg gacha' : ''}` : ''}
+            ${f.driver.vehicle ? `${esc(f.driver.vehicle.brand)}${f.driver.vehicle.model ? ' ' + esc(f.driver.vehicle.model) : ''}, ${esc(bodyLabel(f.driver.vehicle.bodyType))}` : ''}
             ${f.pickupInHours ? `<br>Olib ketadi: ${f.pickupInHours <= 3 ? f.pickupInHours + ' soat ichida' : f.pickupInHours <= 24 ? 'bugun-ertaga' : '3 kun ichida'}` : ''}
             ${f.comment ? `<br>«${esc(f.comment)}»` : ''}</div>
           <div class="offer-actions">
@@ -761,7 +1032,7 @@ export async function orderPage(main, { id }) {
             <a class="btn btn-sm" href="tel:${esc(f.driver.phone)}">${icon('phone')}Qo'ng'iroq</a>
             <button class="btn btn-ghost btn-sm" data-reject="${f.id}">Rad etish</button>
           </div></div>`).join('')
-        : `<p class="muted small" style="margin-top:10px">Hozircha taklif yo'q. Haydovchilarga xabar yuborildi — takliflar Telegramga ham keladi.</p>`;
+        : `<p class="muted small" style="margin-top:10px">Hozircha taklif yo'q. Yo'nalishingizdagi haydovchilarga xabar yuborildi — kimdir olsa yoki narx taklif qilsa, darhol xabar keladi (Telegramga ham).</p>`;
       $$('[data-accept]', box).forEach(b => b.addEventListener('click', async () => {
         const f = list.find(x => x.id === Number(b.dataset.accept));
         const r = await confirmDialog('Haydovchini tanlaysizmi?', `${f.driver.fullName}, ${money(f.price)}. Qolgan takliflar rad etiladi.`, { okText: 'Tanlash' });
@@ -786,12 +1057,19 @@ export async function orderPage(main, { id }) {
     if (!el) return;
     const from = o.from.lat ? [o.from.lat, o.from.lng] : null;
     const to = o.to.lat ? [o.to.lat, o.to.lng] : null;
-    if (!from && !to) {
+    const drv = o.driverLat != null ? [o.driverLat, o.driverLng] : null;
+    // Aniq nuqtalar bo'lmasa (faol buyurtmada haydovchini kuzatish uchun) — viloyat markazi
+    let center = from || to || drv;
+    if (!center) {
+      const r = (await regions().catch(() => [])).find(x => x.id === o.from.regionId);
+      if (r && r.lat != null) center = [r.lat, r.lng];
+    }
+    if (!center) {
       el.innerHTML = `<div class="map-empty">Aniq manzillar xaritada belgilanmagan</div>`;
       return;
     }
     try {
-      mapCtx = await createMap(el, { center: from || to, zoom: 10 });
+      mapCtx = await createMap(el, { center, zoom: from || to || drv ? 10 : 8 });
       routeDrawn = false;
       const { ymaps, map } = mapCtx;
       if (from) map.geoObjects.add(pin(ymaps, from, 'from', { label: 'Olish' }));
@@ -931,11 +1209,11 @@ export async function myOrdersPage(main, _p, query) {
   let role = query.get('role') || (me.driver ? 'driver' : 'sender');
   let group = 'active', page = 0, items = [];
   main.innerHTML = `<div class="page page-narrow">
-    <div class="page-head"><h1>Mening buyurtmalarim</h1><a class="btn btn-primary" href="#/new">${icon('plus')}Yangi buyurtma</a></div>
+    <div class="page-head"><h1>Mening buyurtmalarim</h1><a class="btn btn-primary" href="#/new">${icon('plus')}Yangi e'lon</a></div>
     <div class="row-between" style="margin-bottom:14px">
       <div class="seg" id="roles">
-        <button data-role="sender">Yuborganlarim</button>
-        <button data-role="driver">Yetkazayotganlarim</button>
+        <button data-role="sender">E'lonlarim</button>
+        <button data-role="driver">Olganlarim</button>
         <button data-role="offers">Takliflarim</button>
       </div>
       <div class="seg" id="groups"><button data-group="active" class="on">Faol</button><button data-group="done">Yakunlangan</button><button data-group="all">Hammasi</button></div>
@@ -957,9 +1235,9 @@ export async function myOrdersPage(main, _p, query) {
       const data = await get('/orders/my', { role, group, page });
       items = items.concat(data.items);
       const empty = {
-        sender: ["Siz hali buyurtma bermagansiz", "Yukingizni yuborish uchun buyurtma yarating.", `<a class="btn btn-primary" href="#/new">Buyurtma berish</a>`],
-        driver: ["Hozircha yetkazayotgan yukingiz yo'q", "Bozordan mos buyurtma toping va taklif yuboring.", `<a class="btn btn-primary" href="#/">Buyurtmalarni ko'rish</a>`],
-        offers: ["Javob kutayotgan taklifingiz yo'q", "Buyurtmalarga narx taklif qilsangiz, shu yerda ko'rinadi.", `<a class="btn" href="#/">Buyurtmalarni ko'rish</a>`],
+        sender: ["Siz hali e'lon bermagansiz", "Yuk, pochta jo'natish yoki yo'lovchi sifatida borish uchun e'lon bering.", `<a class="btn btn-primary" href="#/new">E'lon berish</a>`],
+        driver: ["Hozircha olgan buyurtmangiz yo'q", "E'lonlardan mosini toping yoki reys e'lon qiling — mos e'lonlar haqida xabar keladi.", `<a class="btn btn-primary" href="#/">E'lonlarni ko'rish</a>`],
+        offers: ["Javob kutayotgan taklifingiz yo'q", "E'lonlarga narx taklif qilsangiz, shu yerda ko'rinadi.", `<a class="btn" href="#/">E'lonlarni ko'rish</a>`],
       }[role];
       $('#list', main).innerHTML = items.length ? `<div class="orders">${items.map(orderRow).join('')}</div>` : emptyState(...empty);
       $('#more', main).classList.toggle('hidden', data.page + 1 >= data.totalPages);

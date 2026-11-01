@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import uz.yukgo.order.CargoType;
+import uz.yukgo.order.OrderKind;
 import uz.yukgo.user.BodyType;
 
 import java.io.InputStream;
@@ -49,7 +50,7 @@ class LoadTextParserTest {
         assertEquals(5000.0, r.weightKg());
         assertEquals(Long.valueOf(3_000_000L), r.price());
         assertEquals(TODAY.plusDays(1), r.pickupDate());
-        assertEquals(BodyType.TENT, r.bodyType());
+        assertEquals(BodyType.TRUCK, r.bodyType(), "tentli — yuk mashinasi");
         assertEquals(CargoType.FURNITURE, r.cargoType());
         assertFalse(r.title().contains("123"), "telefon sarlavhaga tushmasin");
         assertFalse(r.description().contains("45 67"), "telefon tavsifga tushmasin");
@@ -70,7 +71,7 @@ class LoadTextParserTest {
         assertEquals("Toshkent shahri", region(r.from()));
         assertEquals("Farg'ona viloyati", region(r.to()));
         assertEquals(10000.0, r.weightKg());
-        assertEquals(BodyType.REFRIGERATOR, r.bodyType());
+        assertEquals(BodyType.TRUCK, r.bodyType(), "refrijerator — yuk mashinasi");
         assertEquals(LocalDate.of(2026, 10, 25), r.pickupDate());
         assertEquals(Long.valueOf(4_500_000L), r.price());
 
@@ -89,7 +90,7 @@ class LoadTextParserTest {
         assertNotNull(r.from().districtId());
         assertTrue(r.from().name().contains("Chilonzor"));
         assertTrue(r.to().name().contains("Yunusobod"));
-        assertEquals(BodyType.MINIVAN, r.bodyType());
+        assertEquals(BodyType.FURGON, r.bodyType(), "labo — furgon");
         assertEquals(CargoType.HOUSEHOLD, r.cargoType());
         assertEquals(LocalDate.of(2026, 10, 28), r.pickupDate());
         assertEquals(Long.valueOf(300_000L), r.price());
@@ -140,5 +141,92 @@ class LoadTextParserTest {
         var r = P.parse("Andijon - Toshkent 901234567 isuzu", TODAY);
         assertTrue(r.isLoad());
         assertNull(r.price());
+    }
+
+    @Test
+    void passengersAndParcels() {
+        var r = P.parse("Kosonsoydan Toshkentga 2 kishi ertaga ertalab", TODAY);
+        assertTrue(r.isLoad());
+        assertEquals(OrderKind.PASSENGER, r.kind());
+        assertEquals(Integer.valueOf(2), r.seats());
+        assertNull(r.weightKg());
+        assertTrue(r.from().name().endsWith("Kosonsoy"), r.from().name());
+        assertEquals("Toshkent shahri", region(r.to()));
+        assertEquals(TODAY.plusDays(1), r.pickupDate());
+        assertFalse(r.driverOffer());
+
+        var y = P.parse("Namangan - Toshkent yo'lovchi bor, bugun", TODAY);
+        assertEquals(OrderKind.PASSENGER, y.kind());
+        assertEquals(Integer.valueOf(1), y.seats());
+
+        var p = P.parse("Andijondan Toshkentga pochta, hujjatlar, bugun", TODAY);
+        assertEquals(OrderKind.PARCEL, p.kind());
+        assertNull(p.seats());
+
+        var k = P.parse("Toshkent - Samarqand 20 kishilik qozon, 50 kg", TODAY);
+        assertEquals(OrderKind.CARGO, k.kind(), "«20 kishilik» — yo'lovchi emas");
+        assertEquals(50.0, k.weightKg());
+    }
+
+    @Test
+    void driverOfferIsNotRequest() {
+        var r = P.parse("Kosonsoy - Toshkent, pochta va yo'lovchi olaman, ertaga", TODAY);
+        assertTrue(r.isLoad());
+        assertTrue(r.driverOffer());
+        assertEquals(TODAY.plusDays(1), r.pickupDate());
+
+        var s = P.parse("Toshkentdan Andijonga 3 ta bo'sh joy bor", TODAY);
+        assertTrue(s.driverOffer());
+        assertEquals(Integer.valueOf(3), s.seats());
+
+        var q = P.parse("Toshkent - Buxoro, olib ketadigan mashina kerak", TODAY);
+        assertFalse(q.driverOffer());
+
+        var ask = P.parse("Kosonsoydan Toshkentga 1 kishi, joy bormi?", TODAY);
+        assertFalse(ask.driverOffer(), "«joy bormi?» — yo'lovchining savoli");
+        assertEquals(OrderKind.PASSENGER, ask.kind());
+
+        var both = P.parse("Toshkentdan Andijonga 3 ta bo'sh joy bor, yo'lovchi olaman", TODAY);
+        assertTrue(both.driverOffer());
+        assertEquals(Integer.valueOf(3), both.seats(), "«yo'lovchi» so'zi bo'sh o'rinlar sonini 1 ga tushirmasin");
+
+        var want = P.parse("Kosonsoy - Toshkent, 3 ta joy bor, yo'lovchi kerak", TODAY);
+        assertTrue(want.driverOffer(), "«yo'lovchi kerak» — haydovchi yo'lovchi qidiryapti");
+        assertEquals(Integer.valueOf(3), want.seats());
+
+        var car = P.parse("Kosonsoydan Toshkentga 2 kishi, joy bor mashina kerak", TODAY);
+        assertFalse(car.driverOffer(), "«mashina kerak» — so'rov");
+        assertEquals(OrderKind.PASSENGER, car.kind());
+        assertEquals(Integer.valueOf(2), car.seats());
+
+        var free = P.parse("Andijon - Toshkent, pochta olaman, bugun", TODAY);
+        assertTrue(free.driverOffer());
+        assertNull(free.seats(), "o'rin soni yozilmagan — taxmin qilinmaydi");
+    }
+
+    @Test
+    void cargoWithPeopleIsStillCargo() {
+        var a = P.parse("Toshkent - Samarqand, 5 tonna mebel, yuklashga 2 ta odam kerak, 3 mln", TODAY);
+        assertEquals(OrderKind.CARGO, a.kind());
+        assertEquals(5000.0, a.weightKg());
+        assertNull(a.seats());
+
+        var b = P.parse("Ташкент - Самарканд, груз 3 места, 200 кг", TODAY);
+        assertEquals(OrderKind.CARGO, b.kind());
+        assertEquals(200.0, b.weightKg());
+
+        var c = P.parse("Ташкент - Бухара, 5 тонн, нужен 1 человек грузчик", TODAY);
+        assertEquals(OrderKind.CARGO, c.kind());
+        assertEquals(5000.0, c.weightKg());
+
+        var d = P.parse("Andijon - Toshkent, 10 tonna un, hujjatlari bor", TODAY);
+        assertEquals(OrderKind.CARGO, d.kind(), "og'ir yuk «hujjatlari bor» bo'lsa ham pochta emas");
+        assertEquals(10000.0, d.weightKg());
+
+        var e = P.parse("Namangan - Toshkent mebel ko'chirish, 2 ta odam yordam beradi", TODAY);
+        assertEquals(OrderKind.CARGO, e.kind());
+
+        var f = P.parse("Andijon - Toshkent pochta 2 kg, bugun", TODAY);
+        assertEquals(OrderKind.PARCEL, f.kind(), "yengil jo'natma — pochta");
     }
 }

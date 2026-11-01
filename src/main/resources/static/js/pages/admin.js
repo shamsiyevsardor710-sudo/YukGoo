@@ -2,7 +2,7 @@
 import { auth, get, post, put, del, config } from '../api.js';
 import {
   $, $$, esc, avatar, toast, confirmDialog, busy, showError, clearError, money, phoneFmt, dateTime, ago, num,
-  options, statusPill, emptyState, skeletons, ROLE, USTATUS, STATUS,
+  options, statusPill, emptyState, skeletons, ROLE, USTATUS, STATUS, kindTag,
 } from '../ui.js';
 import { channelsTab, sourcesTab, verifyTab, pendingVerifications } from './admin-growth.js';
 
@@ -326,10 +326,10 @@ async function orders(pane) {
   const load = async () => {
     const data = await get('/admin/orders', Object.fromEntries(new FormData(f)));
     $('#ol', pane).innerHTML = data.items.length ? `<div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Yuk</th><th>Marshrut</th><th>Yuboruvchi / haydovchi</th><th>Narx</th><th>Holat</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>E'lon</th><th>Marshrut</th><th>Yuboruvchi / haydovchi</th><th>Narx</th><th>Holat</th><th></th></tr></thead>
       <tbody>${data.items.map(o => `<tr>
         <td class="num"><a href="#/orders/${o.id}">${o.id}</a></td>
-        <td><b>${esc(o.title)}</b><div class="tiny muted">${esc(dateTime(o.createdAt))}</div></td>
+        <td>${kindTag(o)}<b>${esc(o.title)}</b><div class="tiny muted">${esc(dateTime(o.createdAt))}</div></td>
         <td class="small">${esc(o.from.regionName)} → ${esc(o.to.regionName)}</td>
         <td class="small"><a href="#/u/${o.sender.id}">${esc(o.sender.fullName)}</a>${o.driver ? `<br><a href="#/u/${o.driver.id}">${esc(o.driver.fullName)}</a>` : ''}</td>
         <td class="num small">${esc(money(o.finalPrice ?? o.price))}</td>

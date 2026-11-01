@@ -24,8 +24,9 @@ public final class AuthDtos {
             @NotBlank(message = "Parolni kiriting") @Size(min = 6, max = 64, message = "Parol kamida 6 belgi bo'lsin") String password,
             @NotNull(message = "Viloyatni tanlang") Long regionId,
             @NotNull(message = "Tumanni tanlang") Long districtId,
-            @NotBlank(message = "Qishloq/mahallani kiriting") @Size(max = 120) String village,
-            @NotBlank(message = "Uy manzilini kiriting") @Size(max = 120) String house,
+            /** Endi so'ralmaydi (eski ilova versiyalari yuborsa ham saqlanmaydi) */
+            @Size(max = 120) String village,
+            @Size(max = 120) String house,
             /** Telegram Mini App ichida bo'lsa — Telegram.WebApp.initData (hisob shu Telegramga ulanadi) */
             @Size(max = 8192) String telegramInitData,
             /** Qaysi havoladan keldi (kanal, hamkor, dala xodimi kodi) — ixtiyoriy */

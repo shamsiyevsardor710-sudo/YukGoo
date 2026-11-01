@@ -143,12 +143,13 @@ public class UserController {
         return userService.publicProfile(id);
     }
 
-    @Operation(summary = "Haydovchilarni qidirish (reyting bo'yicha)")
+    /** minCapacity — eski ilova versiyalari yuboradi, endi e'tiborga olinmaydi (yuk ko'tarish so'ralmaydi) */
+    @Operation(summary = "Haydovchilarni qidirish (avval yaqindagilar, keyin reyting bo'yicha)")
     @GetMapping("/api/drivers")
     public PageResponse<PublicUserDto> drivers(@RequestParam(required = false) Long regionId,
                                                @RequestParam(required = false) BodyType bodyType,
                                                @RequestParam(required = false) Integer minCapacity,
                                                @RequestParam(defaultValue = "0") int page) {
-        return userService.drivers(regionId, bodyType, minCapacity, page);
+        return userService.drivers(regionId, bodyType, page);
     }
 }

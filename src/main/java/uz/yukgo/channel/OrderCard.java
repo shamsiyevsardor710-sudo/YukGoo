@@ -31,17 +31,12 @@ public final class OrderCard {
     private static final Map<CargoType, String> CARGO = new EnumMap<>(CargoType.class);
 
     static {
-        BODY.put(BodyType.SEDAN, "Yengil avtomobil");
-        BODY.put(BodyType.MINIVAN, "Damas / Labo");
-        BODY.put(BodyType.FURGON, "Furgon (Gazel, Porter)");
-        BODY.put(BodyType.TENT, "Tentli");
+        // Faqat hozirgi 6 tur; eski qiymatlar (Tentli, Refrijerator...) canonical() orqali shulardan biriga tushadi
+        BODY.put(BodyType.TRUCK, "Yuk mashinasi");
+        BODY.put(BodyType.SEDAN, "Yengil mashina");
         BODY.put(BodyType.BORT, "Ochiq bortli");
-        BODY.put(BodyType.REFRIGERATOR, "Refrijerator");
-        BODY.put(BodyType.ISOTHERM, "Izotermik");
-        BODY.put(BodyType.SAMOSVAL, "Samosval");
-        BODY.put(BodyType.TRAL, "Tral");
-        BODY.put(BodyType.TANKER, "Sisterna");
-        BODY.put(BodyType.CONTAINER, "Konteyner");
+        BODY.put(BodyType.FURGON, "Furgon");
+        BODY.put(BodyType.CONTAINER, "Konteyner tashuvchi");
         BODY.put(BodyType.OTHER, "Boshqa");
         CARGO.put(CargoType.GENERAL, "Umumiy yuk");
         CARGO.put(CargoType.PARCEL, "Posilka");
@@ -59,7 +54,7 @@ public final class OrderCard {
     }
 
     public static String bodyLabel(BodyType b) {
-        return b == null ? null : BODY.getOrDefault(b, "Boshqa");
+        return b == null ? null : BODY.getOrDefault(b.canonical(), "Boshqa");
     }
 
     public static String cargoLabel(CargoType c) {
@@ -92,17 +87,29 @@ public final class OrderCard {
         return "TAKEN";
     }
 
-    /** Asosiy matn: yuk, yo'nalish, sana, og'irlik va kuzov, masofa, narx */
+    /** Birinchi qator: «📦 20 qop sement», «✉️ Pochta: hujjatlar», «🧍 Yo'lovchi: 2 kishi» (HTML) */
+    public static String headline(Order o) {
+        return switch (o.getKind()) {
+            case PASSENGER -> "🧍 <b>Yo'lovchi: " + (o.getSeats() == null ? 1 : o.getSeats()) + " kishi</b>";
+            case PARCEL -> {
+                String t = publicTitle(o.getTitle());
+                yield "✉️ <b>Pochta</b>" + (t.equals("Yuk") || t.equalsIgnoreCase("Pochta") ? "" : ": " + esc(t));
+            }
+            default -> "📦 <b>" + esc(publicTitle(o.getTitle())) + "</b>";
+        };
+    }
+
+    /** Asosiy matn: e'lon turi va nomi, yo'nalish, sana, og'irlik va kuzov, masofa, narx */
     public static String text(Order o) {
         StringBuilder sb = new StringBuilder();
         if (o.isUrgent()) sb.append("🔥 <b>SHOSHILINCH</b>\n");
-        sb.append("📦 <b>").append(esc(publicTitle(o.getTitle()))).append("</b>\n");
+        sb.append(headline(o)).append('\n');
         sb.append("📍 ").append(esc(place(o.getFromRegion(), o.getFromDistrict()))).append(" → ")
                 .append(esc(place(o.getToRegion(), o.getToDistrict()))).append('\n');
         if (o.getPickupDate() != null) sb.append("📅 ").append(dateLabel(o.getPickupDate())).append('\n');
         List<String> parts = new ArrayList<>();
-        if (o.getWeightKg() != null) parts.add("⚖️ " + weight(o.getWeightKg()));
-        if (o.getRequiredBodyType() != null) parts.add("🚚 " + BODY.getOrDefault(o.getRequiredBodyType(), "Boshqa"));
+        if (o.getWeightKg() != null && !o.isPassenger()) parts.add("⚖️ " + weight(o.getWeightKg()));
+        if (o.getRequiredBodyType() != null && !o.isPassenger()) parts.add("🚚 " + bodyLabel(o.getRequiredBodyType()));
         if (!parts.isEmpty()) sb.append(String.join(" · ", parts)).append('\n');
         if (o.getDistanceKm() != null) sb.append("🛣 ").append(Math.round(o.getDistanceKm())).append(" km\n");
         sb.append("💰 ").append(o.getPrice() != null ? money(o.getPrice()) : "Narx kelishiladi");
@@ -116,7 +123,8 @@ public final class OrderCard {
             case "CLOSED" -> "❌ <b>E'lon yopilgan</b>\n\n";
             default -> "";
         };
-        String tail = "OPEN".equals(state) ? "\n\n👇 Taklif berish uchun tugmani bosing" : "";
+        String tail = !"OPEN".equals(state) ? "" : o.getKind() == uz.yukgo.order.OrderKind.CARGO
+                ? "\n\n👇 Taklif berish uchun tugmani bosing" : "\n\n👇 Olib ketish uchun tugmani bosing";
         return head + text(o) + "\n\n" + hashtags(o) + tail;
     }
 

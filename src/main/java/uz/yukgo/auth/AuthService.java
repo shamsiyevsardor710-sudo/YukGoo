@@ -58,10 +58,10 @@ public class AuthService {
         u.setPhone(vr.getPhone());
         u.setNames(req.firstName(), req.lastName());
         u.setPasswordHash(passwordEncoder.encode(req.password()));
+        // Faqat viloyat va tuman: shu bo'yicha bosh sahifada avval yaqindagi e'lonlar ko'rsatiladi
+        // (qishloq va uy manzili endi so'ralmaydi — kerak emas va ortiqcha shaxsiy ma'lumot)
         u.setRegion(region);
         u.setDistrict(district);
-        u.setVillage(req.village().trim());
-        u.setHouse(req.house().trim());
         u.setLastLoginAt(Instant.now());
         if (Boolean.TRUE.equals(req.acceptTerms())) u.acceptTerms();
         linkRepository.findById(vr.getPhone()).ifPresent(l -> u.setTelegramChatId(l.getChatId()));

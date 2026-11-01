@@ -17,10 +17,15 @@ public final class OrderDtos {
             @DecimalMin("-90") @DecimalMax("90") Double lat,
             @DecimalMin("-180") @DecimalMax("180") Double lng) {}
 
+    /**
+     * Yangi e'lon. kind: CARGO (yuk, standart), PARCEL (pochta) yoki PASSENGER (yo'lovchi).
+     * Yo'lovchi uchun faqat qayerdan, qayerga, qachon va necha kishi (seats) kerak — sarlavha o'zi tuziladi.
+     * Qabul qiluvchi ko'rsatilmasa — yuboruvchining o'zi. To'lov usuli va kim to'lashi endi so'ralmaydi (naqd, yuboruvchi).
+     */
     public record CreateOrderRequest(
-            @NotBlank(message = "Yuk nomini kiriting") @Size(max = 120) String title,
-            @NotNull(message = "Yuk turini tanlang") CargoType cargoType,
-            @DecimalMin(value = "0.1", message = "Og'irlik noto'g'ri") @DecimalMax("100000") Double weightKg,
+            @Size(max = 120, message = "Sarlavha juda uzun") String title,
+            CargoType cargoType,
+            @DecimalMin(value = "0.1", message = "Og'irlik noto'g'ri") @DecimalMax(value = "100000", message = "Og'irlik noto'g'ri") Double weightKg,
             @DecimalMin(value = "0.0") @DecimalMax("500") Double volumeM3,
             @Size(max = 1500) String description,
             BodyType requiredBodyType,
@@ -29,12 +34,14 @@ public final class OrderDtos {
             @DecimalMin("0") Double distanceKm,
             @Min(0) Integer durationMin,
             LocalDate pickupDate,
-            @Min(value = 1000, message = "Narx kamida 1 000 so'm") Long price,
+            @Min(value = 1000, message = "Narx kamida 1 000 so'm") @Max(value = 1_000_000_000L, message = "Narx juda katta") Long price,
             PaymentMethod paymentMethod,
             Payer payer,
             boolean urgent,
-            @NotBlank(message = "Qabul qiluvchi ismini kiriting") @Size(max = 120) String receiverName,
-            @NotBlank(message = "Qabul qiluvchi telefonini kiriting") String receiverPhone) {}
+            @Size(max = 120) String receiverName,
+            @Size(max = 30) String receiverPhone,
+            OrderKind kind,
+            @Min(value = 1, message = "Kamida 1 kishi") @Max(value = 30, message = "Ko'pi bilan 30 kishi") Integer seats) {}
 
     public record PlaceDto(Long regionId, String regionName, Long districtId, String districtName,
                            String address, Double lat, Double lng) {}
@@ -61,7 +68,11 @@ public final class OrderDtos {
              * Faqat buyurtma sahifasida, tomonlar uchun: "ME" — men ikkinchi tomonni bloklaganman, "CLOSED" — yozishma
              * boshqa sababdan yopiq (kim bloklagani oshkor qilinmaydi), null — blok yo'q
              */
-            String block) {}
+            String block,
+            /** CARGO | PARCEL | PASSENGER */
+            OrderKind kind,
+            /** Yo'lovchilar soni (yo'lovchi e'lonida) */
+            Integer seats) {}
 
     public record OfferRequest(
             @NotNull(message = "Narxni kiriting") @Min(value = 1000, message = "Narx kamida 1 000 so'm") Long price,
@@ -77,7 +88,8 @@ public final class OrderDtos {
         }
     }
 
-    public record DeliverRequest(@NotBlank(message = "Topshirish kodini kiriting") String code) {}
+    /** Yuk va pochtada — qabul qiluvchidagi 4 xonali kod; yo'lovchi e'lonida kod kerak emas */
+    public record DeliverRequest(@Size(max = 10) String code) {}
 
     public record CancelRequest(@Size(max = 300) String reason) {}
 

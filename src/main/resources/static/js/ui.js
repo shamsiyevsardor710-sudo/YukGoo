@@ -69,11 +69,51 @@ export const CARGO = {
   FURNITURE: 'Mebel', HOUSEHOLD: "Uy ko'chirish", APPLIANCES: 'Maishiy texnika', BUILDING_MATERIALS: 'Qurilish materiallari',
   EQUIPMENT: 'Uskuna va texnika', FRAGILE: "Mo'rt yuk", LIVESTOCK: 'Chorva', OTHER: 'Boshqa',
 };
+/** Mashina turi — faqat 6 tasi (avvalgi «Tentli», «Refrijerator»... endi «Yuk mashinasi») */
 export const BODY = {
-  SEDAN: 'Yengil avtomobil', MINIVAN: 'Damas / Labo', FURGON: 'Furgon (Gazel, Porter)', TENT: 'Tentli yuk mashinasi',
-  BORT: 'Ochiq bortli', REFRIGERATOR: 'Refrijerator', ISOTHERM: 'Izotermik', SAMOSVAL: 'Samosval', TRAL: 'Tral',
-  TANKER: 'Sisterna', CONTAINER: 'Konteyner tashuvchi', OTHER: 'Boshqa',
+  TRUCK: 'Yuk mashinasi', SEDAN: 'Yengil mashina', BORT: 'Ochiq bortli', FURGON: 'Furgon',
+  CONTAINER: 'Konteyner tashuvchi', OTHER: 'Boshqa',
 };
+const LEGACY_BODY = {
+  MINIVAN: 'FURGON', TENT: 'TRUCK', REFRIGERATOR: 'TRUCK', ISOTHERM: 'TRUCK', SAMOSVAL: 'TRUCK', TRAL: 'TRUCK', TANKER: 'TRUCK',
+};
+/** Eski qiymat bo'lsa ham hozirgi 6 turdan biri */
+export const bodyCanon = (b) => (b && BODY[b] ? b : LEGACY_BODY[b] || (b ? 'OTHER' : ''));
+export const bodyLabel = (b) => (b ? BODY[bodyCanon(b)] : '');
+
+/** E'lon turi */
+export const KIND = { CARGO: 'Yuk', PARCEL: 'Pochta', PASSENGER: "Yo'lovchi" };
+export const KIND_ICON = { CARGO: 'box', PARCEL: 'mail', PASSENGER: 'users' };
+export const kindOf = (o) => (o && KIND[o.kind] ? o.kind : 'CARGO');
+/** Ro'yxat va sarlavhadagi nomi: «2 kishi», «Pochta: hujjatlar», «20 qop sement» */
+export function headline(o) {
+  const k = kindOf(o);
+  if (k === 'PASSENGER') return `${o.seats || 1} kishi`;
+  if (k === 'PARCEL') return !o.title || o.title === 'Pochta' ? 'Pochta' : o.title;
+  return o.title;
+}
+export function kindTag(o) {
+  const k = kindOf(o);
+  return `<span class="kind-tag k-${k}">${icon(KIND_ICON[k])}${esc(KIND[k])}</span>`;
+}
+/** Reys vaqti: «Har kuni, 07:00» yoki «Ertaga, 07:00», «5-noyabr, 07:00» (departAt — Toshkent vaqti, "YYYY-MM-DDTHH:mm") */
+export function tripWhen(t) {
+  const at = String(t.departAt || '');
+  const time = at.slice(11, 16);
+  return t.daily ? `Har kuni, ${time}` : `${dayWord(at.slice(0, 10))}, ${time}`;
+}
+/** «Bugun», «Ertaga», «Indinga» yoki «5-noyabr» (YYYY-MM-DD) */
+export function dayWord(iso) {
+  if (!iso) return '';
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const d = new Date(iso + 'T00:00:00');
+  const diff = Math.round((d - t) / 86400000);
+  if (diff === 0) return 'Bugun';
+  if (diff === 1) return 'Ertaga';
+  if (diff === 2) return 'Indinga';
+  if (diff === -1) return 'Kecha';
+  return date(iso + 'T00:00:00');
+}
 export const STATUS = {
   NEW: 'Haydovchi kutilmoqda', ACCEPTED: 'Haydovchi tanlandi', IN_TRANSIT: "Yo'lda", DELIVERED: 'Yetkazildi', CANCELLED: 'Bekor qilingan',
 };
@@ -127,6 +167,14 @@ const P = {
   qr: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
   megaphone: '<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.2a6.5 6.5 0 0 1 3 5.8"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  car: '<path d="M5 17h14M3 13l2-6h14l2 6v4H3z"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  pin: '<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>',
 };
 
 /** "Tekshirilgan haydovchi" belgisi (hujjatlari admin tomonidan tekshirilgan) */
@@ -261,21 +309,72 @@ export async function busy(btn, fn) {
   try { return await fn(); } finally { btn.disabled = false; btn.innerHTML = old; }
 }
 
-/** Viloyat → tuman bog'langan selectlar */
-export async function bindRegionDistrict(regionSel, districtSel, { regionId, districtId, allowEmptyDistrict = false } = {}) {
+/**
+ * Viloyat → tuman bog'langan selectlar.
+ * regionLabel / districtLabel — bo'sh tanlov matni (masalan, qidiruvda «Hamma viloyatlar», «Barcha tumanlar»).
+ * Qaytaradi: viloyatlar ro'yxati; selectlarda .setPlace(regionId, districtId) — qiymatni dasturdan qo'yish.
+ */
+export async function bindRegionDistrict(regionSel, districtSel, {
+  regionId, districtId, allowEmptyDistrict = false, regionLabel = 'Viloyatni tanlang', districtLabel,
+} = {}) {
   const list = await regions();
-  regionSel.innerHTML = `<option value="">Viloyatni tanlang</option>` +
-    list.map(r => `<option value="${r.id}" ${r.id === regionId ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+  const dLabel = districtLabel || (allowEmptyDistrict ? 'Tuman (ixtiyoriy)' : 'Tumanni tanlang');
+  const fillRegions = (selected) => {
+    regionSel.innerHTML = `<option value="">${esc(regionLabel)}</option>` +
+      list.map(r => `<option value="${r.id}" ${String(r.id) === String(selected ?? '') ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+  };
+  let seq = 0;
   async function fillDistricts(selectedId) {
+    const my = ++seq;
     const rid = Number(regionSel.value);
+    // Avvalgi viloyatning tumani bir lahza ham tanlangan bo'lib qolmasin (ro'yxat yuklanguncha)
+    districtSel.innerHTML = `<option value="">${esc(dLabel)}</option>`;
     districtSel.disabled = !rid;
     const ds = await districts(rid);
-    districtSel.innerHTML = `<option value="">${allowEmptyDistrict ? 'Tuman (ixtiyoriy)' : 'Tumanni tanlang'}</option>` +
-      ds.map(d => `<option value="${d.id}" ${d.id === selectedId ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
+    if (my !== seq) return;   // shu orada boshqa viloyat tanlandi
+    districtSel.innerHTML = `<option value="">${esc(dLabel)}</option>` +
+      ds.map(d => `<option value="${d.id}" ${String(d.id) === String(selectedId ?? '') ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
   }
+  fillRegions(regionId);
   regionSel.addEventListener('change', () => fillDistricts(null));
   await fillDistricts(districtId);
+  regionSel.setPlace = async (r, d) => { fillRegions(r); await fillDistricts(d); };
   return list;
+}
+
+/**
+ * «Qayerdan → Qayerga» qidiruvi: viloyat, keyin tuman. form ichida fromRegion, fromDistrict, toRegion, toDistrict
+ * selectlari va #swap tugmasi bo'lsin. values() — {fromRegion, fromDistrict, toRegion, toDistrict} (bo'sh — '').
+ */
+export async function bindRouteSearch(form, { from = {}, to = {}, onChange } = {}) {
+  const opts = (p, side) => ({
+    regionId: p.regionId, districtId: p.districtId, allowEmptyDistrict: true,
+    regionLabel: side === 'from' ? 'Qayerdan: hamma viloyatlar' : 'Qayerga: hamma viloyatlar',
+    districtLabel: 'Barcha tumanlar',
+  });
+  await Promise.all([
+    bindRegionDistrict(form.fromRegion, form.fromDistrict, opts(from, 'from')),
+    bindRegionDistrict(form.toRegion, form.toDistrict, opts(to, 'to')),
+  ]);
+  const values = () => ({
+    fromRegion: form.fromRegion.value, fromDistrict: form.fromDistrict.value,
+    toRegion: form.toRegion.value, toDistrict: form.toDistrict.value,
+  });
+  const swap = form.querySelector('#swap');
+  if (swap) swap.addEventListener('click', async () => {
+    const v = values();
+    await Promise.all([
+      form.fromRegion.setPlace(v.toRegion, v.toDistrict),
+      form.toRegion.setPlace(v.fromRegion, v.fromDistrict),
+    ]);
+    if (onChange) onChange(values());
+  });
+  if (onChange) {
+    for (const el of [form.fromRegion, form.fromDistrict, form.toRegion, form.toDistrict]) {
+      el.addEventListener('change', () => setTimeout(() => onChange(values()), 0));
+    }
+  }
+  return { values };
 }
 
 export async function regionOptions(selected, emptyLabel = 'Barcha viloyatlar') {

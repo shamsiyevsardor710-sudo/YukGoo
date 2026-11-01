@@ -16,13 +16,16 @@ import java.util.List;
 public class TripController {
     private final TripService tripService;
 
-    @Operation(summary = "Haydovchilarning reys e'lonlari (bo'sh joy bor mashinalar)")
+    /** minKg — eski ilova versiyalari yuboradi, endi e'tiborga olinmaydi (bo'sh joy kg da so'ralmaydi) */
+    @Operation(summary = "Haydovchilarning reys e'lonlari: kirganlarga avval o'z tumani va viloyatidan")
     @GetMapping
     public PageResponse<TripDto> search(@RequestParam(required = false) Long fromRegion,
+                                        @RequestParam(required = false) Long fromDistrict,
                                         @RequestParam(required = false) Long toRegion,
+                                        @RequestParam(required = false) Long toDistrict,
                                         @RequestParam(required = false) Integer minKg,
                                         @RequestParam(defaultValue = "0") int page) {
-        return tripService.search(fromRegion, toRegion, minKg, page);
+        return tripService.search(fromRegion, fromDistrict, toRegion, toDistrict, page);
     }
 
     @GetMapping("/my")

@@ -1,6 +1,7 @@
 package uz.yukgo.telegram;
 
 import uz.yukgo.order.CargoType;
+import uz.yukgo.order.OrderKind;
 import uz.yukgo.user.BodyType;
 
 import java.time.LocalDate;
@@ -22,8 +23,14 @@ public final class LoadTextParser {
     /** Bitta viloyat: nomi va tumanlari (bazadan) */
     public record RegionInfo(long id, String name, Map<Long, String> districts) {}
 
+    /**
+     * kind — yuk, pochta yoki yo'lovchi ("2 kishi", "yo'lovchi", "pochta"); seats — yo'lovchilar soni.
+     * driverOffer — bu haydovchining e'loni ("Kosonsoy - Toshkent, pochta va yo'lovchi olaman", "2 ta bo'sh joy bor"):
+     * bot unga yuk formasi emas, reys e'lon qilishni taklif qiladi.
+     */
     public record Parsed(Place from, Place to, Double weightKg, Long price, boolean negotiable, LocalDate pickupDate,
-                         BodyType bodyType, CargoType cargoType, String title, String description) {
+                         BodyType bodyType, CargoType cargoType, String title, String description,
+                         OrderKind kind, Integer seats, boolean driverOffer) {
         /** Yo'nalish topilgandagina e'lon deb hisoblanadi */
         public boolean isLoad() {
             return from != null && to != null;
@@ -103,16 +110,43 @@ public final class LoadTextParser {
                 "termez=Termiz shahri", "denau=Denov", "sherabad=Sherobod", "shurchi=Sho'rchi", "baysun=Boysun", "kumkurgan=Qumqo'rg'on"});
     }
 
+    /** Mashina turi so'zlari — faqat hozirgi 6 tur (tentli, refrijerator, samosval... — yuk mashinasi) */
     private static final Object[][] BODY_WORDS = {
-            {"refrijerator", BodyType.REFRIGERATOR}, {"ref", BodyType.REFRIGERATOR}, {"muzlatkichli", BodyType.REFRIGERATOR},
-            {"izoterm", BodyType.ISOTHERM}, {"izotermik", BodyType.ISOTHERM},
-            {"tentli", BodyType.TENT}, {"tent", BodyType.TENT}, {"fura", BodyType.TENT},
+            {"refrijerator", BodyType.TRUCK}, {"ref", BodyType.TRUCK}, {"muzlatkichli", BodyType.TRUCK},
+            {"izoterm", BodyType.TRUCK}, {"izotermik", BodyType.TRUCK},
+            {"tentli", BodyType.TRUCK}, {"tent", BodyType.TRUCK}, {"fura", BodyType.TRUCK},
+            {"samosval", BodyType.TRUCK}, {"tral", BodyType.TRUCK}, {"sisterna", BodyType.TRUCK},
+            {"kamaz", BodyType.TRUCK}, {"isuzu", BodyType.TRUCK}, {"gruzovik", BodyType.TRUCK},
             {"bortli", BodyType.BORT}, {"bort", BodyType.BORT},
-            {"samosval", BodyType.SAMOSVAL}, {"tral", BodyType.TRAL}, {"sisterna", BodyType.TANKER},
             {"konteyner", BodyType.CONTAINER}, {"kontejner", BodyType.CONTAINER},
-            {"labo", BodyType.MINIVAN}, {"damas", BodyType.MINIVAN},
+            {"labo", BodyType.FURGON}, {"damas", BodyType.FURGON},
             {"gazel", BodyType.FURGON}, {"porter", BodyType.FURGON}, {"furgon", BodyType.FURGON},
     };
+
+    /**
+     * Yo'lovchi: "yo'lovchi", "passajir", "poputchik" yoki "2 kishi", "3 ta odam" (lekin "20 kishilik qozon" — yuk).
+     * Matnda yuk belgisi bo'lsa (og'irlik, "mebel", "sement", yuk mashinasi, "gruz") kishilar soni hisoblanmaydi:
+     * "5 tonna mebel, yuklashga 2 ta odam kerak", "gruz 3 mesta, 200 kg" — bu yuk.
+     */
+    private static final String[] PASSENGER_WORDS = {"yolovchi", "passajir", "pasajir", "passazhir", "poputch"};
+    private static final Pattern SEATS = Pattern.compile(
+            "(?<![\\d.,])(\\d{1,2})\\s*(?:ta\\s+)?(?:kishi|odam|nafar|chelovek|yolovchi|passajir|pasajir|mesto|mesta)(?!lik)");
+    /** Haydovchi e'lonidagi bo'sh o'rinlar: "3 ta bo'sh joy", "2 joy bor" */
+    private static final Pattern OFFER_SEATS = Pattern.compile("(?<![\\d.,])(\\d{1,2})\\s*(?:ta\\s+)?(?:bosh\\s+)?(?:joy|orin|mesta|mesto)");
+    /** Pochta: hujjat, konvert, posilka */
+    private static final String[] PARCEL_WORDS = {"pochta", "posilka", "posylka", "konvert", "hujjat"};
+    /**
+     * Haydovchining e'loni: "olaman", "olib ketaman", "2 ta bo'sh joy bor", "3 ta joy bor, yo'lovchi kerak".
+     * Matn boshi va oxirida probel bor, shuning uchun " joy bor " "joy bormi" ga mos kelmaydi.
+     */
+    private static final String[] OFFER_WORDS = {" olaman ", " olib ketaman ", " olib ketamiz ", " olib boraman ", " joy bor ",
+            " joylar bor ", " joyim bor ", " mesto est ", " mesta est ", " vozmu ", " voz mu "};
+    /** So'rov belgisi — bunday matn haydovchining e'loni emas: "mashina kerak", "joy kerak", "nujna mashina" */
+    private static final Pattern REQUEST = Pattern.compile(
+            " (?:mashina|moshina|avto|taksi|taxi|haydovchi|shofyor|shofer|transport|joy|orin|gazel|labo|damas|isuzu|kamaz|fura|furgon)[a-z]* kerak "
+                    + "| nujen | nujna | nujno | nujny ");
+    /** Yo'lovchi deb hisoblanmaydigan og'irlik (kg): undan og'ir — yuk */
+    private static final double HEAVY_KG = 50;
 
     private static final Object[][] CARGO_WORDS = {
             {"mebel", CargoType.FURNITURE}, {"divan", CargoType.FURNITURE}, {"shkaf", CargoType.FURNITURE},
@@ -186,7 +220,9 @@ public final class LoadTextParser {
     }
 
     public Parsed parse(String original, LocalDate today) {
-        if (original == null || original.isBlank()) return new Parsed(null, null, null, null, false, null, null, CargoType.GENERAL, null, null);
+        if (original == null || original.isBlank()) {
+            return new Parsed(null, null, null, null, false, null, null, CargoType.GENERAL, null, null, OrderKind.CARGO, null, false);
+        }
         String cleanOriginal = PHONE.matcher(original).replaceAll(" ").replaceAll("[ \\t]+", " ").trim();
         String text = " " + norm(PHONE.matcher(original).replaceAll(" ")) + " ";
 
@@ -283,11 +319,49 @@ public final class LoadTextParser {
         CargoType cargo = (CargoType) firstWord(words, used, CARGO_WORDS);
         if (cargo == null) cargo = CargoType.GENERAL;
 
+        // So'zlar orasida faqat probel (vergul va nuqtalarsiz) — "olaman," ham "olaman" deb topilsin
+        String plain = " " + text.replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim() + " ";
+
+        // ---- Turi: yo'lovchi ("2 kishi", "yo'lovchi"), pochta yoki yuk ----
+        // Og'ir narsa (50 kg dan ortiq) — har doim yuk; yuk belgisi bor matnda "2 ta odam" — yuklovchilar, yo'lovchi emas.
+        boolean heavy = weight != null && weight > HEAVY_KG;
+        boolean cargoSignal = heavy || cargo != CargoType.GENERAL || plain.contains(" gruz")
+                || body == BodyType.TRUCK || body == BodyType.BORT || body == BodyType.CONTAINER;
+        OrderKind kind = OrderKind.CARGO;
+        Integer seats = null;
+        if (!cargoSignal && (m = SEATS.matcher(text)).find()) {
+            int n = Integer.parseInt(m.group(1));
+            if (n >= 1 && n <= 30) seats = n;
+        }
+        if (!heavy && (seats != null || hasWord(words, used, PASSENGER_WORDS))) {
+            kind = OrderKind.PASSENGER;
+            weight = null;   // yo'lovchida og'irlik yo'q
+        } else if (!heavy && hasWord(words, used, PARCEL_WORDS)) {
+            kind = OrderKind.PARCEL;
+        }
+
+        // ---- Haydovchining e'loni: bo'sh o'rinlar soni ("3 ta bo'sh joy bor", "2 kishi olaman") ----
+        boolean offer = !REQUEST.matcher(plain).find() && Arrays.stream(OFFER_WORDS).anyMatch(plain::contains);
+        if (offer && (m = OFFER_SEATS.matcher(text)).find()) {
+            int n = Integer.parseInt(m.group(1));
+            seats = n >= 1 && n <= 30 ? n : seats;
+        }
+        if (!offer && kind == OrderKind.PASSENGER && seats == null) seats = 1;
+
         String firstLine = cleanOriginal.split("\\R", 2)[0].trim();
         String title = firstLine.length() > 120 ? firstLine.substring(0, 117) + "…" : firstLine;
-        if (title.length() < 3) title = "Yuk";
+        if (title.length() < 3) title = kind == OrderKind.PARCEL ? "Pochta" : "Yuk";
         String description = cleanOriginal.length() > 1500 ? cleanOriginal.substring(0, 1500) : cleanOriginal;
-        return new Parsed(from, to, weight, price, negotiable, date, body, cargo, title, description);
+        return new Parsed(from, to, weight, price, negotiable, date, body, cargo, title, description, kind, seats, offer);
+    }
+
+    /** Joy nomi bo'lmagan so'zlardan biri berilgan o'zaklardan biri bilan boshlanadimi */
+    private static boolean hasWord(String[] words, boolean[] used, String[] stems) {
+        for (int i = 0; i < words.length; i++) {
+            if (used[i]) continue;
+            for (String st : stems) if (words[i].startsWith(st)) return true;
+        }
+        return false;
     }
 
     /** O'zbekcha qo'shimchalar: "Toshkentdan", "Samarqandga", "Buxorogacha" (va ruscha kelishiklar: "Tashkenta") */

@@ -52,7 +52,8 @@ Google qoidalari bo'yicha ilovada bor:
 
 ## 2. Ilova yaratish
 
-**Create app** → App name: `YukGo — yuk tashish` · App · Free → shartlarga rozilik.
+**Create app** → App name: `YukGo — yuk va yo'lovchi` · App · Free → shartlarga rozilik.
+(Nomni keyin ham Store listing'da o'zgartirsa bo'ladi; ilova yaratilgan bo'lsa — 3-bo'limdagi nomga almashtiring.)
 
 **Default language: English (United States) – en-US.** Play Console tillari ro'yxatida o'zbek tili yo'q (qozoq va qirg'iz bor),
 shuning uchun quyidagi o'zbekcha matnni shu tilga yozasiz. Rus tilidagi telefonlarda 3-bo'limdagi ruscha tarjima ko'rinadi,
@@ -62,11 +63,11 @@ qolgan hamma telefonda o'zbekcha matn.
 
 | Maydon | Qiymat |
 |---|---|
-| App name (30) | `YukGo — yuk tashish` |
-| Short description (80) | `Yuk egalari va haydovchilar: e'lon, narx taklifi va yukni jonli kuzatish` |
+| App name (30) | `YukGo — yuk va yo'lovchi` |
+| Short description (80) | `Yuk, pochta va yo'lovchi: e'lon bering — yo'nalishdagi haydovchiga xabar boradi` |
 | App icon 512×512 | `store/icon-512.png` |
 | Feature graphic 1024×500 | `store/feature-graphic-1024x500.png` |
-| Phone screenshots | `store/screenshot-1-bozor.png` … `screenshot-4-profil.png` (oddiy foydalanuvchi ko'rinishi; keyinroq haqiqiy telefondan olingan rasmlarga almashtirsangiz ham bo'ladi) |
+| Phone screenshots | `store/screenshot-1-bozor.png` … `screenshot-4-profil.png` (yangi ko'rinish, kechki rejim: e'lonlar, buyurtma, yangi e'lon, profil; namuna ma'lumotlar bilan — keyinroq haqiqiy telefondan olingan rasmlarga almashtirsangiz ham bo'ladi). Avval yuklagan bo'lsangiz — yangilariga almashtiring |
 | Category | **Business** (yoki *Auto & Vehicles*) |
 | Email | `SUPPORT_EMAIL` dagi email |
 | Website | `https://yukgoo-production.up.railway.app` |
@@ -75,21 +76,22 @@ qolgan hamma telefonda o'zbekcha matn.
 **Full description (to'liq tavsif):**
 
 ```
-YukGo — O'zbekiston bo'ylab yuk tashishni oson qiladigan xizmat: viloyatdan viloyatga va shahar ichida.
+YukGo — O'zbekiston bo'ylab yuk, pochta va yo'lovchi tashishni oson qiladigan xizmat: viloyatdan viloyatga va shahar ichida.
 
-📦 Yuk egalari uchun
-• Yukingizni bir daqiqada e'lon qiling: qayerdan, qayerga, yuk turi, og'irligi, sana va narx
+📦 E'lon beruvchilar uchun
+• Yuk, pochta (hujjat, kichik quti) yoki yo'lovchi — e'lonni bir daqiqada bering: qayerdan, qayerga va qachon, qolgani ixtiyoriy
+• E'loningiz haqida shu yo'nalishda qatnaydigan haydovchilarga darhol xabar boradi
+• Yo'nalishingizda haydovchi reys e'lon qilsa, sizga ham xabar keladi
 • Haydovchilar narx taklif qiladi — reyting, mashina va baholarga qarab tanlaysiz
 • Yukingiz qayerdaligini xaritada jonli kuzatasiz
 • Yuk faqat qabul qiluvchi aytgan 4 xonali kod bilan topshiriladi
-• Shoshilinch e'lonlar ro'yxatda doim eng yuqorida turadi
 
 🚚 Haydovchilar uchun
-• Eng yaqin sanadagi buyurtmalar birinchi chiqadi: bugun, ertaga, indinga…
-• Yo'nalish, yuk turi va mashina turi bo'yicha filtrlar
+• Avval o'z tumaningiz va viloyatingizdan chiqqan e'lonlar, keyin yaqin viloyatlardagilar
+• Reys e'lon qiling — «Ertaga Kosonsoy → Toshkent» yoki «Har kuni qatnayman»: yo'lingizda yo'lovchi, pochta yoki yuk chiqsa, bot darhol xabar beradi
+• Qaysi e'lonlar haqida xabar olishni o'zingiz tanlaysiz: yuk, pochta, yo'lovchi
 • Narxga rozi bo'lib darhol oling yoki o'z narxingizni taklif qiling
 • Ilova ichida Yandex xarita bilan navigatsiya, ekran o'chiq bo'lsa ham yuboruvchi sizni ko'rib turadi
-• Yangi buyurtmalar haqida Telegram orqali darhol xabar
 
 🔒 Ishonch va xavfsizlik
 • Telefon raqamingiz faqat buyurtma tomonlariga ko'rinadi
@@ -97,7 +99,9 @@ YukGo — O'zbekiston bo'ylab yuk tashishni oson qiladigan xizmat: viloyatdan vi
 • Tekshirilgan haydovchilar: hujjatlarini YukGo jamoasi tekshirgan
 • Reyting, sharhlar, shikoyat qilish va qoidabuzarni bloklash imkoniyati
 
-YukGo Telegram'da ham bor: @YukGoobot — botga oddiy yozib ham e'lon bera olasiz.
+🌙 Kunduzgi va kechki rejim — ko'zingizga qulayini tanlang.
+
+YukGo Telegram'da ham bor: @YukGoobot — botga oddiy yozib ham e'lon bera olasiz, masalan: «Kosonsoydan Toshkentga 2 kishi, ertaga».
 ```
 
 ### Ruscha tarjima (ixtiyoriy, lekin tavsiya qilinadi)
@@ -106,28 +110,29 @@ YukGo Telegram'da ham bor: @YukGoobot — botga oddiy yozib ham e'lon bera olasi
 
 | Maydon | Qiymat |
 |---|---|
-| App name | `YukGo — грузоперевозки` |
-| Short description | `Отправители и водители: заявки на груз, торг по цене и отслеживание онлайн` |
+| App name | `YukGo — грузы и попутчики` |
+| Short description | `Груз, посылки и попутчики: объявление — водитель по пути получит уведомление` |
 
 Rasmlar uchun alohida narsa kerak emas, asosiy tildagilar ko'rsatiladi.
 
 ```
-YukGo — сервис грузоперевозок по Узбекистану: между областями и по городу.
+YukGo — сервис для перевозки грузов, посылок и пассажиров по Узбекистану: между областями и по городу.
 Интерфейс приложения на узбекском языке.
 
-📦 Для отправителей
-• Разместите заявку за минуту: откуда, куда, тип груза, вес, дата и цена
+📦 Для тех, кто отправляет или едет
+• Груз, посылка (документы, небольшая коробка) или поездка — объявление за минуту: откуда, куда и когда, остальное по желанию
+• Водители, которые ездят по этому направлению, сразу получают уведомление о вашем объявлении
+• Если водитель объявит рейс по вашему направлению, уведомление придёт и вам
 • Водители предлагают цену — выбирайте по рейтингу, машине и отзывам
 • Следите за грузом на карте в реальном времени
 • Груз передаётся только по 4-значному коду, который назовёт получатель
-• Срочные заявки всегда вверху списка
 
 🚚 Для водителей
-• Сначала заказы на ближайшие даты: сегодня, завтра, послезавтра…
-• Фильтры по направлению, типу груза и кузова
+• Сначала объявления из вашего района и области, затем из соседних областей
+• Объявите рейс — «Завтра Касансай → Ташкент» или «Езжу каждый день»: если по пути найдётся пассажир, посылка или груз, бот сразу сообщит
+• Сами выбираете, о чём получать уведомления: груз, посылки, пассажиры
 • Берите заказ по указанной цене или предложите свою
 • Навигация с Яндекс Картами внутри приложения: отправитель видит вас, даже когда экран выключен
-• Мгновенные уведомления о новых заказах в Telegram
 
 🔒 Доверие и безопасность
 • Ваш номер телефона видят только стороны заказа
@@ -135,7 +140,9 @@ YukGo — сервис грузоперевозок по Узбекистану:
 • Проверенные водители: их документы проверила команда YukGo
 • Рейтинг, отзывы, жалобы и блокировка нарушителей
 
-YukGo есть и в Telegram: @YukGoobot — заявку можно разместить, просто написав боту.
+🌙 Дневная и ночная тема.
+
+YukGo есть и в Telegram: @YukGoobot — объявление можно разместить, просто написав боту.
 ```
 
 ## 4. "App content" bo'limi (Dashboard'dagi vazifalar)
@@ -180,7 +187,7 @@ sharh qoldiradi — **Ha**; joylashuv boshqa foydalanuvchiga ko'rsatiladi — **
 | Personal info → Name | Ha | Yo'q | Required | App functionality, Account management |
 | Personal info → Phone number | Ha | Yo'q | Required | App functionality, Account management |
 | Personal info → User IDs (Telegram ID) | Ha | Yo'q | Required | App functionality, Account management |
-| Personal info → Address (buyurtma manzillari) | Ha | Yo'q | Optional | App functionality |
+| Personal info → Address (profildagi viloyat va tuman; e'lon manzillari) | Ha | Yo'q | Required | App functionality |
 | Location → Precise location (faqat haydovchi navigatsiyasida) | Ha | Yo'q | Optional | App functionality |
 | Photos and videos → Photos (profil, mashina, yuk, haydovchi hujjatlari) | Ha | Yo'q | Optional | App functionality, Account management |
 | Messages → Other in-app messages (buyurtma yozishmalari) | Ha | Yo'q | Optional | App functionality |
@@ -248,13 +255,13 @@ moderatsiya — admin paneli: Shikoyatlar, foydalanuvchini bloklash, e'lonni bek
 
 **Testerlarga xabar (nusxalab yuboring):**
 ```
-Assalomu alaykum! YukGo yuk tashish ilovasini Google Play'ga chiqaryapmiz, 14 kunlik sinovga yordamingiz kerak.
+Assalomu alaykum! YukGo (yuk, pochta va yo'lovchi tashish) ilovasini Google Play'ga chiqaryapmiz, 14 kunlik sinovga yordamingiz kerak.
 
 1) Telefoningizdagi Gmail hisobi bilan shu havolani oching va «Become a tester» ni bosing:
    <Join on the web havolasi>
 2) Keyin «Download it on Google Play» orqali ilovani o'rnating.
 3) 14 kun davomida ilovani o'chirmang va testdan chiqmang. Haftada 2–3 marta ochib ko'ring:
-   bozorni ko'ring, yuk e'lon qiling yoki taklif yuboring.
+   e'lonlarni ko'ring, e'lon bering (yuk, pochta yoki yo'lovchi), haydovchi bo'lsangiz — reys e'lon qiling yoki taklif yuboring.
 
 Xato yoki taklif bo'lsa, shu yerga yozing. Rahmat!
 ```

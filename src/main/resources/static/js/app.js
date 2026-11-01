@@ -10,6 +10,7 @@ import { adminPage } from './pages/admin.js';
 import { tg, initTelegram, telegramRoute, telegramAutoLogin, telegramLogout } from './telegram.js';
 import { captureAttribution } from './attribution.js';
 import { bindDocLinks, termsGate } from './legal.js';
+import { currentTheme, themeLabel, toggleTheme } from './theme.js';
 
 const routes = [
   { path: '/', page: marketPage, nav: 'market' },
@@ -112,7 +113,7 @@ async function render() {
 function renderShell(active) {
   const u = auth.user;
   const links = [
-    ['market', '#/', 'Buyurtmalar', 'market'],
+    ['market', '#/', "E'lonlar", 'market'],
     ['trips', '#/trips', 'Reyslar', 'route'],
     ['drivers', '#/drivers', 'Haydovchilar', 'truck'],
   ];
@@ -121,20 +122,32 @@ function renderShell(active) {
   $('#topnav').innerHTML = links.map(([k, href, label]) =>
     `<a href="${href}" class="${k === active ? 'active' : ''}">${esc(label)}</a>`).join('');
 
+  // Kunduzgi / kechki rejim tugmasi: kechki rejimda — quyosh (kunduzgiga o'tish), kunduzgida — oy
+  const t = currentTheme();
+  const themeHint = t === 'dark' ? "Kunduzgi rejimga o'tish" : "Kechki rejimga o'tish";
+  const themeBtn = `<button class="icon-btn" type="button" id="theme-btn" aria-label="${esc(themeHint)}" title="${esc(themeHint)}"
+      data-theme-now="${esc(themeLabel(t))}">${icon(t === 'dark' ? 'sun' : 'moon')}</button>`;
   $('#topbar-right').innerHTML = u
-    ? `<a class="btn btn-primary btn-sm" href="#/new">${icon('plus')}<span>Buyurtma berish</span></a>
+    ? `<a class="btn btn-primary btn-sm" href="#/new">${icon('plus')}<span>E'lon berish</span></a>
+       ${themeBtn}
        <a class="icon-btn" href="#/notifications" aria-label="Bildirishnomalar">${icon('bell')}<span class="badge-dot hidden" id="unread"></span></a>
        <a class="me-chip" href="#/profile">${avatar(u.avatarUrl, u.fullName)}<span>${esc(u.firstName)}</span></a>`
-    : `<a class="btn btn-sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)" href="#/login">Kirish</a>
+    : `${themeBtn}
+       <a class="btn btn-sm btn-onbar" href="#/login">Kirish</a>
        <a class="btn btn-primary btn-sm" href="#/register">Ro'yxatdan o'tish</a>`;
-  // mobil ekranda "Buyurtma berish" matni sig'maydi
+  $('#theme-btn').addEventListener('click', () => {
+    toggleTheme();
+    renderShell(active);
+    $('#theme-btn')?.focus();
+  });
+  // mobil ekranda "E'lon berish" matni sig'maydi
   if (window.matchMedia('(max-width: 760px)').matches) {
     const nb = $('#topbar-right .btn-primary span');
     if (nb && u) nb.parentElement.remove();
   }
 
   const tabs = [
-    ['market', '#/', 'Bozor', 'market'],
+    ['market', '#/', "E'lonlar", 'market'],
     ['trips', '#/trips', 'Reyslar', 'route'],
     ['new', '#/new', 'Yangi', 'plus'],
     ['my', '#/my', 'Buyurtmalar', 'box'],
@@ -162,6 +175,14 @@ export async function refreshMe() {
 
 function sessionStorageSafe(k, v) {
   try { if (v === undefined) { const x = sessionStorage.getItem(k); sessionStorage.removeItem(k); return x; } sessionStorage.setItem(k, v); } catch { return null; }
+}
+
+/** Kirishdan keyin ochilishi kerak bo'lgan sahifa bormi (masalan, botdan kelgan to'ldirilgan forma) — o'chirmasdan */
+export function pendingAfterLogin() {
+  try {
+    const x = sessionStorage.getItem('yukgo_after_login');
+    return x && !x.includes('login') && !x.includes('register') ? x : null;
+  } catch { return null; }
 }
 
 /** Kirish yoki ro'yxatdan o'tishdan keyin: oldin ochmoqchi bo'lgan sahifaga (masalan, botdan kelgan to'ldirilgan forma) */

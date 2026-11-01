@@ -1,7 +1,7 @@
 // Kirish, ro'yxatdan o'tish (SMS yoki Telegram kod bilan) va parolni tiklash
 import { auth, post, get, config } from '../api.js';
-import { $, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt, money } from '../ui.js';
-import { afterLogin, go } from '../app.js';
+import { $, $$, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt, money } from '../ui.js';
+import { afterLogin, go, pendingAfterLogin } from '../app.js';
 import { tg, telegramInitData, telegramLoggedIn } from '../telegram.js';
 import { attribution, clearAttribution } from '../attribution.js';
 
@@ -267,39 +267,47 @@ export function registerPage(main) {
   });
 
   async function detailsStep(requestId) {
-    setStep(3, "Oxirgi qadam: ism, parol va yashash manzilingiz.");
+    setStep(3, "Oxirgi qadam: ismingiz, parol va qayerdansiz.");
     const box = $('#step', card);
     box.innerHTML = `<form class="stack" novalidate>
       <div class="form-grid">
         <label class="field"><span>Ism</span><input class="input" name="firstName" autocomplete="given-name" required maxlength="60"></label>
         <label class="field"><span>Familiya</span><input class="input" name="lastName" autocomplete="family-name" required maxlength="60"></label>
-        <label class="field"><span>Parol</span><input class="input" name="password" type="password" autocomplete="new-password" minlength="6" required></label>
-        <label class="field"><span>Parolni takrorlang</span><input class="input" name="password2" type="password" autocomplete="new-password" required></label>
       </div>
-      <p class="small muted">Tizimga ism, familiya va parol bilan kirasiz.</p>
+      <label class="field"><span>Parol</span>
+        <span class="pass-wrap"><input class="input" name="password" type="password" autocomplete="new-password" minlength="6" required>
+          <button type="button" class="pass-eye" id="pass-eye" aria-label="Parolni ko'rsatish" aria-pressed="false">${icon('eye')}</button></span>
+        <small>Kamida 6 belgi. Keyin ism, familiya va shu parol bilan kirasiz.</small></label>
       <div class="form-grid">
         <label class="field"><span>Viloyat</span><select class="select" name="regionId" required></select></label>
         <label class="field"><span>Tuman / shahar</span><select class="select" name="districtId" required disabled></select></label>
-        <label class="field"><span>Qishloq / mahalla</span><input class="input" name="village" maxlength="120" required></label>
-        <label class="field"><span>Ko'cha, uy raqami</span><input class="input" name="house" maxlength="120" placeholder="Navoiy ko'chasi, 12-uy" required></label>
       </div>
+      <p class="tiny muted" style="margin-top:-6px">Bosh sahifada avval shu tumandan va yaqin joylardan chiqqan e'lonlarni ko'rsatamiz.</p>
       <label class="check"><input type="checkbox" name="acceptTerms">
         <span><a href="/terms.html" data-doc>Foydalanish shartlari</a> va <a href="/privacy.html" data-doc>maxfiylik siyosati</a> bilan tanishdim va roziman</span></label>
       <button class="btn btn-primary btn-lg btn-block" type="submit">Ro'yxatdan o'tish</button>
     </form>`;
     const form = $('form', box);
     await bindRegionDistrict(form.regionId, form.districtId);
+    $('#pass-eye', box).addEventListener('click', (e) => {
+      const show = form.password.type === 'password';
+      form.password.type = show ? 'text' : 'password';
+      e.currentTarget.setAttribute('aria-pressed', String(show));
+      e.currentTarget.setAttribute('aria-label', show ? 'Parolni yashirish' : "Parolni ko'rsatish");
+    });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       clearError(form);
       const d = formData(form);
-      if (d.password !== d.password2) return showError(form, { message: 'Parollar bir xil emas' });
+      if (!d.firstName || !d.lastName) return showError(form, { message: 'Ism va familiyangizni kiriting' });
+      if (!d.password || d.password.length < 6) return showError(form, { message: "Parol kamida 6 belgi bo'lsin" });
+      if (!d.regionId || !d.districtId) return showError(form, { message: 'Viloyat va tumaningizni tanlang' });
       if (!d.acceptTerms) return showError(form, { message: "Ro'yxatdan o'tish uchun foydalanish shartlariga rozilik bildiring" });
       try {
         const res = await busy(form.querySelector('[type=submit]'), () => post('/auth/register/complete', {
           requestId, firstName: d.firstName, lastName: d.lastName, password: d.password,
           regionId: Number(d.regionId) || null, districtId: Number(d.districtId) || null,
-          village: d.village, house: d.house, telegramInitData: telegramInitData(), acceptTerms: true,
+          telegramInitData: telegramInitData(), acceptTerms: true,
           ...attribution(),   // qaysi kanal/hamkor/do'st havolasi bilan kelgani
         }));
         auth.token = res.token;
@@ -307,9 +315,28 @@ export function registerPage(main) {
         telegramLoggedIn();
         clearAttribution();
         toast("Ro'yxatdan o'tdingiz! Xush kelibsiz", 'ok');
-        afterLogin('#/profile');   // botdan kelgan to'ldirilgan forma yoki buyurtma bo'lsa — o'sha yerga
+        // Botdan kelgan to'ldirilgan forma yoki ochmoqchi bo'lgan sahifa bo'lsa — o'sha yerga; aks holda bitta savol
+        if (pendingAfterLogin()) afterLogin('#/');
+        else welcomeStep();
       } catch (err) { showError(form, err); }
     });
+  }
+
+  /** Bitta savol: haydovchimi yoki e'lon beradimi — shunga qarab kerakli joyga olib boramiz */
+  function welcomeStep() {
+    card.querySelector('.steps')?.remove();
+    $('#perks', card)?.remove();
+    $('h1', card).textContent = 'Xush kelibsiz!';
+    $('#step-text', card).textContent = "YukGo'dan qanday foydalanasiz?";
+    $('#step', card).innerHTML = `<div class="stack-sm">
+      <button type="button" class="role-pick" data-go="#/profile?vehicle=1">${icon('car')}
+        <span><b>Men haydovchiman</b><small>Mashinamni qo'shaman — yo'nalishimga mos yo'lovchi, pochta va yuk haqida xabar olaman</small></span></button>
+      <button type="button" class="role-pick" data-go="#/new">${icon('box')}
+        <span><b>E'lon beraman</b><small>Yuk yoki pochta jo'nataman, yoki o'zim yo'lovchiman</small></span></button>
+      <button type="button" class="link-btn" data-go="#/" style="justify-self:center;margin-top:6px">Hozircha shunchaki ko'raman</button></div>`;
+    // «Hisobingiz bormi? Kirish» va hujjat havolalari endi kerak emas
+    card.querySelectorAll(':scope > p.small.muted, :scope > p.tiny.muted').forEach(p => p.remove());
+    $$('[data-go]', card).forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
   }
   return stop;
 }

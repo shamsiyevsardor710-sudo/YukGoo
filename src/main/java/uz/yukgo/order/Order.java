@@ -38,6 +38,14 @@ public class Order {
     @ManyToOne(fetch = FetchType.LAZY)
     private User driver;
 
+    /** E'lon turi: yuk, pochta yoki yo'lovchi. null — shu imkoniyatdan oldingi e'lonlar (yuk deb hisoblanadi) */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 12)
+    private OrderKind kind;
+
+    /** Yo'lovchilar soni (faqat yo'lovchi e'lonida) */
+    private Integer seats;
+
     // ---- Yuk ----
     @Column(nullable = false, length = 120)
     private String title;
@@ -149,5 +157,14 @@ public class Order {
 
     public long effectivePrice() {
         return finalPrice != null ? finalPrice : (price != null ? price : 0);
+    }
+
+    /** Eski e'lonlarda tur yo'q — ular yuk */
+    public OrderKind getKind() {
+        return kind == null ? OrderKind.CARGO : kind;
+    }
+
+    public boolean isPassenger() {
+        return getKind() == OrderKind.PASSENGER;
     }
 }
