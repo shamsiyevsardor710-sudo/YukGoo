@@ -229,4 +229,61 @@ class LoadTextParserTest {
         var f = P.parse("Andijon - Toshkent pochta 2 kg, bugun", TODAY);
         assertEquals(OrderKind.PARCEL, f.kind(), "yengil jo'natma — pochta");
     }
+
+    @Test
+    void driverTripTimeAndDaily() {
+        var a = P.parse("Kosonsoy - Toshkent, ertaga 07:00, 3 ta joy bor", TODAY);
+        assertTrue(a.driverOffer());
+        assertEquals(java.time.LocalTime.of(7, 0), a.departTime());
+        assertEquals(TODAY.plusDays(1), a.pickupDate());
+        assertEquals(Integer.valueOf(3), a.seats());
+        assertFalse(a.daily());
+
+        var b = P.parse("Har kuni Kosonsoydan Toshkentga soat 6 da chiqaman, 4 ta joy bor", TODAY);
+        assertTrue(b.daily());
+        assertEquals(java.time.LocalTime.of(6, 0), b.departTime());
+
+        var c = P.parse("Andijon - Toshkent soat 18.30 da jo'nayman, yo'lovchi olaman", TODAY);
+        assertEquals(java.time.LocalTime.of(18, 30), c.departTime());
+
+        var d = P.parse("Хар куни Наманган - Тошкент, 2 та жой бор", TODAY);
+        assertTrue(d.daily(), "kirillcha «har kuni»");
+        assertNull(d.departTime());
+        assertTrue(P.parse("Ҳар куни Наманган - Тошкент, 2 та жой бор", TODAY).daily());
+        assertTrue(P.parse("Наманган - Ташкент каждый день, 3 места есть", TODAY).daily(), "ruscha");
+
+        var e = P.parse("Toshkent - Samarqand 5 tonna, 12.11 ga, 3 mln", TODAY);
+        assertNull(e.departTime(), "sana (12.11) soat emas");
+        assertEquals(LocalDate.of(2026, 11, 12), e.pickupDate());
+
+        var f = P.parse("Toshkent - Samarqand soat 25 da, 2 kishi", TODAY);
+        assertNull(f.departTime(), "noto'g'ri soat e'tiborsiz");
+    }
+
+    /** Bot faqat aniq e'lonni so'ramasdan joylaydi: savol yoki faqat ikki joy nomi — so'raladi */
+    @Test
+    void questionsAndDetails() {
+        var q = P.parse("Toshkentdan Samarqandga qancha turadi?", TODAY);
+        assertTrue(q.isLoad());
+        assertTrue(q.question());
+        assertTrue(P.parse("Toshkent - Samarqand yo'li ochiqmi", TODAY).question(), "so'roq qo'shimchasi");
+        var bare = P.parse("Toshkent - Samarqand", TODAY);
+        assertFalse(bare.question());
+        assertFalse(bare.hasDetails(), "faqat ikki joy — e'lon ekani aniq emas");
+        assertTrue(P.parse("Toshkent - Samarqand, ertaga", TODAY).hasDetails());
+        assertTrue(P.parse("Toshkent - Samarqand 5 tonna", TODAY).hasDetails());
+        assertTrue(P.parse("Andijon - Toshkent pochta", TODAY).hasDetails());
+        assertFalse(P.parse("Kosonsoydan Toshkentga 2 kishi ertaga", TODAY).question());
+
+        var go = P.parse("Kosonsoydan Toshkentga ketmoqchiman", TODAY);
+        assertEquals(OrderKind.PASSENGER, go.kind(), "«ketmoqchiman» — o'zi boradi");
+        assertTrue(go.hasDetails());
+        assertEquals(Integer.valueOf(1), go.seats());
+        var mover = P.parse("Mebel bilan Toshkentdan Samarqandga ketaman", TODAY);
+        assertEquals(OrderKind.CARGO, mover.kind(), "yuk belgisi bor — yo'lovchi emas");
+        var need = P.parse("Kosonsoy - Toshkent, yo'lovchi kerak, ertaga 6:00", TODAY);
+        assertTrue(need.driverOffer(), "«yo'lovchi kerak» — haydovchi e'loni");
+        assertEquals(java.time.LocalTime.of(6, 0), need.departTime());
+        assertFalse(P.parse("Kosonsoy - Toshkent, mashina kerak, 2 kishi", TODAY).driverOffer(), "«mashina kerak» — so'rov");
+    }
 }

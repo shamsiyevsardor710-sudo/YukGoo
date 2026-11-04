@@ -31,7 +31,7 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 
 ### Logistika
 - **E'lon turlari**: 📦 **Yuk** (nima, ixtiyoriy og'irlik va mashina turi), ✉️ **Pochta** (hujjat, kichik quti) va 🧍 **Yo'lovchi**
-  (faqat qayerdan, qayerga, qachon va necha kishi). Hammasida: viloyat va tuman, «Bugun / Ertaga / Indinga» yoki sana, ixtiyoriy narx
+  (faqat qayerdan, qayerga, qachon va necha kishi). Hammasida: viloyat va tuman, «Bugun / Ertaga» yoki kalendardan boshqa kun, ixtiyoriy narx
   (bo'sh — «narx kelishiladi»; yo'lovchida — bir kishi uchun), ixtiyoriy izoh. Yuk va pochtada qabul qiluvchi — «O'zim» yoki
   «Boshqa odam» (telefoni). Aniq manzil, xarita va rasm — yig'ilgan «Aniq manzil va xarita (ixtiyoriy)» bo'limida.
   To'lov usuli, kim to'lashi, hajm va yuk turi endi so'ralmaydi.
@@ -39,14 +39,25 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 - **Narx hisoblagich**: Yandex marshrut masofasi va og'irlikka qarab taxminiy narx.
 - **Bosh sahifa (E'lonlar)**: kirgan foydalanuvchiga **avval o'z tumanidan, keyin o'z viloyatidan, so'ng yaqin viloyatlardan**
   chiqqan e'lonlar (ro'yxatdan o'tishda ko'rsatgan manzili bo'yicha); har birining ichida shoshilinchlar tepada, keyin sana bo'yicha.
-  Qidiruv: «Qayerdan» va «Qayerga» — viloyat, keyin tuman; tur bo'yicha: Hammasi · Yuk · Pochta · Yo'lovchi. Ro'yxat yoki xarita.
+  Qidiruv: «Qayerdan» va «Qayerga» — viloyat, keyin tuman; tur bo'yicha: Hammasi · Yuk · Pochta · Yo'lovchi.
+  «Shoshilinch» — faqat daromad tizimi yoqilganda (aks holda formada ham, e'lon sahifasida ham ko'rinmaydi).
+- **E'lon havolasi hammaga ochiq**: `#/orders/123` ni kirmagan odam ham ko'radi (raqam, aniq manzil va kodsiz) — «Ro'yxatdan o'tish /
+  Kirish» dan keyin shu e'longa qaytadi. **«Ulashish»** tugmasi: Telegram ichida — Telegram «Ulashish» oynasi (bot havolasi bilan),
+  telefonda — tizimning ulashish oynasi, kompyuterda — havola nusxalanadi. Reyslarni ham («Mening reyslarim») ulashish mumkin.
 - **Takliflar (auksion)**: haydovchilar narx taklif qiladi, yuboruvchi reyting va mashinaga qarab tanlaydi. Yoki haydovchi e'londagi narxga
   rozi bo'lib darhol oladi. Pochta va yo'lovchida narx ko'rsatilmagan bo'lsa ham **«Olaman»** — ikki tomonga bir-birining raqami ochiladi,
   narxni telefonda kelishadi.
 - **Holatlar**: Haydovchi kutilmoqda → Haydovchi tanlandi → Yo'lda → Yetkazildi (yoki Bekor qilingan) + to'liq tarix.
+- **Mening buyurtmalarim**: «E'lonlarim» (men bergan) va «Hammasi» (bergan, olgan va narx taklif qilgan — har birida belgi bilan),
+  har birida «Faol» va «Tugatilgan».
 - **Topshirish kodi**: 4 xonali kod faqat yuboruvchiga ko'rinadi; haydovchi yuk va pochtani faqat qabul qiluvchidan olingan kod bilan topshira oladi. Qabul qiluvchi Telegramga ulangan bo'lsa, kod unga bot orqali ham boradi. Yo'lovchida kod yo'q: «Yo'lovchini oldim» → «Manzilga yetib keldik».
 - **Jonli kuzatuv**: haydovchining GPS joylashuvi yuboruvchi xaritasida yangilanib turadi.
-- **Yozishma** yuboruvchi ↔ haydovchi (Telegramga ham boradi).
+- **Yozishma** yuboruvchi ↔ haydovchi — xabarlar faqat saytdagi yozishmada turadi (Telegramga yuborilmaydi), ikkinchi tomonga
+  sayt ichida 🔔 bildirishnoma (matnsiz, bitta yozishma bo'yicha o'qilmaguncha bittadan). Haydovchi **«Olaman» dan oldin ham** yoza oladi («E'lon egasiga yozish»):
+  har bir haydovchi bilan alohida yozishma, e'lon egasi sahifasida «Yozishmalar» ro'yxati (kim yozgan, «Javob kutmoqda»).
+  Shu vaqtda ikki tomonning ham telefon raqami yashirin, xabarga yozilgan raqam ham `[raqam «Olaman»dan keyin ko'rinadi]` bo'lib
+  ko'rinadi (Telegram @username va t.me havolalari ham); e'lon shu haydovchiga berilgach — raqamlar ochiladi, qolgan haydovchilar
+  bilan yozishma yopiladi (o'qish mumkin). Bildirishnoma havolasi `#/orders/ID?chat=HAYDOVCHI_ID` — shu yozishmani ochadi.
 - **Baholash**: yetkazilgandan keyin ikki tomon bir-birini baholaydi; reyting profilda.
 - **Reyslar**: haydovchi «Ertaga 07:00 Kosonsoy → Toshkent, 3 ta bo'sh o'rin» yoki **«Har kuni qatnayman»** deb e'lon qiladi
   (bo'sh o'rin — yengil mashina, furgon va «boshqa» turida; narx va izoh — ixtiyoriy). Ro'yxat ham yaqinlik bo'yicha, viloyat → tuman qidiruvi bilan.
@@ -86,20 +97,26 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 
 ### Telegram bot
 - Tasdiqlash kodlarini yuboradi.
-- Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yozishma, yangi mos e'lonlar va yo'nalishdagi haydovchilar.
+- Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yangi mos e'lonlar va yo'nalishdagi haydovchilar (yozishmadagi xabarlar — faqat saytda).
 - Menyu: 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam.
 - Pastdagi **«YukGo»** tugmasi saytni Telegram ichida (Mini App) ochadi: bir marta parol bilan kirilgach, keyingi safar o'zi kiradi.
 - **Matn bilan e'lon:** foydalanuvchi botga guruhga yozgandek yozadi — *«Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln»*,
   *«Kosonsoydan Toshkentga 2 kishi, ertaga»* yoki *«Andijon - Toshkent, pochta, bugun»*. Bot viloyat va tumanni (lotin, kirill, ruscha yozuv,
-  «-dan/-ga» qo'shimchalari), og'irlik, narx, sana, mashina va yuk turini, **yo'lovchi va kishilar sonini, pochtani** tushunadi va
-  to'ldirilgan formani Mini App'da ochadi. Telefon raqamlar formaga o'tmaydi. Haydovchining e'loni (*«Kosonsoy - Toshkent, pochta va
-  yo'lovchi olaman, ertaga»*, *«3 ta bo'sh joy bor»*) tanilsa — reys formasi to'ldirilgan holda ochiladi.
+  «-dan/-ga» qo'shimchalari), og'irlik, narx, sana, mashina va yuk turini, **yo'lovchi va kishilar sonini, pochtani** tushunadi.
+  **Hisobi botga ulangan** (shartlarni qabul qilgan) foydalanuvchida e'lon **darhol saytga chiqadi** va mos haydovchilarga xabar
+  boradi; javobda «👀 Ko'rish», «📤 Ulashish», «❌ Bekor qilish» tugmalari. Xuddi shu e'lon 30 daqiqa ichida qayta yuborilsa — yangisi
+  ochilmaydi; botdan kuniga 10 tagacha e'lon. Ulanmagan foydalanuvchiga — to'ldirilgan forma (Mini App). Telefon raqamlar e'longa
+  o'tmaydi. Haydovchining e'loni (*«Kosonsoy - Toshkent, ertaga 07:00, 3 ta joy bor»*, *«har kuni ... olaman»*) — reys darhol chiqadi
+  (soat yozilmasa: bugun — 1 soatdan keyin, boshqa kun yoki «har kuni» — 08:00), «❌ O'chirish» tugmasi bilan; mashinasi kiritilmagan
+  bo'lsa — reys formasi. Admin yozgan e'lonsimon matnda «📝 E'lon sifatida joylash» tugmasi ham chiqadi.
 - **Havolalar:** `t.me/BOT?start=o123_ch3` — kanal postidagi «Taklif berish» (buyurtma kartasi + ochish tugmasi), `start=new` — e'lon berish,
   `start=src_KOD` — manba (kanal, hamkor, varaqa, agent), `start=ref_ID` — do'st taklifi. Mini App `startapp=` havolalarini ham tushunadi.
 - **Adminlar uchun ommaviy xabar:** admin yoki ega o'z Telegramidan botga rasm, video, dumaloq video, ovozli xabar, fayl,
   albom yoki matn yuboradi → bot «Hammaga yuborilsinmi?» deb so'raydi → «✅ Hammaga yuborish» bosilsa, xabar botga ulangan
   barcha faol foydalanuvchilarga xuddi shu ko'rinishda boradi, oxirida nechta odamga yetgani yoziladi. Oddiy foydalanuvchilar
-  yuborgan rasm hech kimga tarqalmaydi. Matnli xabarni boshqaruv panelidagi «Ommaviy xabar» bo'limidan ham yuborish mumkin.
+  yuborgan rasm hech kimga tarqalmaydi (bot ularga sababini aytadi). Matnli xabarni boshqaruv panelidagi «Ommaviy xabar» bo'limidan ham yuborish mumkin.
+  **Muhim:** bot egani Telegram orqali taniydi — ega hisobi botga ulangan bo'lishi kerak. Baza yangidan boshlansa (masalan, PostgreSQL'ga
+  o'tilganda) ega hisobi qayta yaratiladi: botga `/start` yozib, «📱 Telefon raqamni yuborish» ni bosing (raqam `OWNER_PHONE` bilan bir xil).
 
 ### Admin va ega (owner)
 | Amal | Admin | Ega |
@@ -198,7 +215,7 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    | O'zgaruvchi | Qiymat |
    |---|---|
    | `SPRING_PROFILES_ACTIVE` | `prod` |
-   | `DB_URL` | `jdbc:postgresql://${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}` |
+   | `DB_URL` | `jdbc:postgresql://${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/${{Postgres.PGDATABASE}}` — ichki (bepul) tarmoq. Eski Postgres xizmatlarida `PGHOST`/`PGPORT` ochiq proksiga qaraydi va egress uchun pul olinadi |
    | `DB_USER` | `${{Postgres.PGUSER}}` |
    | `DB_PASSWORD` | `${{Postgres.PGPASSWORD}}` |
    | `RAILWAY_RUN_UID` | `0` — ilova Volume'ga yoza olishi uchun (Docker obrazi oddiy foydalanuvchi bilan ishlaydi) |
@@ -320,11 +337,11 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Profil | `GET/PUT /api/users/me`, `POST /api/users/me/avatar`, `PUT /api/users/me/vehicle`, `PUT /api/users/me/settings`, `GET /api/users/{id}` |
 | Shartlar | `POST /api/users/me/terms` (qabul qilish). Qabul qilinmagan bo'lsa kontent yaratuvchi so'rovlar **428** qaytaradi |
 | Bloklash | `POST/DELETE /api/users/{id}/block`, `GET /api/users/me/blocks` |
-| Buyurtmalar | `GET /api/orders` (e'lonlar: `kind`=CARGO/PARCEL/PASSENGER, `fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`, `bodyType`, `q`, `page`; kirgan foydalanuvchiga — yaqinlik bo'yicha), `POST /api/orders` (`kind`, `seats`), `GET /api/orders/my`, `GET /api/orders/{id}` |
+| Buyurtmalar | `GET /api/orders` (e'lonlar: `kind`=CARGO/PARCEL/PASSENGER, `fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`, `bodyType`, `q`, `page`; kirgan foydalanuvchiga — yaqinlik bo'yicha), `POST /api/orders` (`kind`, `seats`), `GET /api/orders/my` (`role`=sender/all, `group`=active/done), `GET /api/orders/{id}` (kirmagan foydalanuvchiga ham — raqam va aniq manzilsiz) |
 | Takliflar | `POST /api/orders/{id}/offers`, `POST .../offers/{offerId}/accept`, `POST /api/orders/{id}/take` |
 | Holat | `POST /api/orders/{id}/pickup`, `POST /api/orders/{id}/deliver {code}` (yo'lovchida — kodsiz, `{}`), `POST /api/orders/{id}/cancel` |
 | Kuzatuv | `POST /api/orders/{id}/track {lat,lng}`, `GET /api/orders/{id}/track` |
-| Yozishma | `GET/POST /api/orders/{id}/messages` |
+| Yozishma | `GET /api/orders/{id}/messages?after=&driverId=`, `POST /api/orders/{id}/messages {text, driverId}` (e'lon egasi — qaysi haydovchiga; haydovchi — doim o'z yozishmasi), `GET /api/orders/{id}/threads` (e'lon egasiga: yozgan haydovchilar) |
 | Baho | `POST /api/orders/{id}/review`, `GET /api/users/{id}/reviews` |
 | Reyslar | `GET /api/trips` (`fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`), `POST /api/trips` (`daily`, `seats`; javobda `matches` — mos e'lonlar soni), `GET /api/trips/my` |
 | Taklif | `GET /api/users/me/referral` |

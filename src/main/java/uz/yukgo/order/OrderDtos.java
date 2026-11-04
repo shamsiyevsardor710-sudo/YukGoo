@@ -112,12 +112,27 @@ public final class OrderDtos {
         }
     }
 
-    public record MessageRequest(@NotBlank(message = "Xabar bo'sh") @Size(max = 1000) String text) {}
+    /** driverId — e'lon egasi qaysi haydovchiga yozayotgani (haydovchi tanlanmagan bo'lsa majburiy); haydovchida e'tiborga olinmaydi */
+    public record MessageRequest(@NotBlank(message = "Xabar bo'sh") @Size(max = 1000) String text, Long driverId) {}
+
+    /** E'lon egasiga: haydovchilar bilan yozishmalar ro'yxati (raqamsiz). lastMine — oxirgi xabarni e'lon egasining o'zi yozgan */
+    /**
+     * E'lon egasi uchun: bitta haydovchi bilan yozishma (ro'yxatda). assigned — e'lon shu haydovchiga berilgan;
+     * open — hali yozish mumkin (e'lon ochiq yoki shu haydovchiga berilgan)
+     */
+    public record ThreadDto(Long driverId, UserBrief driver, int count, String lastText, Instant lastAt, boolean lastMine,
+                            boolean assigned, boolean open) {}
 
     public record MessageDto(Long id, Long authorId, String authorName, String authorAvatar, String text, Instant createdAt) {
         static MessageDto of(OrderMessage m) {
+            return of(m, false);
+        }
+
+        /** @param mask haydovchi hali tanlanmagan yozishma: matndagi telefon raqamlar yopiladi */
+        static MessageDto of(OrderMessage m, boolean mask) {
             return new MessageDto(m.getId(), m.getAuthor().getId(), m.getAuthor().getFullName(),
-                    m.getAuthor().getAvatarUrl(), m.getText(), m.getCreatedAt());
+                    m.getAuthor().getAvatarUrl(), mask ? uz.yukgo.common.Phones.maskInText(m.getText()) : m.getText(),
+                    m.getCreatedAt());
         }
     }
 

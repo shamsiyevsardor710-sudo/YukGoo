@@ -123,6 +123,17 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Page<Order> findByDriver(@Param("userId") Long userId, @Param("statuses") Collection<OrderStatus> statuses,
                              Pageable pageable);
 
+    /** «Mening buyurtmalarim → Hammasi»: men bergan, men olgan (haydovchi) va men narx taklif qilgan (hal bo'lmagan) buyurtmalar */
+    @Query("""
+            select o from Shipment o
+            where o.status in :statuses
+              and (o.sender.id = :userId or o.driver.id = :userId
+                   or exists (select f.id from Offer f where f.order = o and f.driver.id = :userId
+                              and f.status = uz.yukgo.order.OfferStatus.PENDING))
+            order by o.createdAt desc
+            """)
+    Page<Order> findMine(@Param("userId") Long userId, @Param("statuses") Collection<OrderStatus> statuses, Pageable pageable);
+
     /** Haydovchi taklif yuborgan, hali hal bo'lmagan buyurtmalar */
     @Query("""
             select distinct o from Offer f join f.order o
@@ -180,6 +191,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     long countBySenderIdAndStatusAndDriverIdNot(Long senderId, OrderStatus status, Long excludeDriverId);
 
     long countByCreatedAtAfter(Instant after);
+
+    /** Botdan kelgan e'lon: shu odam yaqinda xuddi shunday e'lon bergan-bermaganini tekshirish uchun */
+    List<Order> findBySenderIdAndStatusAndCreatedAtAfterOrderByIdDesc(Long senderId, OrderStatus status, Instant after);
+
+    /** Botdan bir kunda beriladigan e'lonlar chegarasi uchun */
+    long countBySenderIdAndCreatedAtAfter(Long senderId, Instant after);
 
     @Query("select coalesce(sum(o.finalPrice), 0) from Shipment o where o.status = uz.yukgo.order.OrderStatus.DELIVERED")
     long sumDeliveredValue();

@@ -18,7 +18,8 @@ const routes = [
   { path: '/register', page: registerPage, guest: true },
   { path: '/forgot', page: forgotPage, guest: true },
   { path: '/new', page: createOrderPage, auth: true, nav: 'new' },
-  { path: '/orders/:id', page: orderPage, auth: true, nav: 'my' },
+  // E'lon sahifasi mehmonga ham ochiq (ulashilgan havola): raqam va aniq manzilsiz, kirish tugmasi bilan
+  { path: '/orders/:id', page: orderPage, nav: 'my' },
   { path: '/nav/:id', page: navigationPage, auth: true, bare: true },
   { path: '/my', page: myOrdersPage, auth: true, nav: 'my' },
   { path: '/trips', page: tripsPage, nav: 'trips' },
@@ -112,10 +113,10 @@ async function render() {
 
 function renderShell(active) {
   const u = auth.user;
+  // Menyu sodda: e'lonlar va reyslar (haydovchilar katalogi — reyslar sahifasidagi havola orqali)
   const links = [
     ['market', '#/', "E'lonlar", 'market'],
     ['trips', '#/trips', 'Reyslar', 'route'],
-    ['drivers', '#/drivers', 'Haydovchilar', 'truck'],
   ];
   if (u) links.push(['my', '#/my', 'Buyurtmalarim', 'box']);
   if (auth.isStaff) links.push(['admin', '#/admin', 'Boshqaruv', 'shield']);

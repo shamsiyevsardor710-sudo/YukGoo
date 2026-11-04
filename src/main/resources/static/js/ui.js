@@ -162,6 +162,7 @@ const P = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   verified: '<path d="m12 2 2.4 2.1 3.2-.3.9 3.1 2.8 1.6-1.2 3 1.2 3-2.8 1.6-.9 3.1-3.2-.3L12 22l-2.4-2.1-3.2.3-.9-3.1-2.8-1.6 1.2-3-1.2-3 2.8-1.6.9-3.1 3.2.3z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  chat: '<path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.3A8.5 8.5 0 1 1 21 11.5z"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
   gift: '<path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/>',
   qr: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
@@ -217,7 +218,8 @@ export function toast(message, kind = '') {
 }
 
 // ---- Modal ----
-export function modal(title, bodyHtml, { onMount, wide } = {}) {
+/** onClose — oyna yopilganda (masalan, yozishmaning yangilanishini to'xtatish uchun) */
+export function modal(title, bodyHtml, { onMount, wide, onClose } = {}) {
   const root = $('#modal-root');
   const back = document.createElement('div');
   back.className = 'modal-back';
@@ -229,6 +231,7 @@ export function modal(title, bodyHtml, { onMount, wide } = {}) {
   const close = () => {
     back.remove();
     document.removeEventListener('keydown', onKey);
+    if (onClose) { try { onClose(); } catch { /* */ } }
     if (prevFocus && prevFocus.focus) prevFocus.focus();
   };
   const onKey = (e) => { if (e.key === 'Escape') close(); };

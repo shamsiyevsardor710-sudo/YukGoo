@@ -55,6 +55,9 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
 
     List<Trip> findByDriverIdOrderByDepartAtDesc(Long driverId);
 
+    /** Botdan e'lon qilingan reys: takror va kunlik chegara uchun */
+    List<Trip> findByDriverIdAndCreatedAtAfterOrderByIdDesc(Long driverId, java.time.Instant after);
+
     /**
      * Yangi e'longa mos reyslar: shu viloyatdan shu viloyatga, faol, «har kuni» yoki [fromTime, toTime) oralig'ida jo'naydigan.
      * Tuman, tur, joylar soni va blok — MatchService'da tekshiriladi.

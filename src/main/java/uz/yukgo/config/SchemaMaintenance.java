@@ -66,7 +66,21 @@ public class SchemaMaintenance {
             "UPDATE users SET vehicle_body_type = 'TRUCK' WHERE vehicle_body_type IN ('TENT', 'REFRIGERATOR', 'ISOTHERM', 'SAMOSVAL', 'TRAL', 'TANKER')",
             "UPDATE users SET vehicle_body_type = 'FURGON' WHERE vehicle_body_type = 'MINIVAN'",
             "UPDATE orders SET required_body_type = 'TRUCK' WHERE required_body_type IN ('TENT', 'REFRIGERATOR', 'ISOTHERM', 'SAMOSVAL', 'TRAL', 'TANKER')",
-            "UPDATE orders SET required_body_type = 'FURGON' WHERE required_body_type = 'MINIVAN'");
+            "UPDATE orders SET required_body_type = 'FURGON' WHERE required_body_type = 'MINIVAN'",
+            // Yozishma iplari (15-paket): eski xabarlar egasiga — haydovchi yozgani o'z ipiga…
+            "UPDATE order_messages SET driver_id = author_id WHERE driver_id IS NULL"
+                    + " AND author_id <> (SELECT o.sender_id FROM orders o WHERE o.id = order_messages.order_id)",
+            // …e'lon egasi yozgani esa o'sha paytdagi suhbatdosh haydovchiga (eng yaqin oldingi, bo'lmasa keyingi xabari),
+            // u ham bo'lmasa — hozirgi haydovchiga. Aniqlab bo'lmaganlari bo'sh qoladi va hech kimga ko'rsatilmaydi
+            "UPDATE order_messages SET driver_id = COALESCE("
+                    + "(SELECT p.driver_id FROM order_messages p WHERE p.id = (SELECT MAX(p2.id) FROM order_messages p2"
+                    + " WHERE p2.order_id = order_messages.order_id AND p2.driver_id IS NOT NULL AND p2.id < order_messages.id)),"
+                    + "(SELECT n.driver_id FROM order_messages n WHERE n.id = (SELECT MIN(n2.id) FROM order_messages n2"
+                    + " WHERE n2.order_id = order_messages.order_id AND n2.driver_id IS NOT NULL AND n2.id > order_messages.id)),"
+                    + "(SELECT o.driver_id FROM orders o WHERE o.id = order_messages.order_id))"
+                    + " WHERE driver_id IS NULL AND (EXISTS (SELECT 1 FROM order_messages q WHERE q.order_id = order_messages.order_id"
+                    + " AND q.driver_id IS NOT NULL) OR EXISTS (SELECT 1 FROM orders o2 WHERE o2.id = order_messages.order_id"
+                    + " AND o2.driver_id IS NOT NULL))");
 
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {

@@ -4,6 +4,7 @@ import {
   $, $$, esc, icon, avatar, stars, toast, modal, confirmDialog, formData, showError, clearError, busy,
   bindRegionDistrict, bindRouteSearch, phoneFmt, emptyState, skeletons, bodyLabel, bodyCanon, verifiedBadge, tripWhen,
 } from '../ui.js';
+import { share, siteLink } from '../share.js';
 
 /** Yo'lovchi olishi mumkin bo'lgan mashinalar — bo'sh o'rinlar shular uchun so'raladi */
 const SEATED = new Set(['SEDAN', 'FURGON', 'OTHER']);
@@ -29,7 +30,8 @@ function tripRow(t, mine) {
     <div class="row-between">
       <a class="person" href="#/u/${d.id}">${avatar(d.avatarUrl, d.fullName)}<div><div class="person-name">${esc(d.fullName)} ${verifiedBadge(d.verified)}</div><div class="person-sub">${stars(d.rating, d.ratingCount)}</div></div></a>
       ${mine
-        ? `<div class="row"><button class="btn btn-sm" data-edit="${t.id}">${icon('edit')}O'zgartirish</button>
+        ? `<div class="row">${t.active ? `<button class="btn btn-sm btn-route" data-share="${t.id}">${icon('share')}Ulashish</button>` : ''}
+            <button class="btn btn-sm" data-edit="${t.id}">${icon('edit')}O'zgartirish</button>
             <button class="btn btn-sm" data-toggle="${t.id}">${t.active ? 'Yopish' : 'Qayta ochish'}</button>
             <button class="btn btn-ghost btn-sm" data-del="${t.id}">O'chirish</button></div>`
         : d.phone ? `<a class="btn btn-route btn-sm" href="tel:${esc(d.phone)}">${icon('phone')}${esc(phoneFmt(d.phone))}</a>` : ''}
@@ -60,6 +62,7 @@ export async function tripsPage(main, _p, query) {
     <div id="list">${skeletons()}</div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="btn hidden" id="more">Yana ko'rsatish</button></div>
     ${me && !me.driver ? `<p class="small muted" style="text-align:center;margin-top:18px">Haydovchimisiz? <a href="#/profile?vehicle=1">Mashinangizni qo'shing</a> — reys e'lon qilsangiz, yo'nalishingizdagi yo'lovchi va pochtalar haqida xabar olasiz.</p>` : ''}
+    <p class="small" style="text-align:center;margin-top:12px"><a href="#/drivers">Barcha haydovchilar ro'yxati</a></p>
   </div>`;
   const f = $('#f', main);
   const search = await bindRouteSearch(f, {
@@ -93,6 +96,7 @@ export async function tripsPage(main, _p, query) {
   }
 
   function bindMine() {
+    $$('[data-share]', main).forEach(b => b.addEventListener('click', () => shareTrip(items.find(t => t.id === Number(b.dataset.share)))));
     $$('[data-edit]', main).forEach(b => b.addEventListener('click', () => tripModal(items.find(t => t.id === Number(b.dataset.edit)), () => load())));
     $$('[data-toggle]', main).forEach(b => b.addEventListener('click', async () => {
       const t = items.find(x => x.id === Number(b.dataset.toggle));
@@ -120,7 +124,9 @@ export async function tripsPage(main, _p, query) {
     load();
   }));
   $('#new-trip', main)?.addEventListener('click', () => tripModal(null, showMine));
-  load();
+  // Botdagi «Ko'rish» (reys botdan e'lon qilingan): "#/trips?mine=1" — darhol «Mening reyslarim»
+  if (q.get('mine') === '1' && me?.driver) showMine();
+  else load();
   // Botdagi «Reys e'lon qilish» tugmasi: "#/trips?new=1&fr=..&fd=..&tr=..&td=..&d=..&s=.." — forma to'ldirilgan holda ochiladi
   if (q.get('new') === '1') {
     if (me?.driver) {
@@ -134,6 +140,17 @@ export async function tripsPage(main, _p, query) {
       toast("Reys e'lon qilish uchun avval mashinangizni qo'shing");
     }
   }
+}
+
+/** Reysni ulashish: guruh yoki tanishlarga — shu yo'nalishdagi reyslar sahifasi */
+function shareTrip(t) {
+  if (!t) return;
+  const from = t.fromDistrict || t.fromRegion, to = t.toDistrict || t.toRegion;
+  const text = `🚗 ${tripWhen(t)}: ${from} → ${to}${t.seats ? `, ${t.seats} ta bo'sh o'rin` : ''}${t.priceNote ? `, ${t.priceNote}` : ''}. `
+    + "Yo'lovchi, pochta yoki yuk olaman — YukGo'da qo'ng'iroq qiling:";
+  const q = new URLSearchParams({ from: t.fromRegionId, to: t.toRegionId });
+  if (t.fromDistrictId) q.set('fd', t.fromDistrictId);
+  share({ title: 'YukGo', text, url: siteLink('#/trips?' + q) });
 }
 
 /** Mahalliy vaqt "YYYY-MM-DDTHH:mm" ko'rinishida (datetime-local uchun) */

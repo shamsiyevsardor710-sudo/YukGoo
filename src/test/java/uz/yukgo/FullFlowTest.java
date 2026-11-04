@@ -111,6 +111,26 @@ class FullFlowTest {
         assertThat(market.get("total").asLong()).isGreaterThanOrEqualTo(1);
         // Begona odam topshirish kodini ko'rmaydi
         assertThat(call("GET", "/api/orders/" + orderId, null, driver, 200).has("deliveryCode")).isFalse();
+        // Mehmon bitta e'lonni ko'radi (ulashilgan havola): raqam, aniq joy va kodsiz; boshqa amallar — kirish kerak
+        JsonNode guestView = call("GET", "/api/orders/" + orderId, null, null, 200);
+        assertThat(guestView.get("viewerRole").asText()).isEqualTo("GUEST");
+        assertThat(guestView.get("sender").has("phone")).isFalse();
+        assertThat(guestView.get("from").has("lat")).isFalse();
+        assertThat(guestView.has("deliveryCode")).isFalse();
+        call("GET", "/api/orders/" + orderId + "/messages", null, null, 401);
+        call("GET", "/api/orders/my", null, null, 401);
+
+        // «Olaman» dan oldin yozishma: haydovchi so'raydi — raqamlar yopiq; e'lon egasida yozganlar ro'yxati
+        JsonNode q1 = call("POST", "/api/orders/" + orderId + "/messages", Map.of("text", "Qayerdan olaman? Tel 93 555 66 77"), driver, 200);
+        assertThat(q1.get("text").asText()).doesNotContain("555");
+        JsonNode threads = call("GET", "/api/orders/" + orderId + "/threads", null, sender, 200);
+        assertThat(threads.size()).isEqualTo(1);
+        long driverId = threads.get(0).get("driverId").asLong();
+        assertThat(threads.get(0).get("driver").has("phone")).isFalse();
+        assertThat(call("GET", "/api/orders/" + orderId + "/messages?driverId=" + driverId, null, sender, 200).get(0).get("text").asText())
+                .doesNotContain("555");
+        call("POST", "/api/orders/" + orderId + "/messages", Map.of("text", "Bozor oldidan", "driverId", driverId), sender, 200);
+        call("GET", "/api/orders/" + orderId + "/threads", null, driver, 403);
 
         // Taklif → qabul
         JsonNode offer = call("POST", "/api/orders/" + orderId + "/offers", Map.of("price", 850000, "comment", "Ertaga olaman"), driver, 200);
@@ -124,7 +144,10 @@ class FullFlowTest {
         call("POST", "/api/orders/" + orderId + "/track", Map.of("lat", 40.5, "lng", 68.0, "speedKmh", 80), driver, 200);
         assertThat(call("GET", "/api/orders/" + orderId + "/track", null, sender, 200).get("last").get("lat").asDouble()).isEqualTo(40.5);
         call("POST", "/api/orders/" + orderId + "/messages", Map.of("text", "Yo'ldaman"), driver, 200);
-        assertThat(call("GET", "/api/orders/" + orderId + "/messages", null, sender, 200).size()).isEqualTo(1);
+        // Haydovchi tanlangach — oldingi yozishma shu yerda va raqamlar ochiq
+        JsonNode chat = call("GET", "/api/orders/" + orderId + "/messages", null, sender, 200);
+        assertThat(chat.size()).isEqualTo(3);
+        assertThat(chat.get(0).get("text").asText()).contains("93 555 66 77");
 
         // Noto'g'ri kod bilan topshirib bo'lmaydi, to'g'risi bilan bo'ladi
         call("POST", "/api/orders/" + orderId + "/deliver", Map.of("code", "0000".equals(code) ? "1111" : "0000"), driver, 400);

@@ -16,10 +16,12 @@ import uz.yukgo.user.User;
 import uz.yukgo.user.UserDtos.UserBrief;
 import uz.yukgo.user.UserRepository;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -105,6 +107,55 @@ public class TripService {
         tripRepository.save(t);
         int found = matches.onNewTrip(t);
         return TripDto.of(t, found);
+    }
+
+    /** Botdan e'lon qilingan reys; duplicate — xuddi shunday reys yaqinda e'lon qilingan (yangisi ochilmadi) */
+    public record BotTrip(Trip trip, int matches, boolean duplicate) {}
+
+    /** Bot: bir kunda ko'pi bilan shuncha reys (xato yoki spam xabarlardan himoya) */
+    static final int BOT_DAILY_LIMIT = 20;
+    /** Shu vaqt ichida xuddi shu yo'nalish, kun va soatga reys qayta yozilsa — yangisi ochilmaydi */
+    static final Duration BOT_DUPLICATE_WINDOW = Duration.ofMinutes(30);
+
+    /**
+     * Telegram bot: haydovchi botga «Kosonsoy - Toshkent, 3 ta joy bor» deb yozdi — reys darhol saytga chiqadi.
+     * Xatolar (ApiException) tranzaksiyani buzmaydi: bot ularni foydalanuvchiga matn qilib aytadi.
+     */
+    @Transactional(noRollbackFor = ApiException.class)
+    public BotTrip createAs(User me, TripRequest req) {
+        Terms.require(me);
+        if (!me.isDriver()) throw ApiException.badRequest("Reys e'lon qilish uchun profilingizga mashina ma'lumotlarini kiriting");
+        Instant now = Instant.now();
+        List<Trip> recent = tripRepository.findByDriverIdAndCreatedAtAfterOrderByIdDesc(me.getId(), now.minus(Duration.ofDays(1)));
+        boolean daily = Boolean.TRUE.equals(req.daily());
+        for (Trip t : recent) {
+            if (t.isActive() && t.getCreatedAt().isAfter(now.minus(BOT_DUPLICATE_WINDOW))
+                    && t.getFromRegion().getId().equals(req.fromRegionId()) && t.getToRegion().getId().equals(req.toRegionId())
+                    && Objects.equals(t.getFromDistrict() == null ? null : t.getFromDistrict().getId(), req.fromDistrictId())
+                    && Objects.equals(t.getToDistrict() == null ? null : t.getToDistrict().getId(), req.toDistrictId())
+                    && t.isDaily() == daily && t.getDepartAt().toLocalTime().equals(req.departAt().toLocalTime())
+                    && (daily || t.getDepartAt().toLocalDate().equals(req.departAt().toLocalDate()))) {
+                return new BotTrip(t, 0, true);
+            }
+        }
+        if (recent.size() >= BOT_DAILY_LIMIT) {
+            throw ApiException.badRequest("Bugun juda ko'p reys e'lon qildingiz — eskilarini saytda ko'ring");
+        }
+        Trip t = new Trip();
+        t.setDriver(me);
+        apply(t, req);
+        tripRepository.save(t);
+        return new BotTrip(t, matches.onNewTrip(t), false);
+    }
+
+    /** Bot: «❌ O'chirish» tugmasi. false — reys allaqachon o'chirilgan */
+    @Transactional(noRollbackFor = ApiException.class)
+    public boolean deleteAs(User me, Long id) {
+        Trip t = tripRepository.findById(id).orElse(null);
+        if (t == null) return false;
+        if (!t.getDriver().getId().equals(me.getId())) throw ApiException.forbidden("Bu sizning reysingiz emas");
+        tripRepository.delete(t);
+        return true;
     }
 
     @Transactional

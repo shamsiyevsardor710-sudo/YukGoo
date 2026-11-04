@@ -61,9 +61,10 @@ public class OrderController {
         return orderService.my(role, group, page);
     }
 
+    /** poll=1 — sahifa o'zini yangilayapti (ko'rishlar soni oshmaydi) */
     @GetMapping("/{id}")
-    public OrderDto get(@PathVariable Long id) {
-        return orderService.get(id);
+    public OrderDto get(@PathVariable Long id, @RequestParam(defaultValue = "false") boolean poll) {
+        return orderService.get(id, !poll);
     }
 
     // ---- Takliflar ----
@@ -142,9 +143,17 @@ public class OrderController {
         return orderService.events(id);
     }
 
+    /** driverId — e'lon egasi uchun: qaysi haydovchi bilan yozishma (haydovchi har doim o'z yozishmasini oladi) */
     @GetMapping("/{id}/messages")
-    public List<MessageDto> messages(@PathVariable Long id, @RequestParam(required = false) Long after) {
-        return orderService.messages(id, after);
+    public List<MessageDto> messages(@PathVariable Long id, @RequestParam(required = false) Long after,
+                                     @RequestParam(required = false) Long driverId) {
+        return orderService.messages(id, driverId, after);
+    }
+
+    /** E'lon egasi uchun: unga yozgan haydovchilar ro'yxati */
+    @GetMapping("/{id}/threads")
+    public List<ThreadDto> threads(@PathVariable Long id) {
+        return orderService.threads(id);
     }
 
     @PostMapping("/{id}/messages")

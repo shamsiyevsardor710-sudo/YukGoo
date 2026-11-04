@@ -133,17 +133,14 @@ export async function profilePage(main, _p, query) {
       <div class="stack">
         ${heroBlock(u, true)}
         <section class="panel"><h2>Mashinam</h2><div style="margin-top:14px" id="vehicle">${vehicleBlock(u.vehicle, true)}</div></section>
-        <section class="panel"><h2>Baholar</h2><div id="reviews" style="margin-top:14px">${skeletons(2)}</div></section>
+        ${u.ratingCount ? `<section class="panel"><h2>Baholar</h2><div id="reviews" style="margin-top:14px">${skeletons(2)}</div></section>` : ''}
       </div>
       <div class="stack">
-        <section class="panel stack-sm">
+        ${u.telegramLinked ? '' : `<section class="panel stack-sm">
           <h2>Telegram</h2>
-          ${u.telegramLinked
-            ? `<p class="small">Hisobingiz botga ulangan. Takliflar, holat o'zgarishlari va xabarlar Telegramga keladi.</p>
-               <button class="link-btn danger-link" id="tg-unlink" style="justify-self:start">Telegramdan uzish</button>`
-            : `<p class="small muted">Botni ulang — yangi takliflar va buyurtmalar haqida darhol xabar olasiz. Botda «Telefon raqamni yuborish» tugmasini bosing.</p>
-               <a class="btn btn-route" target="_blank" rel="noopener" href="https://t.me/${esc(cfg.botUsername)}?start=link">${icon('telegram')}@${esc(cfg.botUsername)} ni ulash</a>`}
-        </section>
+          <p class="small muted">Botni ulang — yangi takliflar va buyurtma holati haqida xabar darhol keladi, botga yozgan e'loningiz esa forma to'ldirmasdan saytga chiqadi. Botda «Telefon raqamni yuborish» tugmasini bosing.</p>
+          <a class="btn btn-route" target="_blank" rel="noopener" href="https://t.me/${esc(cfg.botUsername)}?start=link">${icon('telegram')}@${esc(cfg.botUsername)} ni ulash</a>
+        </section>`}
         <div id="wallet-slot"></div>
         <div id="verify-slot"></div>
         <div id="invite-slot"></div>
@@ -160,25 +157,32 @@ export async function profilePage(main, _p, query) {
           <div><b>Ishlaydigan viloyatlarim</b><p class="small muted" id="work-regions">…</p>
             <button class="btn btn-sm" style="margin-top:8px" id="edit-regions">Tanlash</button></div>
         </section>` : ''}
-        <section class="panel stack-sm">
-          <div class="row-between"><h2>Manzilim</h2><button class="btn btn-sm" id="edit-place">${icon('edit')}O'zgartirish</button></div>
-          <p class="place-line">${icon('pin')}<b>${esc([u.district?.name, u.region?.name].filter(Boolean).join(', ') || '—')}</b></p>
-          <p class="tiny muted">Bosh sahifada avval shu tumandan, keyin viloyatingizdan va yaqin hududlardan chiqqan e'lonlar ko'rsatiladi.</p>
-        </section>
-        <section class="panel stack-sm">
-          <a class="btn btn-ghost" href="#/u/${u.id}">Profilim boshqalarga qanday ko'rinadi</a>
-          <button class="btn btn-ghost" id="theme">${icon(currentTheme() === 'dark' ? 'moon' : 'sun')}Rejim: ${esc(themeLabel())}</button>
-          <button class="btn btn-ghost" id="blocked-list">Bloklanganlar</button>
-          <a class="btn btn-ghost" href="/terms.html" data-doc>Foydalanish shartlari</a>
-          <a class="btn btn-ghost" href="/privacy.html" data-doc>Maxfiylik siyosati</a>
-          <button class="btn btn-danger" id="logout">${icon('logout')}Chiqish</button>
-          <button class="link-btn danger-link" id="delete-account">Hisobni o'chirish</button>
-        </section>
+        <details class="more settings-box" id="settings">
+          <summary>Sozlamalar</summary>
+          <div class="stack-sm" style="margin-top:12px">
+            <div class="setting-row">
+              <span><b>Manzilim</b><br><span class="place-line small">${icon('pin')}${esc([u.district?.name, u.region?.name].filter(Boolean).join(', ') || '—')}</span>
+                <br><span class="tiny muted">Bosh sahifada avval shu tumandan, keyin viloyatingiz va yaqin hududlardan e'lonlar chiqadi.</span></span>
+              <button class="btn btn-sm" id="edit-place">${icon('edit')}O'zgartirish</button></div>
+            <a class="btn btn-ghost" href="#/u/${u.id}">Profilim boshqalarga qanday ko'rinadi</a>
+            <button class="btn btn-ghost" id="theme">${icon(currentTheme() === 'dark' ? 'moon' : 'sun')}Rejim: ${esc(themeLabel())}</button>
+            <button class="btn btn-ghost" id="blocked-list">Bloklanganlar</button>
+            ${u.telegramLinked ? `<button class="btn btn-ghost" id="tg-unlink">${icon('telegram')}Telegramdan uzish</button>` : ''}
+            <a class="btn btn-ghost" href="/terms.html" data-doc>Foydalanish shartlari</a>
+            <a class="btn btn-ghost" href="/privacy.html" data-doc>Maxfiylik siyosati</a>
+            <button class="link-btn danger-link" id="delete-account">Hisobni o'chirish</button>
+          </div>
+        </details>
+        <button class="btn btn-danger" id="logout">${icon('logout')}Chiqish</button>
       </div>
     </div></div>`;
 
-  reviewsBlock($('#reviews', main), u.id);
+  if ($('#reviews', main)) reviewsBlock($('#reviews', main), u.id);
   walletBlock($('#wallet-slot', main));
+  // Sozlamalar ochiq/yopiqligi sahifa qayta chizilganda (masalan, rejim almashtirilganda) saqlansin
+  const settings = $('#settings', main);
+  try { if (sessionStorage.getItem('yukgo_settings_open') === '1') settings.open = true; } catch { /* */ }
+  settings.addEventListener('toggle', () => { try { sessionStorage.setItem('yukgo_settings_open', settings.open ? '1' : '0'); } catch { /* */ } });
   // Click / Payme to'lov sahifasidan qaytildi (#/profile?topup=ID) — holatini ko'rsatamiz (bir marta)
   const topupId = query && query.get('topup');
   if (topupId && /^\d{1,18}$/.test(topupId)) {

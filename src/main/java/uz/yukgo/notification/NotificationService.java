@@ -47,6 +47,21 @@ public class NotificationService {
         }
     }
 
+    /**
+     * Faqat sayt ichidagi bildirishnoma (🔔), Telegramga yuborilmaydi — yozishmadagi yangi xabar uchun. Shu havola bo'yicha
+     * hali o'qilmagan bildirishnoma bo'lsa, yangisi qo'shilmaydi (har xabar uchun alohida emas).
+     */
+    @Transactional
+    public void inAppOnce(User user, String title, String body, String link) {
+        if (user == null || repository.existsByUserIdAndLinkAndReadFalse(user.getId(), link)) return;
+        Notification n = new Notification();
+        n.setUserId(user.getId());
+        n.setTitle(cut(title, 150));
+        n.setBody(cut(body, 1000));
+        n.setLink(link);
+        repository.save(n);
+    }
+
     /** Faqat Telegram (masalan, yangi buyurtmalar haqida haydovchilarga). */
     public void telegramOnly(User user, String html, String link) {
         if (user.getTelegramChatId() == null) return;

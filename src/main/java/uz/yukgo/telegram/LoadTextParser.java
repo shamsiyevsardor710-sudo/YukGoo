@@ -28,12 +28,27 @@ public final class LoadTextParser {
      * driverOffer — bu haydovchining e'loni ("Kosonsoy - Toshkent, pochta va yo'lovchi olaman", "2 ta bo'sh joy bor"):
      * bot unga yuk formasi emas, reys e'lon qilishni taklif qiladi.
      */
+    /**
+     * daily — «har kuni» (haydovchi reysi); departTime — matndagi soat ("07:00", "soat 7", "soat 18.30"), bo'lmasa null;
+     * question — savolga o'xshaydi ("…qancha turadi?", "…yo'li ochiqmi")
+     */
     public record Parsed(Place from, Place to, Double weightKg, Long price, boolean negotiable, LocalDate pickupDate,
                          BodyType bodyType, CargoType cargoType, String title, String description,
-                         OrderKind kind, Integer seats, boolean driverOffer) {
+                         OrderKind kind, Integer seats, boolean driverOffer, boolean daily, java.time.LocalTime departTime,
+                         boolean question) {
         /** Yo'nalish topilgandagina e'lon deb hisoblanadi */
         public boolean isLoad() {
             return from != null && to != null;
+        }
+
+        /**
+         * Ikki joy nomidan tashqari e'lon belgisi bor: sana, soat, og'irlik, narx, kishilar, pochta yoki yuk turi, mashina,
+         * haydovchi belgilari. Faqat shunda (va savol bo'lmasa) bot e'lonni so'ramasdan joylaydi.
+         */
+        public boolean hasDetails() {
+            return pickupDate != null || departTime != null || weightKg != null || price != null || negotiable || bodyType != null
+                    || (cargoType != null && cargoType != CargoType.GENERAL) || kind == OrderKind.PARCEL || kind == OrderKind.PASSENGER
+                    || driverOffer || daily;
         }
     }
 
@@ -129,6 +144,13 @@ public final class LoadTextParser {
      * "5 tonna mebel, yuklashga 2 ta odam kerak", "gruz 3 mesta, 200 kg" — bu yuk.
      */
     private static final String[] PASSENGER_WORDS = {"yolovchi", "passajir", "pasajir", "passazhir", "poputch"};
+    /** O'zi boradigan odam: "Toshkentga ketmoqchiman", "ertaga boraman" (yuk belgisi bo'lmasa — yo'lovchi) */
+    private static final String[] PASSENGER_VERBS = {"ketmoqchi", "bormoqchi", "ketishim", "borishim", "ketaman", "ketamiz",
+            "boraman", "boramiz", "ketyapm", "boryapm", "poedu"};
+    /** Savol: bunday matn so'ralmasdan e'lon qilinmaydi ("Toshkentdan Samarqandga qancha turadi?") */
+    private static final Pattern QUESTION = Pattern.compile(
+            " (?:qancha|qanchaga|nechpul|necha pul|nech pul|skolko|qanday|qanaqa|qachon|mumkinmi|bormi|bormikan|ochiqmi|kerakmi|"
+                    + "yuradimi|boradimi|ketadimi|kak|gde|kogda) ");
     private static final Pattern SEATS = Pattern.compile(
             "(?<![\\d.,])(\\d{1,2})\\s*(?:ta\\s+)?(?:kishi|odam|nafar|chelovek|yolovchi|passajir|pasajir|mesto|mesta)(?!lik)");
     /** Haydovchi e'lonidagi bo'sh o'rinlar: "3 ta bo'sh joy", "2 joy bor" */
@@ -140,11 +162,19 @@ public final class LoadTextParser {
      * Matn boshi va oxirida probel bor, shuning uchun " joy bor " "joy bormi" ga mos kelmaydi.
      */
     private static final String[] OFFER_WORDS = {" olaman ", " olib ketaman ", " olib ketamiz ", " olib boraman ", " joy bor ",
-            " joylar bor ", " joyim bor ", " mesto est ", " mesta est ", " vozmu ", " voz mu "};
+            " joylar bor ", " joyim bor ", " mesto est ", " mesta est ", " vozmu ", " voz mu ", " yolovchi kerak ",
+            " yolovchilar kerak ", " passajir kerak ", " poputchik kerak ", " poputchiki "};
     /** So'rov belgisi — bunday matn haydovchining e'loni emas: "mashina kerak", "joy kerak", "nujna mashina" */
     private static final Pattern REQUEST = Pattern.compile(
             " (?:mashina|moshina|avto|taksi|taxi|haydovchi|shofyor|shofer|transport|joy|orin|gazel|labo|damas|isuzu|kamaz|fura|furgon)[a-z]* kerak "
                     + "| nujen | nujna | nujno | nujny ");
+    /** Soat: "07:00", "7:30" (asl matnda — norm() ikki nuqtani olib tashlaydi) */
+    private static final Pattern CLOCK = Pattern.compile("(?<![\\d:])([01]?\\d|2[0-3]):([0-5]\\d)(?![\\d:])");
+    /** Soat so'z bilan: "soat 7", "soat 7 da", "soat 18.30" (norm qilingan matnda; "18:30" → "18 30") */
+    private static final Pattern SOAT = Pattern.compile(" soat ([01]?\\d|2[0-3])(?:[ .]([0-5]\\d))?(?![\\d.,])");
+    /** «Har kuni» (lotin va kirill — "Ҳар" ham, ruscha klaviaturadagi "Хар" ham), ruscha «ежедневно», «каждый день» */
+    private static final String[] DAILY_WORDS = {" har kuni ", " harkuni ", " har kun ", " xar kuni ", " xarkuni ", " xar kun ",
+            " ejednevno ", " ezhednevno ", " kajdiy den ", " kajdyy den ", " kazhdyy den ", " kazhdiy den "};
     /** Yo'lovchi deb hisoblanmaydigan og'irlik (kg): undan og'ir — yuk */
     private static final double HEAVY_KG = 50;
 
@@ -221,7 +251,8 @@ public final class LoadTextParser {
 
     public Parsed parse(String original, LocalDate today) {
         if (original == null || original.isBlank()) {
-            return new Parsed(null, null, null, null, false, null, null, CargoType.GENERAL, null, null, OrderKind.CARGO, null, false);
+            return new Parsed(null, null, null, null, false, null, null, CargoType.GENERAL, null, null, OrderKind.CARGO, null, false,
+                    false, null, false);
         }
         String cleanOriginal = PHONE.matcher(original).replaceAll(" ").replaceAll("[ \\t]+", " ").trim();
         String text = " " + norm(PHONE.matcher(original).replaceAll(" ")) + " ";
@@ -333,7 +364,7 @@ public final class LoadTextParser {
             int n = Integer.parseInt(m.group(1));
             if (n >= 1 && n <= 30) seats = n;
         }
-        if (!heavy && (seats != null || hasWord(words, used, PASSENGER_WORDS))) {
+        if (!heavy && (seats != null || hasWord(words, used, PASSENGER_WORDS) || (!cargoSignal && hasWord(words, used, PASSENGER_VERBS)))) {
             kind = OrderKind.PASSENGER;
             weight = null;   // yo'lovchida og'irlik yo'q
         } else if (!heavy && hasWord(words, used, PARCEL_WORDS)) {
@@ -348,11 +379,22 @@ public final class LoadTextParser {
         }
         if (!offer && kind == OrderKind.PASSENGER && seats == null) seats = 1;
 
+        // ---- Haydovchi reysi: «har kuni» va jo'nash soati ----
+        boolean daily = Arrays.stream(DAILY_WORDS).anyMatch(plain::contains);
+        java.time.LocalTime departTime = null;
+        if ((m = CLOCK.matcher(cleanOriginal)).find()) {
+            departTime = java.time.LocalTime.of(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
+        } else if ((m = SOAT.matcher(text)).find()) {
+            departTime = java.time.LocalTime.of(Integer.parseInt(m.group(1)), m.group(2) == null ? 0 : Integer.parseInt(m.group(2)));
+        }
+
         String firstLine = cleanOriginal.split("\\R", 2)[0].trim();
         String title = firstLine.length() > 120 ? firstLine.substring(0, 117) + "…" : firstLine;
         if (title.length() < 3) title = kind == OrderKind.PARCEL ? "Pochta" : "Yuk";
         String description = cleanOriginal.length() > 1500 ? cleanOriginal.substring(0, 1500) : cleanOriginal;
-        return new Parsed(from, to, weight, price, negotiable, date, body, cargo, title, description, kind, seats, offer);
+        boolean question = original.contains("?") || QUESTION.matcher(plain).find();
+        return new Parsed(from, to, weight, price, negotiable, date, body, cargo, title, description, kind, seats, offer,
+                daily, departTime, question);
     }
 
     /** Joy nomi bo'lmagan so'zlardan biri berilgan o'zaklardan biri bilan boshlanadimi */

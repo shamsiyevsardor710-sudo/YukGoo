@@ -77,6 +77,47 @@ public class OrderService {
     @Transactional
     public OrderDto create(CreateOrderRequest req) {
         User me = currentUser.get();
+        return toDto(createOrder(me, req).order(), me, true);
+    }
+
+    /** Yaratilgan e'lon va xabar yuborilgan haydovchilar soni (duplicate=true — xuddi shunday e'lon yaqinda joylangan, yangisi ochilmadi) */
+    public record Created(Order order, int notified, boolean duplicate) {}
+
+    /** Botga yozilgan e'lon: kuniga ko'pi bilan shuncha (spam va xato yuborishdan himoya; saytdagi forma cheklanmaydi) */
+    static final int BOT_DAILY_LIMIT = 20;
+    /** Shu vaqt ichida xuddi shunday e'lon qayta yuborilsa — yangisi ochilmaydi (odamlar xabarni ikki marta yuboradi) */
+    static final Duration BOT_DUPLICATE_WINDOW = Duration.ofMinutes(30);
+
+    /**
+     * Telegram bot: ulangan foydalanuvchi botga yozgan e'lon — forma to'ldirilmasdan darhol saytga chiqadi.
+     * Xuddi shunday (yo'nalish, tur, sana) e'lon yaqinda joylangan bo'lsa — o'sha qaytariladi.
+     * Xatolar (ApiException) hech narsa yozilmasdan oldin chiqadi va tranzaksiyani buzmaydi — bot ularni matn qilib aytadi.
+     */
+    @Transactional(noRollbackFor = ApiException.class)
+    public Created createFromBot(User me, CreateOrderRequest req) {
+        Instant now = Instant.now();
+        OrderKind kind = req.kind() == null ? OrderKind.CARGO : req.kind();
+        for (Order o : orderRepository.findBySenderIdAndStatusAndCreatedAtAfterOrderByIdDesc(me.getId(), OrderStatus.NEW,
+                now.minus(BOT_DUPLICATE_WINDOW))) {
+            // Xuddi o'sha xabar (bir xil matn, yo'nalish, tur va sana) — boshqa yuk bo'lsa yangi e'lon ochiladi
+            if (o.getKind() == kind && o.getFromRegion().getId().equals(req.from().regionId())
+                    && o.getToRegion().getId().equals(req.to().regionId())
+                    && Objects.equals(o.getFromDistrict() == null ? null : o.getFromDistrict().getId(), req.from().districtId())
+                    && Objects.equals(o.getToDistrict() == null ? null : o.getToDistrict().getId(), req.to().districtId())
+                    && (req.pickupDate() == null || Objects.equals(o.getPickupDate(), req.pickupDate()))
+                    && Objects.equals(o.getDescription(), trimToNull(req.description()))
+                    && (kind == OrderKind.PASSENGER ? Objects.equals(o.getSeats(), req.seats() == null ? 1 : req.seats())
+                            : Objects.equals(o.getTitle(), trimToNull(req.title())))) {
+                return new Created(o, 0, true);
+            }
+        }
+        if (orderRepository.countBySenderIdAndCreatedAtAfter(me.getId(), now.minus(Duration.ofDays(1))) >= BOT_DAILY_LIMIT) {
+            throw ApiException.badRequest("Bugun juda ko'p e'lon berdingiz. Eskilarini saytda ko'ring yoki ertaga qayta urinib ko'ring");
+        }
+        return createOrder(me, req);
+    }
+
+    Created createOrder(User me, CreateOrderRequest req) {
         Terms.require(me);
         OrderKind kind = req.kind() == null ? OrderKind.CARGO : req.kind();
         Region fromRegion = locationService.region(req.from().regionId());
@@ -156,9 +197,9 @@ public class OrderService {
 
         me.setOrdersCreated(me.getOrdersCreated() + 1);
         event(o, OrderStatus.NEW, kind == OrderKind.PASSENGER ? "Yo'lovchi e'loni joylandi" : "Buyurtma e'lon qilindi", me);
-        matches.onNewOrder(o, me);   // reysi mos va yaqindagi haydovchilarga xabar
+        int notified = matches.onNewOrder(o, me);   // reysi mos va yaqindagi haydovchilarga xabar
         channels.orderChanged(o.getId());   // YukGo va hamkor Telegram kanallariga e'lon (saqlangandan keyin)
-        return toDto(o, me, true);
+        return new Created(o, notified, false);
     }
 
     @Transactional
@@ -201,9 +242,22 @@ public class OrderService {
 
     @Transactional
     public OrderDto get(Long id) {
-        User viewer = currentUser.get();
+        return get(id, true);
+    }
+
+    /**
+     * Mehmon (ulashilgan havola) faqat ochiq e'lonni ko'radi — raqam, aniq manzil va kodsiz; yopilgan, olingan yoki
+     * yetkazilgan buyurtmalar (haydovchi va mashinasi bilan) unga ko'rinmaydi.
+     * @param countView sahifa birinchi ochilganda (o'zini yangilaganda emas) — kirgan begona foydalanuvchi ko'rishi sanaladi
+     */
+    @Transactional
+    public OrderDto get(Long id, boolean countView) {
+        User viewer = currentUserOrNull();
         Order o = find(id);
-        if (!isParticipant(o, viewer)) o.setViewsCount(o.getViewsCount() + 1);
+        if (viewer == null && (o.getStatus() != OrderStatus.NEW || o.getSender().getStatus() != uz.yukgo.user.UserStatus.ACTIVE)) {
+            throw ApiException.notFound("E'lon topilmadi yoki yopilgan");
+        }
+        if (countView && viewer != null && !isParticipant(o, viewer)) o.setViewsCount(o.getViewsCount() + 1);
         return toDto(o, viewer, true);
     }
 
@@ -223,8 +277,9 @@ public class OrderService {
             case "done" -> List.of(OrderStatus.DELIVERED, OrderStatus.CANCELLED);
             default -> ALL;
         };
-        var result = "driver".equals(role)
-                ? orderRepository.findByDriver(me.getId(), statuses, pageable)
+        // «Hammasi»: bergan, olgan va narx taklif qilgan buyurtmalarim birga (driver, offers — eski ilova versiyalari uchun)
+        var result = "all".equals(role) ? orderRepository.findMine(me.getId(), statuses, pageable)
+                : "driver".equals(role) ? orderRepository.findByDriver(me.getId(), statuses, pageable)
                 : orderRepository.findBySender(me.getId(), statuses, pageable);
         return PageResponse.of(result, o -> toDto(o, me));
     }
@@ -392,7 +447,8 @@ public class OrderService {
         offer.setStatus(OfferStatus.REJECTED);
         o.setOffersCount((int) offerRepository.countByOrderIdAndStatus(orderId, OfferStatus.PENDING));
         notifications.notify(offer.getDriver(), "Taklifingiz rad etildi",
-                "\"" + o.getTitle() + "\" buyurtmasi bo'yicha taklifingiz qabul qilinmadi", "#/orders/" + o.getId());
+                "\"" + uz.yukgo.channel.OrderCard.publicTitle(o.getTitle()) + "\" buyurtmasi bo'yicha taklifingiz qabul qilinmadi",
+                "#/orders/" + o.getId());
     }
 
     private void assignDriver(Order o, Offer accepted, User actor) {
@@ -417,7 +473,7 @@ public class OrderService {
             if (other.getId().equals(accepted.getId())) continue;
             other.setStatus(OfferStatus.REJECTED);
             notifications.notify(other.getDriver(), "E'lon boshqa haydovchiga berildi",
-                    "\"" + o.getTitle() + "\" — boshqa taklif tanlandi", null);
+                    "\"" + uz.yukgo.channel.OrderCard.publicTitle(o.getTitle()) + "\" — boshqa taklif tanlandi", null);
         }
         o.setOffersCount(0);
         User driver = accepted.getDriver();
@@ -533,8 +589,28 @@ public class OrderService {
     @Transactional
     public OrderDto cancel(Long orderId, CancelRequest req) {
         User me = currentUser.get();
+        Order o = cancelBy(me, orderId, req == null ? null : trimToNull(req.reason()));
+        return toDto(o, me, true);
+    }
+
+    /**
+     * Telegram bot: e'lon egasi «❌ Bekor qilish» tugmasini bosdi. Faqat hali hech kim olmagan e'lon — haydovchi
+     * olgan bo'lsa, bekor qilish saytda (sababi bilan) qilinadi.
+     */
+    @Transactional(noRollbackFor = ApiException.class)
+    public Order cancelFromBot(User me, Long orderId) {
+        // Avval qator bloklanadi va bazadagi joriy holat o'qiladi: shu payt haydovchi «Olaman» bosgan bo'lsa — biz ko'ramiz
         Order o = findForUpdate(orderId);
-        String reason = req == null ? null : trimToNull(req.reason());
+        if (!o.getSender().getId().equals(me.getId())) throw ApiException.forbidden("Bu sizning e'loningiz emas");
+        if (o.getStatus() == OrderStatus.CANCELLED) return o;
+        if (o.getStatus() != OrderStatus.NEW) {
+            throw ApiException.badRequest("E'lonni haydovchi olgan — bekor qilish uchun saytda e'lonni oching");
+        }
+        return cancelBy(me, orderId, "Telegram orqali bekor qilindi");
+    }
+
+    Order cancelBy(User me, Long orderId, String reason) {
+        Order o = findForUpdate(orderId);
         boolean sender = o.getSender().getId().equals(me.getId());
         boolean driver = o.getDriver() != null && o.getDriver().getId().equals(me.getId());
 
@@ -582,7 +658,7 @@ public class OrderService {
         } else {
             throw ApiException.forbidden("Ruxsat yo'q");
         }
-        return toDto(o, me, true);
+        return o;
     }
 
     /** Admin istalgan holatdagi (yakunlanmagan) buyurtmani bekor qiladi. */
@@ -734,13 +810,23 @@ public class OrderService {
         return eventRepository.findByOrderIdOrderByCreatedAtAsc(orderId).stream().map(EventDto::of).toList();
     }
 
+    /**
+     * Yozishma: har bir haydovchi bilan alohida ip. Haydovchi — o'z ipini, e'lon egasi — tanlagan haydovchi ipini
+     * (driverId; berilmasa — e'lon berilgan haydovchi bilan), admin — istalganini ko'radi (faqat o'qish).
+     * E'lon shu haydovchiga berilmaguncha matndagi telefon raqamlar yopiq ko'rinadi.
+     */
     @Transactional(readOnly = true)
-    public List<MessageDto> messages(Long orderId, Long afterId) {
+    public List<MessageDto> messages(Long orderId, Long driverId, Long afterId) {
         User me = currentUser.get();
         Order o = find(orderId);
-        if (!isParticipant(o, me) && !me.getRole().isStaff()) throw ApiException.forbidden("Ruxsat yo'q");
-        return messageRepository.findByOrderIdAndIdGreaterThanOrderByIdAsc(orderId, afterId == null ? 0 : afterId)
-                .stream().map(MessageDto::of).toList();
+        boolean isSender = o.getSender().getId().equals(me.getId());
+        boolean staff = me.getRole().isStaff();
+        Long thread = (isSender || staff) && driverId != null ? driverId
+                : isSender || (staff && !isParticipant(o, me)) ? assignedId(o) : me.getId();
+        if (thread == null) return List.of();
+        boolean assigned = thread.equals(assignedId(o));
+        return messageRepository.thread(orderId, thread, afterId == null ? 0 : afterId).stream()
+                .map(m -> MessageDto.of(m, !assigned && !staff)).toList();
     }
 
     @Transactional
@@ -748,21 +834,94 @@ public class OrderService {
         User me = currentUser.get();
         Terms.require(me);
         Order o = find(orderId);
-        if (!isParticipant(o, me)) throw ApiException.forbidden("Yozishma faqat yuboruvchi va haydovchi o'rtasida");
-        if (o.getDriver() == null) throw ApiException.badRequest("Haydovchi tanlangandan keyin yozishish mumkin");
-        User counterpart = o.getSender().getId().equals(me.getId()) ? o.getDriver() : o.getSender();
-        blocks.requireNone(me.getId(), counterpart.getId(), "Bu foydalanuvchi bilan yozishma cheklangan");
+        boolean isSender = o.getSender().getId().equals(me.getId());
+        Long assignedId = assignedId(o);
+        Long thread;
+        User other;
+        if (isSender) {
+            thread = req.driverId() != null ? req.driverId() : assignedId;
+            if (thread == null) throw ApiException.badRequest("Qaysi haydovchiga yozayotganingizni tanlang");
+            if (!thread.equals(assignedId)) {
+                if (assignedId != null || o.getStatus() != OrderStatus.NEW) {
+                    throw ApiException.badRequest("E'lon boshqa haydovchiga berilgan yoki yopilgan — bu yozishma yopiq");
+                }
+                // E'lon egasi faqat o'ziga yozgan yoki narx taklif qilgan haydovchiga yoza oladi
+                if (!messageRepository.existsByOrderIdAndDriverId(orderId, thread)
+                        && offerRepository.findFirstByOrderIdAndDriverIdAndStatus(orderId, thread, OfferStatus.PENDING).isEmpty()) {
+                    throw ApiException.badRequest("Bu haydovchi bilan yozishma yo'q");
+                }
+            }
+            other = thread.equals(assignedId) ? o.getDriver()
+                    : userRepository.findById(thread).orElseThrow(() -> ApiException.notFound("Haydovchi topilmadi"));
+        } else {
+            thread = me.getId();
+            if (!thread.equals(assignedId)) {
+                if (assignedId != null || o.getStatus() != OrderStatus.NEW) {
+                    throw ApiException.badRequest("E'lon boshqa haydovchiga berilgan yoki yopilgan");
+                }
+                if (!me.isDriver()) {
+                    throw ApiException.badRequest("E'lon egasiga yozish uchun profilingizga mashina ma'lumotlarini kiriting");
+                }
+                if (me.getPhone() == null) throw ApiException.badRequest("Telefon raqam tasdiqlanmagan");
+            }
+            other = o.getSender();
+        }
+        blocks.requireNone(me.getId(), other.getId(), "Bu foydalanuvchi bilan yozishma cheklangan");
+        boolean assigned = thread.equals(assignedId);
+
         OrderMessage m = new OrderMessage();
         m.setOrderId(orderId);
+        m.setDriverId(thread);
         m.setAuthor(me);
         m.setText(req.text().trim());
         messageRepository.save(m);
-        User other = o.getSender().getId().equals(me.getId()) ? o.getDriver() : o.getSender();
-        if (other.getTelegramChatId() != null) {
-            notifications.telegramOnly(other, "💬 <b>" + TelegramClient.esc(me.getFullName()) + "</b> (#" + orderId + "):\n"
-                    + TelegramClient.esc(m.getText()), "#/orders/" + orderId);
+
+        // Xabar faqat yozishmada turadi — Telegramga yuborilmaydi. Ikkinchi tomonga sayt ichida 🔔 (matnsiz; shu yozishma
+        // bo'yicha o'qilmagan bildirishnoma bo'lsa — yangisi qo'shilmaydi)
+        notifications.inAppOnce(other, "💬 Yangi xabar",
+                me.getFullName() + " sizga yozdi — «" + uz.yukgo.channel.OrderCard.publicTitle(o.getTitle()) + "»",
+                "#/orders/" + orderId + "?chat=" + thread);
+        return MessageDto.of(m, !assigned);
+    }
+
+    /**
+     * E'lon egasi uchun: qaysi haydovchilar yozgan (har biri alohida ip). Bloklangan haydovchilar ko'rsatilmaydi,
+     * telefonlar berilmaydi.
+     */
+    @Transactional(readOnly = true)
+    public List<ThreadDto> threads(Long orderId) {
+        User me = currentUser.get();
+        Order o = find(orderId);
+        boolean staff = me.getRole().isStaff();
+        if (!o.getSender().getId().equals(me.getId()) && !staff) throw ApiException.forbidden("Ruxsat yo'q");
+        Long assignedId = assignedId(o);
+        Map<Long, List<OrderMessage>> byDriver = new LinkedHashMap<>();
+        for (OrderMessage m : messageRepository.findByOrderIdAndIdGreaterThanOrderByIdAsc(orderId, 0L)) {
+            if (m.getDriverId() != null) byDriver.computeIfAbsent(m.getDriverId(), k -> new ArrayList<>()).add(m);
         }
-        return MessageDto.of(m);
+        if (byDriver.isEmpty()) return List.of();
+        Map<Long, User> drivers = new HashMap<>();
+        userRepository.findAllById(byDriver.keySet()).forEach(u -> drivers.put(u.getId(), u));
+        List<ThreadDto> out = new ArrayList<>();
+        byDriver.forEach((driverId, list) -> {
+            User d = drivers.get(driverId);
+            if (d == null) return;
+            if (!staff && blocks.state(me.getId(), driverId) != null) return;
+            OrderMessage last = list.get(list.size() - 1);
+            boolean assigned = driverId.equals(assignedId);
+            boolean open = assigned || (assignedId == null && o.getStatus() == OrderStatus.NEW);
+            String text = assigned || staff ? last.getText() : Phones.maskInText(last.getText());
+            out.add(new ThreadDto(driverId, UserBrief.of(d, false), list.size(),
+                    text.length() > 120 ? text.substring(0, 119) + "…" : text, last.getCreatedAt(),
+                    last.getAuthor().getId().equals(me.getId()), assigned, open));
+        });
+        out.sort(Comparator.comparing(ThreadDto::assigned).reversed()
+                .thenComparing(ThreadDto::lastAt, Comparator.reverseOrder()));
+        return out;
+    }
+
+    private static Long assignedId(Order o) {
+        return o.getDriver() == null ? null : o.getDriver().getId();
     }
 
     // =====================================================================
@@ -886,7 +1045,8 @@ public class OrderService {
         // Telefonlar faqat buyurtma tomonlariga: yuboruvchi raqami haydovchiga buyurtma unga berilgandagina ochiladi
         // (aks holda platformani chetlab, komissiyasiz kelishib olish mumkin bo'lardi)
         boolean seeContacts = isSender || isDriver || isStaff;
-        boolean seeExactPlace = seeContacts || o.getStatus() == OrderStatus.NEW;
+        // Aniq manzil: tomonlarga va ochiq e'lonni ko'rayotgan kirgan foydalanuvchiga (mehmonga — faqat viloyat va tuman)
+        boolean seeExactPlace = seeContacts || (o.getStatus() == OrderStatus.NEW && viewer != null);
 
         OfferDto myOffer = null;
         if (viewer != null && !isSender && viewer.isDriver() && o.getStatus() == OrderStatus.NEW) {
@@ -903,8 +1063,10 @@ public class OrderService {
             // Kim bloklaganini oshkor qilmaymiz: o'zim bloklagan bo'lsam — "ME" (blokdan chiqarish mumkin), aks holda "CLOSED"
             block = s == null ? null : BlockService.BY_ME.equals(s) ? "ME" : "CLOSED";
         }
+        // Sarlavha yoki izohga yozilgan telefon raqam ham haydovchi tanlanguncha yopiq (raqam faqat tomonlarga)
         return new OrderDto(
-                o.getId(), o.getTitle(), o.getCargoType(), o.getWeightKg(), o.getVolumeM3(), o.getDescription(),
+                o.getId(), seeContacts ? o.getTitle() : Phones.maskInText(o.getTitle()), o.getCargoType(), o.getWeightKg(),
+                o.getVolumeM3(), seeContacts ? o.getDescription() : Phones.maskInText(o.getDescription()),
                 o.getPhotoUrl(), o.getRequiredBodyType(),
                 place(o.getFromRegion(), o.getFromDistrict(), seeExactPlace ? o.getFromAddress() : null,
                         seeExactPlace ? o.getFromLat() : null, seeExactPlace ? o.getFromLng() : null),

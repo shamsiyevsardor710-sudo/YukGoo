@@ -13,13 +13,19 @@ import uz.yukgo.admin.AdminLogRepository;
 import uz.yukgo.auth.VerificationRequest;
 import uz.yukgo.auth.VerificationService;
 import uz.yukgo.channel.OrderCard;
+import uz.yukgo.common.ApiException;
 import uz.yukgo.common.Phones;
 import uz.yukgo.growth.GrowthService;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.Order;
 import uz.yukgo.order.OrderKind;
 import uz.yukgo.order.OrderRepository;
+import uz.yukgo.order.OrderDtos.CreateOrderRequest;
+import uz.yukgo.order.OrderDtos.PlaceInput;
+import uz.yukgo.order.OrderService;
 import uz.yukgo.order.OrderStatus;
+import uz.yukgo.trip.Trip;
+import uz.yukgo.trip.TripService;
 import uz.yukgo.user.User;
 import uz.yukgo.user.UserRepository;
 
@@ -29,7 +35,10 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +53,8 @@ import static uz.yukgo.telegram.TelegramClient.esc;
  *  • /start TOKEN — saytdan kelgan foydalanuvchi: kontakt so'raladi va tasdiqlash kodi yuboriladi
  *  • /start o123_ch3 — kanal postidagi "Taklif berish": buyurtma kartasi va uni ochish tugmasi
  *  • /start new — "Yuk e'lon qilish"; /start src_KOD, /start ref_ID — manba va taklif havolalari
- *  • oddiy matn ("Toshkent - Samarqand, 5 tonna, ertaga, 3 mln") — e'lon tushuniladi va to'ldirilgan forma ochiladi
+ *  • oddiy matn ("Toshkent - Samarqand, 5 tonna, ertaga, 3 mln") — hisobi ulangan foydalanuvchida e'lon darhol saytga
+ *    chiqadi (haydovchining "3 ta joy bor" xabari — reys), ulanmaganida to'ldirilgan forma ochiladi
  *  • kontakt ulashish — raqam botga bog'lanadi
  *  • 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam
  *  • adminlar uchun ommaviy xabar: botga yuborilgan matn, rasm, video, dumaloq video, ovozli xabar, fayl yoki albom
@@ -64,6 +74,8 @@ public class TelegramBot {
     private final org.springframework.transaction.support.TransactionTemplate tx;
     private final PlaceIndex places;
     private final GrowthService growth;
+    private final OrderService orders;
+    private final TripService trips;
 
     private static final ZoneId TZ = ZoneId.of("Asia/Tashkent");
     private static final Pattern ORDER_START = Pattern.compile("o(\\d{1,18})(?:_([a-z0-9_-]{1,40}))?");
@@ -72,10 +84,13 @@ public class TelegramBot {
     private static final Pattern REF_START = Pattern.compile("ref_(\\d{1,18})");
     /** To'ldirilgan forma havolasi shundan uzun bo'lsa — tavsif qisqartiriladi (Telegram juda uzun tugma havolasini rad etadi) */
     private static final int MAX_BUTTON_URL = 2000;
-    private static final String LOAD_HINT = "📦 E'lon bermoqchi bo'lsangiz — qayerdan va qayerga ekanini bitta xabarda yozing, masalan:\n"
+    private static final String LOAD_HINT = "📦 E'lon bermoqchi bo'lsangiz — qayerdan va qayerga ekanini bitta xabarda yozing, "
+            + "e'lon darhol saytga chiqadi. Masalan:\n"
             + "• <i>Toshkent - Samarqand, 5 tonna, ertaga, 3 mln</i>\n"
             + "• <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i>\n"
-            + "• <i>Andijon - Toshkent, pochta, bugun</i>";
+            + "• <i>Andijon - Toshkent, pochta, bugun</i>\n"
+            + "🚗 Haydovchi bo'lsangiz: <i>Kosonsoy - Toshkent, ertaga 07:00, 3 ta joy bor</i>";
+    private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
 
     private volatile boolean running;
     private Thread worker;
@@ -88,7 +103,7 @@ public class TelegramBot {
     private static final long ALBUM_WAIT_MS = 1500;
 
     /** Admin yuborgan, "Hammaga yuborish" tasdig'ini kutayotgan xabar(lar) */
-    record Draft(long chatId, List<Integer> messageIds, String description, Instant createdAt) {}
+    record Draft(long chatId, List<Integer> messageIds, String description, Instant createdAt, String text) {}
 
     /** Albom: Telegram har bir rasm/videoni alohida xabar qilib yuboradi — hammasi kelguncha yig'iladi */
     static final class AlbumBuffer {
@@ -104,6 +119,11 @@ public class TelegramBot {
 
     private final Map<String, Draft> drafts = new ConcurrentHashMap<>();
     private final Map<String, AlbumBuffer> albums = new ConcurrentHashMap<>();
+
+    /** Aniq bo'lmagan matn (savol yoki faqat ikki joy nomi): «✅ Saytga joylash» bosilishini kutayotgan e'lon */
+    record PendingPost(long chatId, String text, Instant createdAt) {}
+
+    private final Map<String, PendingPost> pendingPosts = new ConcurrentHashMap<>();
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
@@ -167,6 +187,7 @@ public class TelegramBot {
                         }
                     } catch (Exception e) {
                         log.error("Bot xabarini qayta ishlashda xato", e);
+                        replyFailed(upd);
                     }
                 }
                 flushAlbums(System.currentTimeMillis());
@@ -200,6 +221,35 @@ public class TelegramBot {
                 log.warn("Telegram polling xatosi: {}", TelegramClient.safe(e));
                 if (!pause(5000)) return;
             }
+        }
+    }
+
+    /** Xabarni qayta ishlab bo'lmadi (masalan, baza vaqtincha ishlamayapti) — foydalanuvchi javobsiz qolmasin */
+    private void replyFailed(JsonNode upd) {
+        try {
+            JsonNode chat = upd.has("callback_query") ? upd.path("callback_query").path("message").path("chat") : upd.path("message").path("chat");
+            if (!"private".equals(chat.path("type").asText()) || chat.path("id").asLong(0) == 0) return;
+            client.sendNow(chat.path("id").asLong(), "⚠️ Xatolik yuz berdi — birozdan keyin qayta urinib ko'ring.", null);
+        } catch (Exception ignored) {
+            // javob ham ketmasa — logda bor
+        }
+    }
+
+    /**
+     * Saqlangandan keyin (tranzaksiya tugagach) bajariladi: foydalanuvchiga «✅ chiqdi» faqat haqiqatan saqlanganda boradi va
+     * Telegramga yuborish vaqtida e'lon qatori bloklanib turmaydi. Tranzaksiya bo'lmasa — darhol.
+     */
+    static void afterCommit(Runnable r) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            r.run();
+                        }
+                    });
+        } else {
+            r.run();
         }
     }
 
@@ -241,6 +291,8 @@ public class TelegramBot {
             onBroadcastDraft(chatId, msg);
         } else if (!text.isEmpty() && !text.startsWith("/")) {
             onFreeText(chatId, text);
+        } else if (broadcastKind(msg) != null) {
+            onMediaFromNonStaff(chatId);
         } else {
             client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇", TelegramClient.mainMenu());
         }
@@ -250,25 +302,63 @@ public class TelegramBot {
     // Matn bilan e'lon: "Toshkent - Samarqand, 5 tonna, ertaga, 3 mln" → to'ldirilgan forma
     // =====================================================================
 
-    void onFreeText(long chatId, String text) {
-        LoadTextParser.Parsed p = null;
+    /** Matndan e'lon (yo'nalish topilmasa yoki tushunib bo'lmasa — null) */
+    private LoadTextParser.Parsed parse(String text) {
         try {
-            p = places.parser().parse(text, LocalDate.now(TZ));
+            LoadTextParser.Parsed p = places.parser().parse(text, LocalDate.now(TZ));
+            return p != null && p.isLoad() ? p : null;
         } catch (Exception e) {
             log.warn("E'lon matnini tushunib bo'lmadi: {}", TelegramClient.safe(e));
+            return null;
         }
-        if (p == null || !p.isLoad()) {
+    }
+
+    void onFreeText(long chatId, String text) {
+        onFreeText(chatId, text, false);
+    }
+
+    /**
+     * @param confirmed foydalanuvchi «✅ Saytga joylash» ni (admin — «E'lon sifatida joylash» ni) bosgan: qayta so'ralmaydi
+     */
+    void onFreeText(long chatId, String text, boolean confirmed) {
+        LoadTextParser.Parsed p = parse(text);
+        if (p == null) {
             client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇\n\n" + LOAD_HINT, TelegramClient.mainMenu());
             return;
         }
+        // Hisobi ulangan, shartlarni qabul qilgan faol foydalanuvchi — e'lon forma to'ldirilmasdan darhol saytga chiqadi.
+        // Matn aniq e'lon bo'lmasa (savol yoki faqat ikki joy nomi) — bir bosishli «✅ Saytga joylash» so'raladi.
+        User u = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).orElse(null);
+        boolean ready = u != null && u.isActive() && u.hasAcceptedTerms() && u.getPhone() != null;
+        boolean sure = confirmed || (!p.question() && p.hasDetails());
+        String problem = null;
         if (p.driverOffer()) {
-            // "Kosonsoy - Toshkent, yo'lovchi va pochta olaman" — bu haydovchining e'loni: reys formasi ochiladi
+            // "Kosonsoy - Toshkent, yo'lovchi va pochta olaman" — bu haydovchining e'loni: reys
+            if (ready && u.isDriver()) {
+                if (!sure) {
+                    askToPost(chatId, text, tripHead(p), "#" + tripPrefillRoute(p), "✏️ Reys formasi");
+                    return;
+                }
+                problem = autoTrip(chatId, u, p);
+                if (problem == null) return;
+            }
             String route = tripPrefillRoute(p);
             List<Object> buttons = new ArrayList<>();
             buttons.add(TelegramClient.appButton("🚗 Reys e'lon qilish", notifications.appUrl(route)));
             buttons.add(TelegramClient.linkButton("🚗 Reys e'lon qilish", notifications.siteUrl("#" + route)));
-            client.sendNowWithFallbacks(chatId, tripSummary(p), buttons);
+            client.sendNowWithFallbacks(chatId, (problem != null ? "⚠️ " + esc(problem) + "\n\n" : "") + tripSummary(p)
+                    + (ready && !u.isDriver() ? "\n\n🚗 Avval profilingizga mashinangizni qo'shing — keyingi safar reys shu yerdan "
+                    + "darhol chiqadi." : "") + notLinkedNote(u, ready), buttons);
             return;
+        }
+        if (ready) {
+            if (!sure) {
+                String brief = prefillRoute(p, p.title().length() > 60 ? p.title().substring(0, 60) : p.title(), null);
+                askToPost(chatId, text, loadHead(p), "#" + brief, "✏️ Formani ochish");
+                return;
+            }
+            problem = autoOrder(chatId, u, p);
+            if (problem == null) return;
         }
         // Uzun matn: tavsif tugma havolasiga sig'guncha qisqartiriladi; Telegram baribir rad etsa — qisqa variant
         String desc = p.description() != null && !p.description().equals(p.title()) ? p.description() : null;
@@ -282,18 +372,242 @@ public class TelegramBot {
         buttons.add(TelegramClient.appButton("✅ Formani ochish", notifications.appUrl(route)));
         buttons.add(TelegramClient.appButton("✅ Formani ochish", notifications.appUrl(brief)));
         buttons.add(TelegramClient.linkButton("✅ Formani ochish", notifications.siteUrl("#" + brief)));
-        client.sendNowWithFallbacks(chatId, loadSummary(p), buttons);
+        client.sendNowWithFallbacks(chatId, (problem != null ? "⚠️ " + esc(problem) + "\n\n" : "") + loadSummary(p)
+                + notLinkedNote(u, ready), buttons);
+    }
+
+    /** Ro'yxatdan o'tmagan (yoki botga ulanmagan) foydalanuvchiga: ulansa, keyingi e'lon shu yerdan darhol chiqadi */
+    private static String notLinkedNote(User u, boolean ready) {
+        if (ready) return "";
+        if (u == null) return "\n\n💡 Ro'yxatdan o'tganingizdan keyin botga yozgan e'loningiz forma to'ldirmasdan darhol saytga chiqadi.";
+        return "";
+    }
+
+    /** Aniq bo'lmagan matn: tushunilgani + «✅ Saytga joylash» (bir bosishda chiqadi) va o'zgartirish uchun forma */
+    void askToPost(long chatId, String text, String head, String formHash, String formText) {
+        Instant expiredBefore = Instant.now().minus(DRAFT_TTL);
+        pendingPosts.values().removeIf(x -> x.createdAt().isBefore(expiredBefore));
+        String id = Long.toString(RANDOM.nextLong() & Long.MAX_VALUE, 36);
+        pendingPosts.put(id, new PendingPost(chatId, text, Instant.now()));
+        Map<String, Object> post = Map.of("text", "✅ Saytga joylash", "callback_data", "op:" + id);
+        String app = notifications.appUrl(formHash);
+        String site = notifications.siteUrl(formHash);
+        List<Object> variants = new ArrayList<>();
+        if (TelegramClient.isHttpsPublic(app)) {
+            variants.add(Map.of("inline_keyboard", List.of(List.of(post), List.of(Map.of("text", formText, "web_app", Map.of("url", app))))));
+        }
+        if (TelegramClient.isPublicUrl(site)) {
+            variants.add(Map.of("inline_keyboard", List.of(List.of(post), List.of(Map.of("text", formText, "url", site)))));
+        }
+        variants.add(Map.of("inline_keyboard", List.of(List.of(post))));
+        client.sendNowWithFallbacks(chatId, head + "\n\n❓ Shuni saytga joylaymi? «✅ Saytga joylash» ni bosing — darhol chiqadi "
+                + "va shu yo'nalishdagilarga xabar boradi. O'zgartirmoqchi bo'lsangiz — formani oching.", variants);
+    }
+
+    /** «✅ Saytga joylash» (op:ID) */
+    void onConfirmPost(String callbackId, long chatId, int promptId, String id) {
+        PendingPost pp = pendingPosts.get(id);
+        boolean expired = pp != null && pp.createdAt().isBefore(Instant.now().minus(DRAFT_TTL));
+        // remove(id, pp) — ikki marta bosilsa ham bir marta joylanadi
+        if (pp == null || expired || pp.chatId() != chatId || !pendingPosts.remove(id, pp)) {
+            if (expired) pendingPosts.remove(id);
+            client.answerCallback(callbackId, "Bu so'rov bajarilgan yoki eskirgan — kerak bo'lsa, e'lonni qaytadan yozing");
+            return;
+        }
+        client.answerCallback(callbackId, "Joylanmoqda");
+        client.editMessage(chatId, promptId, "⏳ E'lon joylanmoqda…", null);
+        onFreeText(chatId, pp.text(), true);
+    }
+
+    /**
+     * Ulangan foydalanuvchi: e'lon darhol saytga chiqadi va javobda «Ko'rish», «Ulashish», «Bekor qilish» tugmalari.
+     * @return null — joylandi (yoki xuddi shunday e'lon bor), aks holda nima xalaqit bergani (forma ochiladi)
+     */
+    String autoOrder(long chatId, User u, LoadTextParser.Parsed p) {
+        OrderService.Created c;
+        try {
+            c = orders.createFromBot(u, orderRequest(p));
+        } catch (ApiException e) {
+            return e.getMessage();
+        }
+        Order o = c.order();
+        StringBuilder sb = new StringBuilder(c.duplicate()
+                ? "ℹ️ <b>Bu e'lon allaqachon saytda</b> (#" + o.getId() + ") — qayta joylanmadi.\n\n"
+                : "✅ <b>E'loningiz saytga chiqdi!</b>\n\n");
+        sb.append(OrderCard.text(o)).append("\n\n");
+        if (!c.duplicate()) {
+            sb.append(c.notified() > 0
+                    ? "🔔 Shu yo'nalishdagi <b>" + c.notified() + "</b> ta haydovchiga xabar yuborildi.\n"
+                    : "🔔 E'lon bozorda turadi — shu yo'nalishdagi haydovchilar ko'radi.\n");
+        }
+        sb.append("📩 Haydovchi «Olaman» desa yoki narx taklif qilsa — shu yerga xabar keladi; savollari saytdagi yozishmada turadi (🔔).\n");
+        sb.append("🔒 Telefon raqamingiz haydovchi e'loningizni olgandan keyingina ko'rinadi.");
+        String html = sb.toString();
+        List<Object> buttons = postedButtons("#/orders/" + o.getId(), "📤 Ulashish", shareUrl(o), "❌ Bekor qilish", "oc:" + o.getId());
+        afterCommit(() -> client.sendNowWithFallbacks(chatId, html, buttons));
+        return null;
+    }
+
+    /** Haydovchi: reys darhol saytga chiqadi. @return null — chiqdi, aks holda nima xalaqit bergani */
+    String autoTrip(long chatId, User u, LoadTextParser.Parsed p) {
+        TripService.BotTrip r;
+        try {
+            r = trips.createAs(u, tripRequest(p, LocalDateTime.now(TZ)));
+        } catch (ApiException e) {
+            return e.getMessage();
+        }
+        Trip t = r.trip();
+        StringBuilder sb = new StringBuilder(r.duplicate()
+                ? "ℹ️ <b>Bu reys allaqachon saytda</b> — qayta joylanmadi.\n\n"
+                : "✅ <b>Reysingiz saytga chiqdi!</b>\n\n");
+        sb.append("📍 ").append(esc(OrderCard.place(t.getFromRegion(), t.getFromDistrict()))).append(" → ")
+                .append(esc(OrderCard.place(t.getToRegion(), t.getToDistrict()))).append('\n');
+        sb.append("🕒 ").append(tripWhen(t)).append('\n');
+        if (t.getSeats() != null) sb.append("💺 ").append(t.getSeats()).append(" ta bo'sh o'rin\n");
+        sb.append('\n');
+        if (!r.duplicate()) {
+            sb.append(r.matches() > 0
+                    ? "🔔 Shu yo'nalishdagi <b>" + r.matches() + "</b> ta ochiq e'lon egasiga «haydovchi bor» xabari bordi.\n"
+                    : "🔔 Shu yo'nalishda yangi yo'lovchi, pochta yoki yuk chiqsa — shu yerga xabar keladi.\n");
+        }
+        sb.append(p.departTime() == null && !t.isDaily()
+                ? "🕒 Vaqtni aniq yozmadingiz — kerak bo'lsa, «Ko'rish» orqali o'zgartiring."
+                : "✏️ O'zgartirish kerak bo'lsa — «Ko'rish» ni bosing.");
+        String html = sb.toString();
+        List<Object> buttons = postedButtons("#/trips?mine=1", "📤 Ulashish", tripShareUrl(t), "❌ O'chirish", "tc:" + t.getId());
+        afterCommit(() -> client.sendNowWithFallbacks(chatId, html, buttons));
+        return null;
+    }
+
+    /** «Bugun, 15:00», «Ertaga, 07:00», «Har kuni, 07:00» */
+    static String tripWhen(Trip t) {
+        String time = t.getDepartAt().toLocalTime().format(HM);
+        return t.isDaily() ? "Har kuni, " + time : OrderCard.dateLabel(t.getDepartAt().toLocalDate()) + ", " + time;
+    }
+
+    /** Botdan e'lon: forma o'rniga to'g'ridan-to'g'ri (cheklovlar — formadagidek) */
+    static CreateOrderRequest orderRequest(LoadTextParser.Parsed p) {
+        OrderKind kind = p.kind() == null ? OrderKind.CARGO : p.kind();
+        String desc = p.description() != null && !p.description().equals(p.title()) ? p.description() : null;
+        Double weight = kind != OrderKind.PASSENGER && p.weightKg() != null && p.weightKg() >= 0.1 ? p.weightKg() : null;
+        Integer seats = kind == OrderKind.PASSENGER && p.seats() != null && p.seats() >= 1 && p.seats() <= 30 ? p.seats() : null;
+        return new CreateOrderRequest(p.title(), kind == OrderKind.CARGO ? p.cargoType() : null, weight, null, desc,
+                kind == OrderKind.CARGO ? p.bodyType() : null,
+                new PlaceInput(p.from().regionId(), p.from().districtId(), null, null, null),
+                new PlaceInput(p.to().regionId(), p.to().districtId(), null, null, null),
+                null, null, p.pickupDate(), p.price(), null, null, false, null, null, kind, seats);
+    }
+
+    /**
+     * Haydovchi reysi: sana va soat matndan. Soat yozilmasa — bugun bo'lsa bir soatdan keyin (yarim soatga yaxlitlab),
+     * boshqa kun yoki «har kuni» bo'lsa — 08:00. Bugungi soat o'tib ketgan bo'lsa — ertaga shu soatda.
+     */
+    static TripService.TripRequest tripRequest(LoadTextParser.Parsed p, LocalDateTime now) {
+        LocalDate today = now.toLocalDate();
+        LocalDate date = p.pickupDate() == null || p.daily() ? today : p.pickupDate();
+        LocalDateTime at;
+        if (p.departTime() != null) {
+            at = date.atTime(p.departTime());
+            if (!p.daily() && p.pickupDate() == null && at.isBefore(now.minusHours(1))) at = at.plusDays(1);
+        } else if (date.equals(today) && !p.daily()) {
+            LocalDateTime soon = now.plusHours(1).withSecond(0).withNano(0);
+            at = soon.withMinute(soon.getMinute() < 30 ? 30 : 0).plusHours(soon.getMinute() < 30 ? 0 : 1);
+        } else {
+            at = date.atTime(8, 0);
+        }
+        // Haydovchi ko'p qatorli xabar yozgan bo'lsa — to'liq matni izohga (telefonsiz, 500 belgigacha)
+        String comment = p.description() != null && !p.description().equals(p.title()) ? p.description() : null;
+        if (comment != null && comment.length() > 500) comment = comment.substring(0, 499) + "…";
+        return new TripService.TripRequest(p.from().regionId(), p.from().districtId(), p.to().regionId(), p.to().districtId(),
+                at, null, null, p.price() != null ? OrderCard.money(p.price()) : null, comment, p.daily(),
+                p.seats() != null && p.seats() >= 1 && p.seats() <= 60 ? p.seats() : null);
+    }
+
+    /** Joylangan e'lon/reys tugmalari: «👀 Ko'rish» (ilova), ixtiyoriy havola tugmasi va «❌ ...» (callback) */
+    private List<Object> postedButtons(String hashLink, String linkText, String linkUrl, String cancelText, String cancelData) {
+        Map<String, Object> cancel = Map.of("text", cancelText, "callback_data", cancelData);
+        Map<String, Object> extra = linkUrl != null && TelegramClient.isPublicUrl(linkUrl) ? Map.of("text", linkText, "url", linkUrl) : null;
+        List<Object> variants = new ArrayList<>();
+        String app = notifications.appUrl(hashLink);
+        String site = notifications.siteUrl(hashLink);
+        if (TelegramClient.isHttpsPublic(app)) variants.add(keyboard(Map.of("text", "👀 Ko'rish", "web_app", Map.of("url", app)), extra, cancel));
+        if (TelegramClient.isPublicUrl(site)) variants.add(keyboard(Map.of("text", "👀 Ko'rish", "url", site), extra, cancel));
+        variants.add(keyboard(null, null, cancel));
+        return variants;
+    }
+
+    private static Map<String, Object> keyboard(Map<String, Object> open, Map<String, Object> extra, Map<String, Object> cancel) {
+        List<List<Map<String, Object>>> rows = new ArrayList<>();
+        List<Map<String, Object>> first = new ArrayList<>();
+        if (open != null) first.add(open);
+        if (extra != null) first.add(extra);
+        if (!first.isEmpty()) rows.add(first);
+        rows.add(List.of(cancel));
+        return Map.of("inline_keyboard", rows);
+    }
+
+    /** Telegram «Ulashish»: do'stlarga yoki guruhga — bot havolasi (ochganda e'lon kartasi va «Taklif berish») */
+    String shareUrl(Order o) {
+        String link = client.botUsername() != null ? client.deepLink("o" + o.getId()) : notifications.siteUrl("#/orders/" + o.getId());
+        String text = OrderCard.publicTitle(o.getTitle()) + " — " + OrderCard.place(o.getFromRegion(), o.getFromDistrict()) + " → "
+                + OrderCard.place(o.getToRegion(), o.getToDistrict());
+        return "https://t.me/share/url?url=" + enc(link) + "&text=" + enc(text);
+    }
+
+    /** Reysni guruh yoki tanishlarga ulashish: shu yo'nalishdagi reyslar sahifasi */
+    String tripShareUrl(Trip t) {
+        String hash = "#/trips?from=" + t.getFromRegion().getId() + "&to=" + t.getToRegion().getId()
+                + (t.getFromDistrict() != null ? "&fd=" + t.getFromDistrict().getId() : "");
+        String text = "🚗 " + tripWhen(t) + ": " + OrderCard.place(t.getFromRegion(), t.getFromDistrict()) + " → "
+                + OrderCard.place(t.getToRegion(), t.getToDistrict())
+                + (t.getSeats() != null ? ", " + t.getSeats() + " ta bo'sh o'rin" : "") + ". Yo'lovchi, pochta yoki yuk olaman:";
+        return "https://t.me/share/url?url=" + enc(notifications.siteUrl(hash)) + "&text=" + enc(text);
+    }
+
+    /** «❌ Bekor qilish» (oc:ID — e'lon) va «❌ O'chirish» (tc:ID — reys): faqat egasi */
+    void onPostCallback(String callbackId, long chatId, int promptId, String kind, long id) {
+        User u = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).orElse(null);
+        if (u == null || !u.isActive()) {
+            client.answerCallback(callbackId, "Hisob topilmadi");
+            return;
+        }
+        // Javoblar saqlangandan keyin: Telegramga yuborish vaqtida e'lon qatori bloklanib turmaydi
+        try {
+            if ("oc".equals(kind)) {
+                Order o = orders.cancelFromBot(u, id);
+                String html = "❌ <b>E'lon bekor qilindi</b> (#" + o.getId() + ")\n\n" + OrderCard.text(o)
+                        + "\n\nYangi e'lon uchun shunchaki qayta yozing.";
+                afterCommit(() -> {
+                    client.answerCallback(callbackId, "E'lon bekor qilindi");
+                    client.editMessage(chatId, promptId, html, null);
+                });
+            } else {
+                boolean deleted = trips.deleteAs(u, id);
+                afterCommit(() -> {
+                    client.answerCallback(callbackId, deleted ? "Reys o'chirildi" : "Reys allaqachon o'chirilgan");
+                    client.editMessage(chatId, promptId, "❌ <b>Reys o'chirildi.</b> Yangi reys uchun shunchaki qayta yozing.", null);
+                });
+            }
+        } catch (ApiException e) {
+            String msg = e.getMessage();
+            afterCommit(() -> client.answerCallback(callbackId, msg));
+        }
     }
 
     /** Haydovchi e'loni: "Reys e'lon qilmoqchimisiz?" — yo'nalish, sana va bo'sh o'rinlar */
     static String tripSummary(LoadTextParser.Parsed p) {
+        return tripHead(p) + "\n\n👇 Formani oching — reys e'lon qilinsa, shu yo'nalishda yo'lovchi, pochta yoki yuk kutayotganlarga "
+                + "avtomatik xabar boradi, yangi e'lonlar esa sizga keladi.";
+    }
+
+    static String tripHead(LoadTextParser.Parsed p) {
         StringBuilder sb = new StringBuilder("🚗 <b>Reys e'lon qilmoqchimisiz?</b> Men shunday tushundim:\n\n");
         sb.append("📍 <b>Qayerdan:</b> ").append(esc(p.from().name())).append('\n');
-        sb.append("🏁 <b>Qayerga:</b> ").append(esc(p.to().name())).append('\n');
-        if (p.pickupDate() != null) sb.append("📅 ").append(OrderCard.dateLabel(p.pickupDate())).append('\n');
-        if (p.seats() != null) sb.append("💺 ").append(p.seats()).append(" ta bo'sh o'rin\n");
-        sb.append("\n👇 Formani oching — reys e'lon qilinsa, shu yo'nalishda yo'lovchi, pochta yoki yuk kutayotganlarga "
-                + "avtomatik xabar boradi, yangi e'lonlar esa sizga keladi.");
+        sb.append("🏁 <b>Qayerga:</b> ").append(esc(p.to().name()));
+        if (p.daily()) sb.append("\n🔁 Har kuni");
+        if (p.pickupDate() != null && !p.daily()) sb.append("\n📅 ").append(OrderCard.dateLabel(p.pickupDate()));
+        if (p.departTime() != null) sb.append("\n🕒 ").append(p.departTime().format(HM));
+        if (p.seats() != null) sb.append("\n💺 ").append(p.seats()).append(" ta bo'sh o'rin");
         return sb.toString();
     }
 
@@ -310,6 +624,16 @@ public class TelegramBot {
     }
 
     static String loadSummary(LoadTextParser.Parsed p) {
+        OrderKind kind = p.kind() == null ? OrderKind.CARGO : p.kind();
+        return loadHead(p) + "\n\n" + (kind == OrderKind.PASSENGER
+                ? "👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring va «E'lon qilish» ni bosing: shu yo'nalishdagi haydovchilarga "
+                        + "darhol xabar boradi. Telefon raqamingiz e'londa ko'rinmaydi."
+                : "👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring va «E'lon qilish» ni bosing. "
+                        + "Telefon raqamingiz e'londa ko'rinmaydi.");
+    }
+
+    /** Matndan tushunilgani: tur, yo'nalish, tafsilotlar va narx */
+    static String loadHead(LoadTextParser.Parsed p) {
         OrderKind kind = p.kind() == null ? OrderKind.CARGO : p.kind();
         StringBuilder sb = new StringBuilder(switch (kind) {
             case PASSENGER -> "🧍 <b>Yo'lovchi sifatida e'lon bermoqchimisiz?</b> Men shunday tushundim:\n\n";
@@ -330,13 +654,7 @@ public class TelegramBot {
         }
         if (!parts.isEmpty()) sb.append(String.join(" · ", parts)).append('\n');
         if (p.pickupDate() != null) sb.append("📅 ").append(OrderCard.dateLabel(p.pickupDate())).append('\n');
-        sb.append("💰 ").append(p.price() != null ? OrderCard.money(p.price()) : p.negotiable() ? "Narx kelishiladi" : "Narxni formada kiriting")
-                .append("\n\n");
-        sb.append(kind == OrderKind.PASSENGER
-                ? "👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring va «E'lon qilish» ni bosing: shu yo'nalishdagi haydovchilarga "
-                        + "darhol xabar boradi. Telefon raqamingiz e'londa ko'rinmaydi."
-                : "👇 Formani oching — ma'lumotlar to'ldirilgan. Tekshiring va «E'lon qilish» ni bosing. "
-                        + "Telefon raqamingiz e'londa ko'rinmaydi.");
+        sb.append("💰 ").append(p.price() != null ? OrderCard.money(p.price()) : p.negotiable() ? "Narx kelishiladi" : "Narx ko'rsatilmagan");
         return sb.toString();
     }
 
@@ -392,6 +710,26 @@ public class TelegramBot {
         return null;
     }
 
+    /**
+     * Rasm, video, dumaloq video yoki ovozli xabar — admin emas (yoki Telegrami hisobga ulanmagan) odamdan: nega hammaga
+     * ketmasligini tushuntiramiz. Ko'p uchraydigan holat — baza yangilangach ega hisobi qayta yaratilgan va Telegram hali ulanmagan.
+     */
+    void onMediaFromNonStaff(long chatId) {
+        List<User> accounts = userRepository.findByTelegramChatId(chatId);
+        if (accounts.isEmpty()) {
+            client.sendNow(chatId, "📎 Rasm, video, dumaloq video va ovozli xabarni hammaga faqat YukGo egasi yoki admini yubora oladi.\n\n"
+                    + "Siz ega yoki admin bo'lsangiz — bu Telegram hali hisobingizga ulanmagan. Pastdagi <b>«📱 Telefon raqamni yuborish»</b> "
+                    + "tugmasini bosing (raqam hisobingizdagi raqam bilan bir xil bo'lsin), keyin xabarni qayta yuboring.",
+                    TelegramClient.contactKeyboard());
+        } else if (accounts.stream().anyMatch(u -> u.getRole().isStaff() && !u.isActive())) {
+            client.sendNow(chatId, "⛔ Admin hisobingiz faol emas — ommaviy xabar yuborib bo'lmaydi.", TelegramClient.mainMenu());
+        } else {
+            client.sendNow(chatId, "📎 Rasm, video va ovozli xabarni hammaga faqat YukGo admini yubora oladi. "
+                    + "E'lon bermoqchi bo'lsangiz — matn bilan yozing, masalan: <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i>",
+                    TelegramClient.mainMenu());
+        }
+    }
+
     private void onBroadcastDraft(long chatId, JsonNode msg) {
         int messageId = msg.path("message_id").asInt();
         String caption = msg.path("caption").asText(msg.path("text").asText(""));
@@ -403,7 +741,8 @@ public class TelegramBot {
             b.lastAt = System.currentTimeMillis();
             return;
         }
-        askToBroadcast(new Draft(chatId, List.of(messageId), describe(broadcastKind(msg), caption), Instant.now()));
+        String text = msg.has("text") ? msg.path("text").asText("").trim() : null;
+        askToBroadcast(new Draft(chatId, List.of(messageId), describe(broadcastKind(msg), caption), Instant.now(), text));
     }
 
     /** To'liq kelgan albomlar uchun bittadan so'rov chiqaradi */
@@ -413,7 +752,7 @@ public class TelegramBot {
             if (nowMs - b.lastAt < ALBUM_WAIT_MS) continue;
             if (albums.remove(e.getKey()) == null) continue;
             List<Integer> ids = b.messageIds.stream().sorted().toList();
-            Draft d = new Draft(b.chatId, ids, describe("🖼 Albom (" + ids.size() + " ta rasm/video)", b.caption), Instant.now());
+            Draft d = new Draft(b.chatId, ids, describe("🖼 Albom (" + ids.size() + " ta rasm/video)", b.caption), Instant.now(), null);
             try {
                 tx.executeWithoutResult(st -> askToBroadcast(d));
             } catch (Exception ex) {
@@ -434,12 +773,17 @@ public class TelegramBot {
         String id = Long.toString(RANDOM.nextLong() & Long.MAX_VALUE, 36);
         drafts.put(id, d);
         int recipients = recipientsFor(d.chatId()).size();
-        Map<String, Object> buttons = Map.of("inline_keyboard", List.of(List.of(
+        List<List<Map<String, Object>>> rows = new ArrayList<>();
+        rows.add(List.of(
                 Map.of("text", "✅ Hammaga yuborish", "callback_data", "bc:" + id + ":go"),
-                Map.of("text", "❌ Bekor qilish", "callback_data", "bc:" + id + ":no"))));
+                Map.of("text", "❌ Bekor qilish", "callback_data", "bc:" + id + ":no")));
+        // Admin ham e'lon bera olsin: matn e'longa o'xshasa — «E'lon sifatida joylash»
+        boolean looksLikeLoad = d.text() != null && parse(d.text()) != null;
+        if (looksLikeLoad) rows.add(List.of(Map.of("text", "📝 E'lon sifatida joylash", "callback_data", "bc:" + id + ":post")));
         Integer sent = client.sendReply(d.chatId(), "📢 <b>Ommaviy xabar</b>\n\n" + d.description() + "\n\n"
-                + "Shu xabar barcha foydalanuvchilarga (<b>" + recipients + "</b> kishi) xuddi shu ko'rinishda yuborilsinmi?",
-                buttons, d.messageIds().get(0));
+                + "Shu xabar barcha foydalanuvchilarga (<b>" + recipients + "</b> kishi) xuddi shu ko'rinishda yuborilsinmi?"
+                + (looksLikeLoad ? "\n\nYoki bu — e'lonmi? Unda «📝 E'lon sifatida joylash» ni bosing." : ""),
+                Map.of("inline_keyboard", rows), d.messageIds().get(0));
         if (sent == null) drafts.remove(id);
     }
 
@@ -454,6 +798,14 @@ public class TelegramBot {
         long chatId = cq.path("message").path("chat").path("id").asLong();
         int promptId = cq.path("message").path("message_id").asInt();
         String[] parts = data.split(":");
+        if (parts.length == 2 && ("oc".equals(parts[0]) || "tc".equals(parts[0])) && parts[1].matches("\\d{1,18}")) {
+            onPostCallback(callbackId, chatId, promptId, parts[0], Long.parseLong(parts[1]));
+            return;
+        }
+        if (parts.length == 2 && "op".equals(parts[0]) && parts[1].matches("[a-z0-9]{1,16}")) {
+            onConfirmPost(callbackId, chatId, promptId, parts[1]);
+            return;
+        }
         if (parts.length != 3 || !"bc".equals(parts[0])) {
             client.answerCallback(callbackId, null);
             return;
@@ -477,6 +829,16 @@ public class TelegramBot {
             drafts.remove(parts[1]);
             client.answerCallback(callbackId, "Bekor qilindi");
             client.editMessage(chatId, promptId, "❌ Bekor qilindi — hech kimga yuborilmadi.\n\n" + d.description(), null);
+            return;
+        }
+        if ("post".equals(parts[2])) {
+            if (drafts.remove(parts[1]) == null) {
+                client.answerCallback(callbackId, null);
+                return;
+            }
+            client.answerCallback(callbackId, "E'lon joylanmoqda");
+            client.editMessage(chatId, promptId, "📝 Ommaviy xabar yuborilmadi — matn e'lon sifatida joylanmoqda.\n\n" + d.description(), null);
+            onFreeText(chatId, d.text() == null ? "" : d.text(), true);
             return;
         }
         if (!"go".equals(parts[2]) || drafts.remove(parts[1]) == null) {   // ikki marta bosilsa — bir marta yuboriladi
@@ -570,7 +932,8 @@ public class TelegramBot {
     private void onNewStart(long chatId, String src) {
         if (userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isEmpty()) growth.rememberStart(chatId, src, null);
         client.sendNowWithFallbacks(chatId, "📦 <b>E'lon berish</b>\n\n"
-                        + "Eng tezi — shu yerga <b>bitta xabarda</b> yozing, formani o'zim to'ldirib beraman. Masalan:\n"
+                        + "Eng tezi — shu yerga <b>bitta xabarda</b> yozing: hisobingiz botga ulangan bo'lsa, e'lon darhol "
+                        + "saytga chiqadi (bo'lmasa — formani o'zim to'ldirib beraman). Masalan:\n"
                         + "• <i>Toshkent - Samarqand, 5 tonna mebel, ertaga, 3 mln</i>\n"
                         + "• <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i>\n"
                         + "• <i>Andijon - Toshkent, pochta, bugun</i>\n\n"
@@ -676,7 +1039,7 @@ public class TelegramBot {
                 <b>Yuk, pochta yoki yo'lovchi e'loni:</b>
                 1. Qayerdan, qayerga va qachonligini yozing (yo'lovchi — necha kishi)
                 2. Shu yo'nalishdagi haydovchilarga darhol xabar boradi
-                3. Haydovchi «Olaman» desa — bir-biringizning raqamini ko'rasiz
+                3. Haydovchilar ilovada yozishib savol berishi mumkin (raqamingiz yashirin), «Olaman» desa — bir-biringizning raqamini ko'rasiz
                 4. Yukni xaritada jonli kuzatasiz, qabul qiluvchi 4 xonali kodni aytadi
                 5. Haydovchini baholaysiz ⭐
 
@@ -686,7 +1049,8 @@ public class TelegramBot {
                 3. Yo'nalishingizga mos yo'lovchi, pochta yoki yuk chiqsa — shu botga xabar keladi
                 4. Ilova ichidagi Yandex xarita bilan yo'lni toping
 
-                <b>Tez e'lon:</b> botga shunchaki yozing — <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i> — forma o'zi to'ladi.
+                <b>Tez e'lon:</b> botga shunchaki yozing — <i>Kosonsoydan Toshkentga 2 kishi, ertaga</i> — e'lon darhol saytga chiqadi.
+                Haydovchi: <i>Kosonsoy - Toshkent, ertaga 07:00, 3 ta joy bor</i> — reys chiqadi.
 
                 Savollar bo'lsa — saytdagi "Shikoyat/murojaat" bo'limi orqali yozing.""",
                 TelegramClient.mainMenu());

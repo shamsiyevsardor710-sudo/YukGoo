@@ -9,6 +9,8 @@ import {
 import { createMap, pin, drawRoute, reverseGeocode, myPosition, UZ_CENTER } from '../maps.js';
 import { go, refreshMe } from '../app.js';
 import { digitalSalesBlocked } from '../platform.js';
+import { share, siteLink } from '../share.js';
+import { openChat, loadThreads, driverChatIntro } from './chat.js';
 
 // =====================================================================
 // Bozor (bosh sahifa): kirgan foydalanuvchiga avval o'z tumani, keyin viloyati va yaqin hududlardan
@@ -21,7 +23,7 @@ export async function marketPage(main, _p, query) {
     kind: kinds.includes(query.get('kind') || '') ? (query.get('kind') || '') : '',
     fromRegion: qid('from'), fromDistrict: qid('fd'), toRegion: qid('to'), toDistrict: qid('td'),
   };
-  let page = 0, view = 'list', mapCtx = null;
+  let page = 0;
   const stats = await get('/stats/public').catch(() => null);
   const home = me?.region ? [me.district?.name, me.region.name].filter(Boolean).join(', ') : '';
 
@@ -31,9 +33,6 @@ export async function marketPage(main, _p, query) {
       <div><h1>E'lonlar</h1><p class="muted">${home
         ? `Avval ${esc(home)} bo'yicha, keyin yaqin hududlardan.`
         : "Yuk, pochta va yo'lovchilar — haydovchi kutayotgan e'lonlar."}</p></div>
-      <div class="seg" role="tablist">
-        <button class="on" data-view="list">Ro'yxat</button><button data-view="map">Xarita</button>
-      </div>
     </div>
     <form class="route-search" id="rs">
       <div class="rs-side">
@@ -51,7 +50,6 @@ export async function marketPage(main, _p, query) {
       ${kinds.map(k => `<button type="button" data-kind="${k}" class="${k === f.kind ? 'on' : ''}" aria-pressed="${k === f.kind}">${k ? icon(KIND_ICON[k]) + esc(KIND[k]) : 'Hammasi'}</button>`).join('')}
     </div>
     <div id="results" style="margin-top:16px">${skeletons()}</div>
-    <div id="map-view" class="hidden" style="margin-top:16px"><div class="map map-tall" id="market-map"></div></div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="btn hidden" id="more">Yana ko'rsatish</button></div>
   </div>`;
 
@@ -68,13 +66,6 @@ export async function marketPage(main, _p, query) {
     reload();
   }));
   $('#more', main).addEventListener('click', () => load(true));
-  $$('[data-view]', main).forEach(b => b.addEventListener('click', () => {
-    view = b.dataset.view;
-    $$('[data-view]', main).forEach(x => x.classList.toggle('on', x === b));
-    $('#results', main).classList.toggle('hidden', view !== 'list');
-    $('#map-view', main).classList.toggle('hidden', view !== 'map');
-    if (view === 'map') reload();
-  }));
 
   let items = [], loadSeq = 0;
   function reload() {
@@ -104,39 +95,10 @@ export async function marketPage(main, _p, query) {
         : emptyState("Bu yo'nalishda hozircha e'lon yo'q", "Boshqa tuman yoki viloyatni tanlang yoki birinchi bo'lib e'lon bering.",
           `<a class="btn btn-primary" href="#/new">E'lon berish</a>`);
       $('#more', main).classList.toggle('hidden', data.page + 1 >= data.totalPages);
-      if (view === 'map') showOnMap();
     } catch (e) {
       if (my !== loadSeq) return;
       res.innerHTML = emptyState("E'lonlarni yuklab bo'lmadi", e.message);
     }
-  }
-  async function showOnMap() {
-    const el = $('#market-map', main);
-    try {
-      if (!mapCtx) mapCtx = await createMap(el, { zoom: 6 });
-      const { ymaps, map } = mapCtx;
-      map.geoObjects.removeAll();
-      const cluster = new ymaps.Clusterer({ preset: 'islands#darkBlueClusterIcons', groupByCoordinates: false });
-      const marks = [];
-      for (const o of items) {
-        let c = o.from.lat ? [o.from.lat, o.from.lng] : null;
-        if (!c) {
-          const r = (await regions()).find(x => x.id === o.from.regionId);
-          if (r) c = [r.lat + (Math.random() - .5) * .08, r.lng + (Math.random() - .5) * .08];
-        }
-        if (!c) continue;
-        const p = new ymaps.Placemark(c, {
-          balloonContentHeader: esc(`${KIND[kindOf(o)]}: ${headline(o)}`),
-          balloonContentBody: `${esc(o.from.regionName)} → ${esc(o.to.regionName)}<br><b>${esc(money(o.price))}</b>`,
-          balloonContentFooter: `<a href="#/orders/${o.id}">Batafsil ko'rish</a>`,
-          hintContent: esc(headline(o)),
-        }, { preset: o.urgent ? 'islands#redDotIcon' : 'islands#yellowDotIcon' });
-        marks.push(p);
-      }
-      cluster.add(marks);
-      map.geoObjects.add(cluster);
-      if (marks.length) map.setBounds(cluster.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
-    } catch { /* xabar xarita ichida ko'rsatiladi */ }
   }
   reload();
 }
@@ -239,8 +201,11 @@ function placeLabel(k, o, me) {
   return `${o.from.regionName}dan`;
 }
 
-/** @param when — qatorda sana yorlig'i («Bugun», «Ertaga»): joy bo'yicha guruhlanganda */
-export function orderRow(o, { when = false } = {}) {
+/**
+ * @param when — qatorda sana yorlig'i («Bugun», «Ertaga»): joy bo'yicha guruhlanganda
+ * @param tag — qo'shimcha yorliq (masalan, «Siz olgansiz» — Mening buyurtmalarim → Hammasi)
+ */
+export function orderRow(o, { when = false, tag = '' } = {}) {
   const k = kindOf(o);
   const late = o.status === 'NEW' && o.pickupDate && o.pickupDate < localISO();
   const meta = [
@@ -252,6 +217,7 @@ export function orderRow(o, { when = false } = {}) {
     k === 'CARGO' && o.requiredBodyType ? `<span>${esc(bodyLabel(o.requiredBodyType))}</span>` : '',
     o.status === 'NEW' && o.offersCount ? `<span><b>${o.offersCount}</b> ta taklif</span>` : '',
     `<span>${esc(ago(o.createdAt))}</span>`,
+    tag,
   ].filter(Boolean).join('');
   return `<a class="order-row" href="#/orders/${o.id}">
     <div class="order-top">
@@ -330,8 +296,9 @@ export async function createOrderPage(main, _p, query) {
   // Birinchi shoshilinch e'lon bepul (admin yoqqan bo'lsa va hali ishlatilmagan bo'lsa)
   const wallet = urgentFee && cfg.pricing.firstUrgentFree ? await get('/wallet').catch(() => null) : null;
   const urgentFree = !!wallet?.urgentFreeAvailable;
-  // Android ilova va Telegram ichida pullik «Shoshilinch» taklif qilinmaydi (do'kon qoidalari) — bepul bo'lsa qoladi
-  const urgentHidden = urgentFee > 0 && !urgentFree && digitalSalesBlocked();
+  // «Shoshilinch» — faqat daromad tizimi yoqilganda (aks holda hamma belgilab, ma'nosi qolmaydi). Android ilova va
+  // Telegram ichida pullik «Shoshilinch» taklif qilinmaydi (do'kon qoidalari) — bepul bo'lsa qoladi
+  const urgentHidden = !urgentFee || (!urgentFree && digitalSalesBlocked());
   let kind = pre.kind || (pre.fromBot ? 'CARGO' : lastKind()) || 'CARGO';
   const kindBtn = (k, sub) => `<button type="button" role="radio" data-kind="${k}" aria-checked="${k === kind}" class="${k === kind ? 'on' : ''}">
       ${icon(KIND_ICON[k])}<b>${esc(KIND[k])}</b><small>${esc(sub)}</small></button>`;
@@ -352,8 +319,8 @@ export async function createOrderPage(main, _p, query) {
             <select class="select" name="toDistrictId" aria-label="Qayerga: tuman"></select></div></div>
         <div class="field"><span id="when-label">Qachon</span>
           <div class="day-chips" role="group" aria-labelledby="when-label">
-            <button type="button" data-day="0">Bugun</button><button type="button" data-day="1">Ertaga</button><button type="button" data-day="2">Indinga</button>
-            <input class="input" type="date" name="pickupDate" min="${today}" value="${pre.date}" aria-label="Boshqa sana"></div></div>
+            <button type="button" data-day="0">Bugun</button><button type="button" data-day="1">Ertaga</button>
+            <label class="date-pick"><span>Boshqa kun</span><input class="input" type="date" name="pickupDate" min="${today}" value="${pre.date}" aria-label="Boshqa sana"></label></div></div>
       </section>
 
       <section class="panel stack" data-for="CARGO PARCEL">
@@ -444,7 +411,7 @@ export async function createOrderPage(main, _p, query) {
   }
   $$('.kind-switch button', main).forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
 
-  // ---- Qachon: Bugun / Ertaga / Indinga yoki sana ----
+  // ---- Qachon: Bugun / Ertaga yoki kalendardan boshqa kun ----
   const syncDays = () => {
     $$('.day-chips button', main).forEach(b => b.classList.toggle('on', form.pickupDate.value === addDays(today, Number(b.dataset.day))));
   };
@@ -618,7 +585,7 @@ export function commissionFor(pr, price) {
   return Math.max(0, Math.round(c / 100) * 100);
 }
 
-export async function orderPage(main, { id }) {
+export async function orderPage(main, { id }, query) {
   let o, timer = null, chatTimer = null, mapCtx = null, driverMark = null, lastMsgId = 0, routeDrawn = false, needsRender = false;
   const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
   const pr = cfg.pricing?.enabled ? cfg.pricing : null;   // daromad tizimi o'chiq bo'lsa — null, hech narsa ko'rsatilmaydi
@@ -627,11 +594,19 @@ export async function orderPage(main, { id }) {
   const myWallet = pr && auth.loggedIn ? await get('/wallet').catch(() => null) : null;
   const freeLeft = myWallet?.freeDeliveriesLeft || 0;
   const urgentFree = urgentFee > 0 && !!myWallet?.urgentFreeAvailable;
-  const urgentHidden = urgentFee > 0 && !urgentFree && digitalSalesBlocked();   // do'kon qoidalari (platform.js)
+  // Daromad tizimi o'chiq bo'lsa «Shoshilinch» yo'q; pullik bo'lsa — do'kon qoidalari (platform.js)
+  const urgentHidden = !urgentFee || (!urgentFree && digitalSalesBlocked());
 
   async function load() {
     o = await get('/orders/' + id);
     render();
+  }
+
+  /** Mehmonga yopilgan yoki olingan e'lon ko'rsatilmaydi — boshqa e'lonlarga va kirishga yo'naltiramiz */
+  function guestClosed() {
+    main.innerHTML = `<div class="page page-narrow">${emptyState("Bu e'lon yopilgan yoki haydovchi topilgan",
+      "Ochiq e'lonlarni ko'ring yoki kiring — o'zingiz e'lon bering.",
+      `<div class="row" style="justify-content:center"><a class="btn btn-primary" href="#/">E'lonlar</a><a class="btn" href="#/login">Kirish</a></div>`)}</div>`;
   }
 
   /** E'lon tafsilotlari — turga qarab (yo'lovchida: sana, necha kishi; yukda: og'irlik, mashina, qabul qiluvchi) */
@@ -669,7 +644,10 @@ export async function orderPage(main, { id }) {
             ${o.urgent ? '<span class="urgent-flag">Shoshilinch</span>' : ''}</div>
           <h1>${esc(k === 'PASSENGER' ? `Yo'lovchi: ${o.seats || 1} kishi` : headline(o))}</h1>
         </div>
-        <div class="price ${o.finalPrice || o.price ? '' : 'nego'}" style="font-size:24px">${esc(money(o.finalPrice ?? o.price))}</div>
+        <div class="head-side">
+          <div class="price ${o.finalPrice || o.price ? '' : 'nego'}" style="font-size:24px">${esc(money(o.finalPrice ?? o.price))}</div>
+          ${o.status === 'NEW' && !isSender ? `<button class="btn btn-sm" type="button" data-share>${icon('share')}Ulashish</button>` : ''}
+        </div>
       </div>
       <div class="grid-2">
         <div class="stack">
@@ -687,6 +665,7 @@ export async function orderPage(main, { id }) {
             ${o.description ? `<p style="margin-top:14px;white-space:pre-line">${esc(o.description)}</p>` : ''}
             ${o.photoUrl ? `<img src="${esc(o.photoUrl)}" alt="Yuk rasmi" style="margin-top:14px;border-radius:12px;max-height:320px;object-fit:cover">` : ''}
           </section>
+          ${isSender && o.status === 'NEW' ? '<div id="threads"></div>' : ''}
           ${participant && o.driver ? `<section class="panel"><h2>Yozishma</h2>
             <div class="chat" style="margin-top:12px"><div class="chat-list" id="chat-list"></div>
               ${o.block ? `<div class="chat-closed small" role="status">${o.block === 'ME'
@@ -710,7 +689,8 @@ export async function orderPage(main, { id }) {
     </div>`;
     renderActions();
     drawMap();
-    if (isSender && o.status === 'NEW') loadRouteTrips();
+    if (isSender && o.status === 'NEW') { loadRouteTrips(); refreshThreads(); }
+    $$('[data-share]', main).forEach(b => b.addEventListener('click', shareOrder));
     if ($('#timeline', main)) loadEvents();
     if ($('#chat-list', main)) initChat();
     // Begona e'lon: shikoyat (istasa — yuboruvchini bloklash ham; shunda e'lonlari bozorda ko'rinmaydi)
@@ -760,6 +740,9 @@ export async function orderPage(main, { id }) {
     if (role === 'SENDER') {
       if (o.status === 'NEW') {
         html += `<section class="panel"><div class="row-between"><h2>Takliflar</h2><span class="muted small">${o.offersCount} ta</span></div><div id="offers">${skeletons(2)}</div></section>`;
+        html += `<section class="panel stack-sm"><h2>Tezroq topish uchun ulashing</h2>
+          <p class="small muted">E'lonni Telegram guruhlari yoki tanishlaringizga yuboring — havolani ochgan haydovchi darhol «Olaman» deya oladi.</p>
+          <button class="btn btn-route btn-block" type="button" data-share>${icon('share')}Ulashish</button></section>`;
         const late = o.pickupDate && o.pickupDate < localISO();   // sanasi o'tgan e'lonni server shoshilinch qilmaydi
         if (late) {
           html += `<section class="panel stack-sm"><h2>${passenger ? "Jo'nash" : 'Olib ketish'} sanasi o'tdi</h2>
@@ -823,6 +806,9 @@ export async function orderPage(main, { id }) {
       } else {
         html += offerForm();
       }
+      if (me.driver) html += chatPanel();
+    } else if (!me) {
+      html += guestPanel();
     }
     if (o.status === 'DELIVERED' && (role === 'SENDER' || role === 'DRIVER')) {
       html += o.reviewedByMe
@@ -841,6 +827,88 @@ export async function orderPage(main, { id }) {
     }
     box.innerHTML = html;
     bindActions();
+  }
+
+  /** Haydovchi uchun: «Olaman» dan oldin e'lon egasiga savol yozish (raqamlar yashirin) */
+  function chatPanel() {
+    const passenger = kindOf(o) === 'PASSENGER';
+    return `<section class="panel stack-sm"><h3>Savolingiz bormi?</h3>
+      <p class="small muted">${passenger ? "Yo'lovchiga" : "E'lon egasiga"} yozing — javobi shu yozishmada chiqadi (🔔 bildirishnoma ham keladi). Raqamlar «Olaman» bosilgach ochiladi.</p>
+      <button class="btn btn-block" type="button" id="chat-open">${icon('chat')}${passenger ? "Yo'lovchiga yozish" : "E'lon egasiga yozish"}</button></section>`;
+  }
+
+  /** Kirmagan foydalanuvchi (ulashilgan havola bilan kelgan): kirish yoki ro'yxatdan o'tish, keyin shu e'longa qaytadi */
+  function guestPanel() {
+    const passenger = kindOf(o) === 'PASSENGER';
+    if (o.status !== 'NEW') {
+      return `<section class="panel stack-sm"><h2>Bu e'lon yopilgan</h2>
+        <p class="small muted">Haydovchi topilgan yoki e'lon bekor qilingan. Boshqa ochiq e'lonlarni ko'ring.</p>
+        <a class="btn btn-block" href="#/">E'lonlar</a></section>`;
+    }
+    return `<section class="panel stack-sm"><h2>${passenger ? "Bu yo'lovchini olib ketasizmi?" : 'Bu buyurtmani olasizmi?'}</h2>
+      <p class="small muted">Kiring yoki 1 daqiqada ro'yxatdan o'ting — «Olaman» deysiz yoki narx taklif qilasiz, ${passenger ? "yo'lovchi" : "e'lon egasi"} bilan yozishasiz.</p>
+      <a class="btn btn-primary btn-block" href="#/register" data-after>Ro'yxatdan o'tish</a>
+      <a class="btn btn-block" href="#/login" data-after>Kirish</a>
+      <p class="tiny muted">${passenger ? "Yo'lovchining" : "E'lon egasining"} telefon raqami «Olaman» bosilgach ko'rinadi.</p></section>`;
+  }
+
+  async function shareOrder() {
+    const k = kindOf(o);
+    const route = `${o.from.districtName || o.from.regionName} → ${o.to.districtName || o.to.regionName}`;
+    const when = o.pickupDate ? `, ${dayWord(o.pickupDate).toLowerCase()}` : '';
+    const text = `${KIND[k]}: ${headline(o)} — ${route}${when}${o.price ? ', ' + money(o.price) : ''}. Haydovchi kerak!`;
+    await share({
+      title: 'YukGo', text, url: siteLink('#/orders/' + o.id),
+      tgUrl: cfg.botUsername ? `https://t.me/${cfg.botUsername}?start=o${o.id}` : null,
+    });
+  }
+
+  // ---- Yozishma: haydovchi tanlanmaguncha — oynada, har bir haydovchi bilan alohida ----
+  let threads = [];
+  async function refreshThreads() {
+    const box = $('#threads', main);
+    if (!box) return;
+    threads = await loadThreads(box, o, { onOpen: openSenderChat });
+  }
+  function openSenderChat(t) {
+    const v = t.driver.vehicle;
+    const car = v ? `${v.brand}${v.model ? ' ' + v.model : ''}` : '';
+    openChat({
+      orderId: o.id, driverId: t.driverId, title: t.driver.fullName,
+      intro: `${car ? esc(car) + '. ' : ''}Haydovchi «Olaman» bosmaguncha ikkalangizning raqamingiz yashirin.`,
+      canWrite: t.open, closedText: "E'lon boshqa haydovchiga berilgan — bu yozishma yopildi",
+      onSent: refreshThreads,
+    });
+  }
+  /** @param canWrite false — e'lon boshqa haydovchiga berilgan yoki yopilgan: yozishmani faqat o'qish */
+  function openDriverChat(canWrite = true) {
+    const passenger = kindOf(o) === 'PASSENGER';
+    openChat({
+      orderId: o.id, title: passenger ? "Yo'lovchi bilan yozishma" : "E'lon egasi bilan yozishma",
+      intro: canWrite ? esc(driverChatIntro(o)) : '',
+      canWrite, closedText: "E'lon boshqa haydovchiga berilgan yoki yopilgan — yozishma yopildi",
+      emptyText: canWrite ? "Savolingizni yozing: masalan, qayerdan olish, qachon yoki narx." : "Xabarlar yo'q.",
+    });
+  }
+  /**
+   * Bildirishnoma yoki Telegramdagi «Ko'rish»: "#/orders/5?chat=12" — o'sha yozishma ochiladi. E'lon boshqa haydovchiga
+   * berilgan bo'lsa ham — o'qish uchun (yozib bo'lmaydi).
+   */
+  async function openChatFromLink(driverId) {
+    const inline = $('#chat-list', main);
+    if (inline && (o.viewerRole === 'DRIVER' || (o.driver && o.driver.id === driverId))) {
+      inline.closest('section')?.scrollIntoView({ block: 'center' });
+      return;
+    }
+    if (o.viewerRole === 'SENDER') {
+      let t = threads.find(x => x.driverId === driverId);
+      if (!t) t = (await get(`/orders/${o.id}/threads`).catch(() => [])).find(x => x.driverId === driverId);
+      if (t) openSenderChat(t);
+      return;
+    }
+    if (driverId !== auth.user?.id) return;
+    if (o.status === 'NEW' && auth.user.driver) openDriverChat();
+    else openDriverChat(false);
   }
 
   /**
@@ -952,6 +1020,10 @@ export async function orderPage(main, { id }) {
         render();
       } catch (err) { toast(err.message, 'err'); }
     });
+    on('#chat-open', () => openDriverChat());
+    $$('[data-after]', main).forEach(a => a.addEventListener('click', () => {
+      try { sessionStorage.setItem('yukgo_after_login', '#/orders/' + id); } catch { /* */ }
+    }));
     on('#withdraw', async () => {
       const r = await confirmDialog('Taklifni qaytarasizmi?', '', { danger: true, okText: 'Qaytarish' });
       if (!r) return;
@@ -1100,7 +1172,7 @@ export async function orderPage(main, { id }) {
         if (!msgs.length) {
           if (!list.children.length) {
             list.innerHTML = `<p class="muted small" style="margin:auto;text-align:center" id="chat-empty">${form
-              ? "Yuk bo'yicha savollaringizni shu yerda yozing. Xabar Telegramga ham boradi."
+              ? "Savollaringizni shu yerda yozing — xabarlar shu yozishmada turadi."
               : "Xabarlar yo'q."}</p>`;
           }
           return;
@@ -1130,18 +1202,29 @@ export async function orderPage(main, { id }) {
     chatTimer = setInterval(pull, 6000);
   }
 
-  await load();
+  try {
+    await load();
+  } catch (e) {
+    if (!auth.loggedIn && e.status === 404) { guestClosed(); return () => {}; }
+    throw e;
+  }
+  const chatWith = Number(query?.get('chat'));
+  if (Number.isInteger(chatWith) && chatWith > 0 && auth.user) openChatFromLink(chatWith);
   // Faol buyurtmada haydovchi joylashuvini va holatni yangilab turamiz
   timer = setInterval(async () => {
     if (!o || o.status === 'DELIVERED' || o.status === 'CANCELLED') return;
     try {
-      const fresh = await get('/orders/' + id);
+      const fresh = await get('/orders/' + id, { poll: 1 });   // ko'rishlar soni faqat birinchi ochilishda sanaladi
       const changed = needsRender || fresh.status !== o.status || fresh.offersCount !== o.offersCount
         || fresh.driver?.id !== o.driver?.id || fresh.block !== o.block;
       o = fresh;
       // Foydalanuvchi hozir yozayotgan bo'lsa — sahifani qayta chizmaymiz, lekin o'zgarishni unutmaymiz (keyingi safar)
       if (changed && !document.activeElement?.closest('form')) { needsRender = false; driverMark = null; render(); }
-      else { if (changed) needsRender = true; updateDriverMark(); }
+      else {
+        if (changed) needsRender = true;
+        updateDriverMark();
+        if (o.viewerRole === 'SENDER' && o.status === 'NEW') refreshThreads();   // yangi haydovchi yozgan bo'lishi mumkin
+      }
     } catch { /* */ }
   }, 10000);
   return () => { clearInterval(timer); clearInterval(chatTimer); };
@@ -1202,46 +1285,62 @@ export async function unblockUser(userId, onDone) {
 }
 
 // =====================================================================
-// Mening buyurtmalarim
+// Mening buyurtmalarim: «E'lonlarim» (bergan e'lonlarim) va «Hammasi» (bergan, olgan va taklif bergan), har birida
+// «Faol» / «Tugatilgan»
 // =====================================================================
+/** «Hammasi» ro'yxatida — bu buyurtmada men kimman */
+function myRoleTag(o) {
+  if (o.viewerRole === 'DRIVER') return `<span class="my-role">${icon('truck')}Siz olgansiz</span>`;
+  if (o.viewerRole !== 'SENDER' && o.myOffer) return `<span class="my-role">${icon('check')}Taklifingiz: ${esc(money(o.myOffer.price))}</span>`;
+  if (o.viewerRole === 'SENDER') return `<span class="my-role is-own">${icon('user')}E'loningiz</span>`;
+  return '';
+}
+
 export async function myOrdersPage(main, _p, query) {
   const me = auth.user;
-  let role = query.get('role') || (me.driver ? 'driver' : 'sender');
-  let group = 'active', page = 0, items = [];
+  const qRole = query.get('role');
+  // Eski havolalar (role=driver, role=offers) — «Hammasi»ga
+  let role = qRole === 'sender' ? 'sender' : qRole ? 'all' : (me.driver ? 'all' : 'sender');
+  let group = query.get('group') === 'done' ? 'done' : 'active';
+  let page = 0, items = [];
   main.innerHTML = `<div class="page page-narrow">
     <div class="page-head"><h1>Mening buyurtmalarim</h1><a class="btn btn-primary" href="#/new">${icon('plus')}Yangi e'lon</a></div>
-    <div class="row-between" style="margin-bottom:14px">
-      <div class="seg" id="roles">
-        <button data-role="sender">E'lonlarim</button>
-        <button data-role="driver">Olganlarim</button>
-        <button data-role="offers">Takliflarim</button>
-      </div>
-      <div class="seg" id="groups"><button data-group="active" class="on">Faol</button><button data-group="done">Yakunlangan</button><button data-group="all">Hammasi</button></div>
+    <div class="my-tabs">
+      <div class="seg" id="roles" role="tablist"><button data-role="sender">E'lonlarim</button><button data-role="all">Hammasi</button></div>
+      <div class="seg" id="groups"><button data-group="active">Faol</button><button data-group="done">Tugatilgan</button></div>
     </div>
     <div id="list">${skeletons()}</div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="btn hidden" id="more">Yana ko'rsatish</button></div>
   </div>`;
   const sync = () => {
-    $$('#roles button', main).forEach(b => b.classList.toggle('on', b.dataset.role === role));
+    $$('#roles button', main).forEach(b => { b.classList.toggle('on', b.dataset.role === role); b.setAttribute('aria-selected', String(b.dataset.role === role)); });
     $$('#groups button', main).forEach(b => b.classList.toggle('on', b.dataset.group === group));
-    $('#groups', main).classList.toggle('hidden', role === 'offers');
+    try { history.replaceState(history.state, '', `#/my?role=${role}&group=${group}`); } catch { /* */ }
   };
   $$('#roles button', main).forEach(b => b.addEventListener('click', () => { role = b.dataset.role; sync(); reset(); }));
   $$('#groups button', main).forEach(b => b.addEventListener('click', () => { group = b.dataset.group; sync(); reset(); }));
   $('#more', main).addEventListener('click', () => { page++; load(); });
+  let seq = 0;
   function reset() { page = 0; items = []; $('#list', main).innerHTML = skeletons(); load(); }
   async function load() {
+    const my = ++seq;
     try {
       const data = await get('/orders/my', { role, group, page });
+      if (my !== seq) return;   // shu orada boshqa tugma bosildi
       items = items.concat(data.items);
       const empty = {
-        sender: ["Siz hali e'lon bermagansiz", "Yuk, pochta jo'natish yoki yo'lovchi sifatida borish uchun e'lon bering.", `<a class="btn btn-primary" href="#/new">E'lon berish</a>`],
-        driver: ["Hozircha olgan buyurtmangiz yo'q", "E'lonlardan mosini toping yoki reys e'lon qiling — mos e'lonlar haqida xabar keladi.", `<a class="btn btn-primary" href="#/">E'lonlarni ko'rish</a>`],
-        offers: ["Javob kutayotgan taklifingiz yo'q", "E'lonlarga narx taklif qilsangiz, shu yerda ko'rinadi.", `<a class="btn" href="#/">E'lonlarni ko'rish</a>`],
-      }[role];
-      $('#list', main).innerHTML = items.length ? `<div class="orders">${items.map(orderRow).join('')}</div>` : emptyState(...empty);
+        'sender-active': ["Faol e'loningiz yo'q", "Yuk, pochta jo'natish yoki o'zingiz borish uchun e'lon bering — yo'nalishdagi haydovchilarga darhol xabar boradi.",
+          `<a class="btn btn-primary" href="#/new">E'lon berish</a>`],
+        'sender-done': ["Tugatilgan e'lon yo'q", "Yetkazilgan yoki bekor qilingan e'lonlaringiz shu yerda ko'rinadi.", ''],
+        'all-active': ["Faol buyurtma yo'q", "E'lon bering yoki e'lonlardan mosini toping — olgan va narx taklif qilgan buyurtmalaringiz ham shu yerda.",
+          `<a class="btn btn-primary" href="#/">E'lonlarni ko'rish</a>`],
+        'all-done': ["Tugatilgan buyurtma yo'q", "Yetkazilgan yoki bekor qilingan buyurtmalaringiz shu yerda ko'rinadi.", ''],
+      }[`${role}-${group}`];
+      $('#list', main).innerHTML = items.length
+        ? `<div class="orders">${items.map(o => orderRow(o, { tag: role === 'all' ? myRoleTag(o) : '' })).join('')}</div>`
+        : emptyState(...empty);
       $('#more', main).classList.toggle('hidden', data.page + 1 >= data.totalPages);
-    } catch (e) { $('#list', main).innerHTML = emptyState("Yuklab bo'lmadi", e.message); }
+    } catch (e) { if (my === seq) $('#list', main).innerHTML = emptyState("Yuklab bo'lmadi", e.message); }
   }
   sync();
   load();
