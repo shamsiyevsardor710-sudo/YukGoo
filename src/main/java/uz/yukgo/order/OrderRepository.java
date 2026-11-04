@@ -216,4 +216,37 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     /** Olib ketish sanasidan ancha o'tgan ochiq buyurtmalar (faqat tungi avtomatik yopish uchun — qatorlar bloklanadi) */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Order> findByStatusAndPickupDateBefore(OrderStatus status, LocalDate before);
+
+    /**
+     * Narx maslahati uchun: shu yo'nalishdagi (ikkala tomonga) e'lonlar narxi va kishilar soni — [seats, narx].
+     * Viloyatlar bir xil bo'lsa (viloyat ichida), tumanlar bo'yicha (null — tekshirilmaydi).
+     */
+    @Query("""
+            select o.seats, coalesce(o.finalPrice, o.price) from Shipment o
+            where o.kind = :kind and o.status in :statuses and o.createdAt > :since
+              and coalesce(o.finalPrice, o.price) > 0
+              and ((o.fromRegion.id = :a and o.toRegion.id = :b
+                    and (:da is null or o.fromDistrict.id = :da) and (:db is null or o.toDistrict.id = :db))
+                or (o.fromRegion.id = :b and o.toRegion.id = :a
+                    and (:db is null or o.fromDistrict.id = :db) and (:da is null or o.toDistrict.id = :da)))
+            order by o.id desc""")
+    List<Object[]> pricesOnRoute(@Param("kind") OrderKind kind, @Param("statuses") Collection<OrderStatus> statuses,
+                                 @Param("a") Long fromRegion, @Param("b") Long toRegion,
+                                 @Param("da") Long fromDistrict, @Param("db") Long toDistrict,
+                                 @Param("since") Instant since, Pageable page);
+
+    /** Ertalabki xabar uchun: bugungi, ertangi va yaqinda berilgan sanasiz ochiq e'lonlar */
+    @Query("""
+            select o from Shipment o join fetch o.sender join fetch o.fromRegion join fetch o.toRegion
+            where o.status = uz.yukgo.order.OrderStatus.NEW and o.driver is null
+              and o.sender.status = uz.yukgo.user.UserStatus.ACTIVE
+              and ((o.pickupDate >= :today and o.pickupDate <= :tomorrow) or (o.pickupDate is null and o.createdAt > :since))""")
+    List<Order> openForDigest(@Param("today") LocalDate today, @Param("tomorrow") LocalDate tomorrow, @Param("since") Instant since);
+
+    /** Sanasi o'tgan (kecha edi), hali hech kim olmagan e'lonlar — egasidan «hali kerakmi?» so'raladi */
+    @Query("""
+            select o from Shipment o join fetch o.sender join fetch o.fromRegion join fetch o.toRegion
+            where o.status = uz.yukgo.order.OrderStatus.NEW and o.driver is null and o.pickupDate = :day
+              and o.sender.status = uz.yukgo.user.UserStatus.ACTIVE""")
+    List<Order> openOnDay(@Param("day") LocalDate day);
 }

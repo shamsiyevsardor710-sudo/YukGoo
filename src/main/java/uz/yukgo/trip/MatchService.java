@@ -100,7 +100,7 @@ public class MatchService {
             if (++sent >= MAX_DRIVERS) return sent;
         }
 
-        // 2) Uyi yoki ishlaydigan viloyati e'lon yo'nalishida bo'lgan bo'sh haydovchilar — Telegram orqali
+        // 2) Uyi yoki ishlaydigan viloyati e'lon yo'nalishida bo'lgan bo'sh haydovchilar — Telegram orqali (yoki push)
         List<User> drivers = new ArrayList<>(userRepository.findDriversToNotify(
                 o.getFromRegion().getId(), o.getToRegion().getId(), sender.getId()));
         drivers.sort(Comparator.comparingInt(d -> nearRank(d, o)));   // avval o'z tumanidan, keyin viloyatidan
@@ -108,8 +108,12 @@ public class MatchService {
             if (done.contains(d.getId()) || blocked.contains(d.getId())) continue;
             if (!kindAndVehicleFit(d, o)) continue;
             done.add(d.getId());
-            String html = (nearRank(d, o) == 0 ? "📍 <b>Tumaningizdan</b>\n" : "") + OrderCard.text(o);
-            notifications.telegramOnly(d, html, link);
+            boolean near = nearRank(d, o) == 0;
+            String card = OrderCard.text(o);
+            String html = (near ? "📍 <b>Tumaningizdan</b>\n" : "") + card;
+            // Telegrami ulanmagan (Android ilovadagi) haydovchiga — push
+            if (!notifications.telegramOrPush(d, html, near ? "📍 Tumaningizdan yangi e'lon" : "🆕 Yangi e'lon",
+                    NotificationService.plain(card).replace("\n", " · "), link)) continue;
             if (++sent >= MAX_DRIVERS) break;
         }
         return sent;
@@ -133,7 +137,7 @@ public class MatchService {
     }
 
     /** Haydovchi bu turdagi e'lonlarni oladimi va mashinasi mosmi (yuk egasi aniq turini so'ragan bo'lsa) */
-    static boolean kindAndVehicleFit(User d, Order o) {
+    public static boolean kindAndVehicleFit(User d, Order o) {
         if (!d.isActive() || !d.isDriver()) return false;
         if (!d.acceptsKind(o.getKind())) return false;
         BodyType need = o.getRequiredBodyType();

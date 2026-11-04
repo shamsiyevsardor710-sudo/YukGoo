@@ -34,6 +34,7 @@ class FullFlowTest {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
+    @Autowired uz.yukgo.order.OrderReminders reminders;
 
     private JsonNode call(String method, String url, Object body, String token, int expected) throws Exception {
         var req = switch (method) {
@@ -131,6 +132,28 @@ class FullFlowTest {
                 .doesNotContain("555");
         call("POST", "/api/orders/" + orderId + "/messages", Map.of("text", "Bozor oldidan", "driverId", driverId), sender, 200);
         call("GET", "/api/orders/" + orderId + "/threads", null, driver, 403);
+
+        // «Xabarlar»: haydovchida egasining javobi o'qilmagan; yozishmani ochgach — 0. Egasi haydovchi xabarini o'qigan
+        assertThat(call("GET", "/api/messages/unread-count", null, driver, 200).get("count").asLong()).isEqualTo(1);
+        JsonNode inbox = call("GET", "/api/messages", null, driver, 200);
+        assertThat(inbox.size()).isEqualTo(1);
+        assertThat(inbox.get(0).get("unread").asInt()).isEqualTo(1);
+        assertThat(inbox.get(0).get("orderId").asLong()).isEqualTo(orderId);
+        assertThat(inbox.get(0).get("counterpart").has("phone")).isFalse();
+        call("GET", "/api/orders/" + orderId + "/messages", null, driver, 200);
+        assertThat(call("GET", "/api/messages/unread-count", null, driver, 200).get("count").asLong()).isZero();
+        assertThat(call("GET", "/api/messages/unread-count", null, sender, 200).get("count").asLong()).isZero();
+        JsonNode senderInbox = call("GET", "/api/messages", null, sender, 200);
+        assertThat(senderInbox.get(0).get("lastText").asText()).isEqualTo("Bozor oldidan");
+        assertThat(senderInbox.get(0).get("iAmSender").asBoolean()).isTrue();
+        call("GET", "/api/messages", null, null, 401);
+
+        // Push: qurilma ro'yxati (Firebase sinovda sozlanmagan — faqat saqlanadi)
+        call("POST", "/api/push/register", Map.of("token", "test-device-token-1", "platform", "android"), driver, 200);
+        call("POST", "/api/push/register", Map.of("token", "test-device-token-1"), driver, 200);
+        call("POST", "/api/push/register", Map.of("token", ""), driver, 400);
+        call("POST", "/api/push/register", Map.of("token", "x"), null, 401);
+        call("POST", "/api/push/unregister", Map.of("token", "test-device-token-1"), sender, 200);   // begona — o'chmaydi
 
         // Taklif → qabul
         JsonNode offer = call("POST", "/api/orders/" + orderId + "/offers", Map.of("price", 850000, "comment", "Ertaga olaman"), driver, 200);
@@ -281,6 +304,18 @@ class FullFlowTest {
         // Yangi reys — mos e'lon egasiga xabar (keyingi e'lon uchun)
         long p2 = call("POST", "/api/orders", Map.of("kind", "PARCEL", "from", Map.of("regionId", r), "to", Map.of("regionId", r + 1)),
                 passenger, 200).get("id").asLong();
+        // Sanani ko'chirish: faqat egasi, o'tgan sanaga emas
+        String tomorrow = LocalDate.now(ZoneId.of("Asia/Tashkent")).plusDays(1).toString();
+        assertThat(call("POST", "/api/orders/" + p2 + "/reschedule", Map.of("date", tomorrow), passenger, 200).get("pickupDate").asText())
+                .isEqualTo(tomorrow);
+        call("POST", "/api/orders/" + p2 + "/reschedule", Map.of("date", tomorrow), driver, 403);
+        call("POST", "/api/orders/" + p2 + "/reschedule", Map.of("date", LocalDate.now(ZoneId.of("Asia/Tashkent")).minusDays(1).toString()), passenger, 400);
+        // Narx maslahati: ma'lumot kam — bo'sh javob; yuk — so'ralmaydi
+        call("GET", "/api/orders/price-hint?kind=PASSENGER&fromRegion=" + r + "&toRegion=" + (r + 1), null, passenger, 200);
+        call("GET", "/api/orders/price-hint?kind=CARGO&fromRegion=" + r + "&toRegion=" + (r + 1), null, passenger, 200);
+        // Ertalabki xulosa va sanasi o'tgan e'lon so'rovi haqiqiy bazada ishlaydi (Telegram sinovda o'chiq)
+        reminders.morningDigest();
+        reminders.askAboutLateOrders();
         JsonNode trip2 = call("POST", "/api/trips", Map.of("fromRegionId", r, "toRegionId", r + 1,
                 "departAt", LocalDate.now(ZoneId.of("Asia/Tashkent")).plusDays(1) + "T09:00:00", "seats", 2), driver, 200);
         assertThat(trip2.get("matches").asInt()).isEqualTo(1);
@@ -289,5 +324,18 @@ class FullFlowTest {
             told |= n.get("title").asText().contains("Yo'nalishingizda haydovchi bor") && n.get("link").asText().equals("#/orders/" + p2);
         }
         assertThat(told).isTrue();
+    }
+
+    @Test
+    @Order(5)
+    void routePagesAndSitemap() throws Exception {
+        String sitemap = mvc.perform(get("/sitemap.xml")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(sitemap).contains("<urlset").contains("/yo/toshkent-shahri/samarqand");
+        String page = mvc.perform(get("/yo/toshkent-shahri/samarqand")).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(page).contains("Toshkent shahri → Samarqand").doesNotContain("+998");
+        mvc.perform(get("/yo/toshkent-shahri/moskva")).andExpect(status().isNotFound());
+        assertThat(mvc.perform(get("/robots.txt")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .contains("Sitemap:");
     }
 }

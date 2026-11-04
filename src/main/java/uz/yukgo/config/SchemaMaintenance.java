@@ -82,6 +82,22 @@ public class SchemaMaintenance {
                     + " AND q.driver_id IS NOT NULL) OR EXISTS (SELECT 1 FROM orders o2 WHERE o2.id = order_messages.order_id"
                     + " AND o2.driver_id IS NOT NULL))");
 
+    /** «Xabarlar» (16-paket) paydo bo'lgunga qadar yozilgan xabarlar ikki tomonga ham o'qilgan hisoblanadi — faqat bir marta */
+    static final String READS_MARKER = "message_reads_backfill";
+    static final List<String> READS_BACKFILL = List.of(
+            // e'lon egasi
+            "INSERT INTO message_reads (user_id, order_id, driver_id, last_read_id)"
+                    + " SELECT o.sender_id, m.order_id, m.driver_id, MAX(m.id) FROM order_messages m JOIN orders o ON o.id = m.order_id"
+                    + " WHERE m.driver_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.user_id = o.sender_id"
+                    + " AND r.order_id = m.order_id AND r.driver_id = m.driver_id)"
+                    + " GROUP BY o.sender_id, m.order_id, m.driver_id",
+            // haydovchi
+            "INSERT INTO message_reads (user_id, order_id, driver_id, last_read_id)"
+                    + " SELECT m.driver_id, m.order_id, m.driver_id, MAX(m.id) FROM order_messages m"
+                    + " WHERE m.driver_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.user_id = m.driver_id"
+                    + " AND r.order_id = m.order_id AND r.driver_id = m.driver_id)"
+                    + " GROUP BY m.driver_id, m.order_id");
+
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         String url = env.getProperty("spring.datasource.url", "");
@@ -92,6 +108,26 @@ public class SchemaMaintenance {
         }
         else return;
         fixData();
+        backfillMessageReads();
+    }
+
+    /**
+     * Birinchi ishga tushishda: oldingi xabarlar uchun o'qilganlik yozuvlari (aks holda tepadagi 💬 raqami barcha eski,
+     * yopilgan e'lonlardagi xabarlarni ham «o'qilmagan» deb ko'rsatardi). Keyingi ishga tushishlarda bajarilmaydi —
+     * aks holda hali o'qilmagan yangi yozishmalar ham «o'qilgan» bo'lib qolardi.
+     */
+    void backfillMessageReads() {
+        try {
+            Integer done = jdbc.queryForObject("SELECT COUNT(*) FROM app_settings WHERE setting_key = ?", Integer.class, READS_MARKER);
+            if (done != null && done > 0) return;
+            int n = 0;
+            for (String sql : READS_BACKFILL) n += jdbc.update(sql);
+            jdbc.update("INSERT INTO app_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)",
+                    READS_MARKER, "1", java.sql.Timestamp.from(java.time.Instant.now()));
+            log.info("«Xabarlar»: oldingi {} ta yozishma o'qilgan deb belgilandi (bir martalik)", n);
+        } catch (Exception e) {
+            log.warn("Oldingi xabarlarni o'qilgan deb belgilab bo'lmadi: {}", e.getMessage());
+        }
     }
 
     void dropPostgresEnumChecks() {

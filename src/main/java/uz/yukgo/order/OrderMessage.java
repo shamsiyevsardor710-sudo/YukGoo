@@ -15,7 +15,8 @@ import java.time.Instant;
 @Entity
 @Table(name = "order_messages", indexes = {
         @Index(name = "idx_msg_order", columnList = "orderId,id"),
-        @Index(name = "idx_msg_thread", columnList = "orderId,driverId,id")})
+        @Index(name = "idx_msg_thread", columnList = "orderId,driverId,id"),
+        @Index(name = "idx_msg_driver", columnList = "driverId,id")})
 @Getter
 @Setter
 @NoArgsConstructor

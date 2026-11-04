@@ -54,6 +54,7 @@ public class OrderService {
     private final OrderEventRepository eventRepository;
     private final TrackPointRepository trackRepository;
     private final OrderMessageRepository messageRepository;
+    private final MessageReadRepository readRepository;
     private final ReviewRepository reviewRepository;
     private final UserRepository userRepository;
     private final TelegramLinkRepository linkRepository;
@@ -406,6 +407,38 @@ public class OrderService {
         return toDto(o, me, true);
     }
 
+    /** E'lon sanasini o'zgartirish (sanasi o'tgan e'lonni bugunga yoki ertaga): faqat egasi, faqat haydovchi kutayotganda */
+    @Transactional
+    public OrderDto reschedule(Long orderId, RescheduleRequest req) {
+        User me = currentUser.get();
+        return toDto(reschedule(me, orderId, req.date()), me, true);
+    }
+
+    /** Botdagi «📅 Bugunga» / «📅 Ertaga» (sanasi o'tgan e'lon haqidagi eslatmada) */
+    @Transactional(noRollbackFor = ApiException.class)
+    public Order rescheduleFromBot(User me, Long orderId, LocalDate date) {
+        return reschedule(me, orderId, date);
+    }
+
+    private Order reschedule(User me, Long orderId, LocalDate date) {
+        Order o = findForUpdate(orderId);
+        requireSender(o, me);
+        if (o.getStatus() != OrderStatus.NEW) {
+            throw ApiException.badRequest("E'lonni haydovchi olgan yoki e'lon yopilgan — sanani o'zgartirib bo'lmaydi");
+        }
+        LocalDate today = LocalDate.now(TZ);
+        if (date == null || date.isBefore(today)) throw ApiException.badRequest("Bugungi yoki keyingi sanani tanlang");
+        if (date.isAfter(today.plusDays(90))) throw ApiException.badRequest("Sana juda uzoq — 3 oy ichidagi sanani tanlang");
+        if (date.equals(o.getPickupDate())) return o;
+        boolean wasLate = o.getPickupDate() != null && o.getPickupDate().isBefore(today);
+        o.setPickupDate(date);
+        event(o, OrderStatus.NEW, "Sana o'zgartirildi: " + date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")), me);
+        // Sanasi o'tib, bozorning oxiriga tushib qolgan e'lon yana yangidek: haydovchilarga qayta xabar
+        if (wasLate) matches.onNewOrder(o, me);
+        channels.orderChanged(o.getId());
+        return o;
+    }
+
     /** Daromad tizimi yoqilgan bo'lsa shoshilinch narxini yuboruvchidan yechadi. @return yechilgan summa */
     private long chargeUrgentFee(Order o, User sender) {
         // Bonus: har bir foydalanuvchining birinchi shoshilinch e'loni bepul. Yuboruvchining hamyon qatori bloklanadi —
@@ -721,6 +754,7 @@ public class OrderService {
     @Transactional
     public void anonymizeHistory(User u, String oldName, String newName) {
         trackRepository.deleteByDriver(u.getId());
+        readRepository.deleteAllForUser(u.getId());
         orderRepository.clearDriverLocation(u.getId());
         eventRepository.renameActor(u.getId(), newName);
         if (oldName == null || oldName.isBlank()) return;
@@ -815,7 +849,7 @@ public class OrderService {
      * (driverId; berilmasa — e'lon berilgan haydovchi bilan), admin — istalganini ko'radi (faqat o'qish).
      * E'lon shu haydovchiga berilmaguncha matndagi telefon raqamlar yopiq ko'rinadi.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public List<MessageDto> messages(Long orderId, Long driverId, Long afterId) {
         User me = currentUser.get();
         Order o = find(orderId);
@@ -825,8 +859,26 @@ public class OrderService {
                 : isSender || (staff && !isParticipant(o, me)) ? assignedId(o) : me.getId();
         if (thread == null) return List.of();
         boolean assigned = thread.equals(assignedId(o));
-        return messageRepository.thread(orderId, thread, afterId == null ? 0 : afterId).stream()
-                .map(m -> MessageDto.of(m, !assigned && !staff)).toList();
+        List<OrderMessage> list = messageRepository.thread(orderId, thread, afterId == null ? 0 : afterId);
+        // Yozishma tomoni o'qidi — «Xabarlar» dagi o'qilmaganlar soni kamayadi (admin ko'rishi hisobga olinmaydi)
+        if (!list.isEmpty() && (isSender || thread.equals(me.getId()))) {
+            markRead(me.getId(), orderId, thread, list.get(list.size() - 1).getId());
+        }
+        return list.stream().map(m -> MessageDto.of(m, !assigned && !staff)).toList();
+    }
+
+    private void markRead(Long userId, Long orderId, Long driverId, long lastId) {
+        MessageRead r = readRepository.findFirstByUserIdAndOrderIdAndDriverIdOrderByIdAsc(userId, orderId, driverId).orElse(null);
+        if (r == null) {
+            r = new MessageRead();
+            r.setUserId(userId);
+            r.setOrderId(orderId);
+            r.setDriverId(driverId);
+            r.setLastReadId(lastId);
+            readRepository.save(r);
+        } else if (r.getLastReadId() < lastId) {
+            r.setLastReadId(lastId);
+        }
     }
 
     @Transactional
@@ -876,10 +928,9 @@ public class OrderService {
         m.setText(req.text().trim());
         messageRepository.save(m);
 
-        // Xabar faqat yozishmada turadi — Telegramga yuborilmaydi. Ikkinchi tomonga sayt ichida 🔔 (matnsiz; shu yozishma
-        // bo'yicha o'qilmagan bildirishnoma bo'lsa — yangisi qo'shilmaydi)
-        notifications.inAppOnce(other, "💬 Yangi xabar",
-                me.getFullName() + " sizga yozdi — «" + uz.yukgo.channel.OrderCard.publicTitle(o.getTitle()) + "»",
+        // Xabar faqat yozishmada turadi — Telegramga ham, 🔔 ga ham yuborilmaydi: ikkinchi tomon uni saytdagi «💬 Xabarlar»da
+        // (qizil belgi) ko'radi, Android ilovasi bo'lsa — telefoniga push keladi (haydovchi tanlanmaguncha raqam yopiq)
+        notifications.push(other, "💬 " + me.getFullName(), assigned ? m.getText() : Phones.maskInText(m.getText()),
                 "#/orders/" + orderId + "?chat=" + thread);
         return MessageDto.of(m, !assigned);
     }

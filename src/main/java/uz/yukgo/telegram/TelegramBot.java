@@ -42,6 +42,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -124,6 +125,32 @@ public class TelegramBot {
     record PendingPost(long chatId, String text, Instant createdAt) {}
 
     private final Map<String, PendingPost> pendingPosts = new ConcurrentHashMap<>();
+
+    /** Guruhdagi e'lon: muallif «✅ YukGo'ga joylash» ni bosib botga o'tganda shu matn joylanadi */
+    record GroupPost(long authorId, String text, Instant createdAt) {}
+
+    static final Duration GROUP_POST_TTL = Duration.ofHours(24);
+    /** Bitta odamga bitta guruhda — 6 soatda ko'pi bilan bir marta taklif */
+    static final Duration GROUP_USER_COOLDOWN = Duration.ofHours(6);
+    /** Bitta guruhda — 3 daqiqada ko'pi bilan bitta javob (faol guruh bot xabarlariga to'lib ketmasin) */
+    static final Duration GROUP_COOLDOWN = Duration.ofMinutes(3);
+    static final int GROUP_MAX_PENDING = 5000;
+    private static final Pattern GROUP_START = Pattern.compile("gp_([a-z0-9]{1,16})");
+
+    private final Map<String, GroupPost> groupPosts = new ConcurrentHashMap<>();
+    /** "guruh:odam" va "guruh" → oxirgi taklif vaqti */
+    private final Map<String, Instant> groupReplies = new ConcurrentHashMap<>();
+
+    /**
+     * «Kanallar» bo'limida ulangan (hamkor) guruhlar: bot u yerga e'lon joylaydi, lekin a'zolarning xabarlariga javob
+     * yozmaydi — hamkor bunga rozilik bermagan. Konstruktorda emas: sinovlarda kerak emas.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private uz.yukgo.channel.ChannelFeedRepository feeds;
+
+    record FeedFlag(boolean feed, Instant checkedAt) {}
+
+    private final Map<Long, FeedFlag> feedFlags = new ConcurrentHashMap<>();
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
@@ -266,7 +293,12 @@ public class TelegramBot {
 
     void handle(JsonNode msg) {
         if (msg.isMissingNode() || msg.isNull()) return;
-        if (!"private".equals(msg.path("chat").path("type").asText())) return;
+        String chatType = msg.path("chat").path("type").asText();
+        if ("group".equals(chatType) || "supergroup".equals(chatType)) {
+            onGroupMessage(msg);
+            return;
+        }
+        if (!"private".equals(chatType)) return;
         long chatId = msg.path("chat").path("id").asLong();
         long fromId = msg.path("from").path("id").asLong();
         String username = msg.path("from").path("username").asText(null);
@@ -295,6 +327,92 @@ public class TelegramBot {
             onMediaFromNonStaff(chatId);
         } else {
             client.sendNow(chatId, "Quyidagi tugmalardan foydalaning 👇", TelegramClient.mainMenu());
+        }
+    }
+
+    // =====================================================================
+    // Guruhlar: bot guruhdagi aniq e'lonni ko'rsa — «✅ YukGo'ga joylash» tugmasi. Bosgan muallif botga o'tadi va e'lon
+    // bir bosishda saytga chiqadi (hisobi ulanmagan bo'lsa — to'ldirilgan forma). Guruhda bot hamma xabarni ko'rishi
+    // uchun @BotFather → /setprivacy → Disable (yoki botni guruh admini qilish) kerak.
+    // =====================================================================
+
+    void onGroupMessage(JsonNode msg) {
+        JsonNode from = msg.path("from");
+        // Bot, kanal yoki anonim admin nomidan, boshqa joydan uzatilgan xabarlarga javob berilmaydi
+        if (from.isMissingNode() || from.path("is_bot").asBoolean(false) || msg.has("sender_chat")
+                || msg.has("forward_origin") || msg.has("forward_from") || msg.has("forward_from_chat") || msg.has("via_bot")) return;
+        String text = (msg.hasNonNull("text") ? msg.path("text").asText("") : msg.path("caption").asText("")).trim();
+        if (text.length() < 12 || text.length() > 1500 || text.startsWith("/")) return;
+        long groupId = msg.path("chat").path("id").asLong();
+        long authorId = from.path("id").asLong();
+        if (groupId == 0 || authorId <= 0) return;
+        Instant now = Instant.now();
+        String userKey = groupId + ":" + authorId, groupKey = String.valueOf(groupId);
+        if (recently(userKey, GROUP_USER_COOLDOWN, now) || recently(groupKey, GROUP_COOLDOWN, now)) return;
+        LoadTextParser.Parsed p = parse(text);
+        if (p == null || p.question() || !p.hasDetails()) return;   // faqat aniq e'lon: savol va gap-so'zlarga emas
+        if (isFeedChat(groupId)) return;
+        if (groupPosts.size() >= GROUP_MAX_PENDING) {
+            groupPosts.values().removeIf(g -> g.createdAt().isBefore(now.minus(GROUP_POST_TTL)));
+            if (groupPosts.size() >= GROUP_MAX_PENDING) return;
+        }
+        if (groupReplies.size() > 20_000) groupReplies.values().removeIf(t -> t.isBefore(now.minus(GROUP_USER_COOLDOWN)));
+        String token = Long.toString(RANDOM.nextLong() & Long.MAX_VALUE, 36);
+        groupPosts.put(token, new GroupPost(authorId, text, now));
+        groupReplies.put(userKey, now);
+        groupReplies.put(groupKey, now);
+        String html = p.driverOffer()
+                ? "🚗 Reysingizni <b>YukGo</b>'ga ham joylaymi? Shu yo'nalishdagi yo'lovchi va yuk egalari ko'radi, yangi e'lonlar sizga keladi."
+                : "📲 Shu e'lonni <b>YukGo</b>'ga ham joylaymi? Yo'nalishdagi haydovchilarga xabar boradi, raqamingiz haydovchi "
+                + "«Olaman» deguncha yopiq turadi.";
+        Map<String, Object> markup = Map.of("inline_keyboard",
+                List.of(List.of(Map.of("text", "✅ YukGo'ga joylash", "url", client.deepLink("gp_" + token)))));
+        client.sendReply(groupId, html, markup, msg.path("message_id").asInt());
+    }
+
+    /** Hamkor (kanallar ro'yxatidagi) guruhmi — 10 daqiqa eslab qolinadi; bazaga ulanib bo'lmasa — javob yozmaymiz */
+    boolean isFeedChat(long chatId) {
+        if (feeds == null) return false;
+        Instant now = Instant.now();
+        FeedFlag f = feedFlags.get(chatId);
+        if (f == null || f.checkedAt().isBefore(now.minus(Duration.ofMinutes(10)))) {
+            boolean feed;
+            try {
+                feed = feeds.findByChatId(chatId).isPresent();
+            } catch (Exception e) {
+                feed = true;
+            }
+            if (feedFlags.size() > 5000) feedFlags.clear();
+            f = new FeedFlag(feed, now);
+            feedFlags.put(chatId, f);
+        }
+        return f.feed();
+    }
+
+    private boolean recently(String key, Duration window, Instant now) {
+        Instant last = groupReplies.get(key);
+        return last != null && last.isAfter(now.minus(window));
+    }
+
+    /** Guruhdagi «✅ YukGo'ga joylash» → /start gp_TOKEN: faqat e'lon muallifi, bir marta */
+    void onGroupStart(long chatId, String token) {
+        GroupPost gp = groupPosts.get(token);
+        if (gp == null || gp.createdAt().isBefore(Instant.now().minus(GROUP_POST_TTL))) {
+            if (gp != null) groupPosts.remove(token, gp);
+            client.sendNow(chatId, "⌛ Bu havola eskirgan.\n\n" + LOAD_HINT, TelegramClient.mainMenu());
+            return;
+        }
+        if (gp.authorId() != chatId) {
+            client.sendNow(chatId, "Bu tugma e'lon muallifi uchun.\n\n" + LOAD_HINT, TelegramClient.mainMenu());
+            return;
+        }
+        if (!groupPosts.remove(token, gp)) return;   // ikki marta bosildi — bir marta joylanadi
+        boolean linked = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).isPresent();
+        if (!linked) growth.rememberStart(chatId, "guruh", null);   // qayerdan kelgani (marketing hisobotida)
+        onFreeText(chatId, gp.text(), true);
+        if (!linked) {
+            client.sendNow(chatId, "📱 Telefon raqamingizni yuborsangiz, hisobingiz ulanadi: keyingi e'lonlar shu yerdan bir bosishda "
+                    + "chiqadi va haydovchilar takliflari shu yerga keladi 👇", TelegramClient.contactKeyboard());
         }
     }
 
@@ -440,7 +558,7 @@ public class TelegramBot {
                     ? "🔔 Shu yo'nalishdagi <b>" + c.notified() + "</b> ta haydovchiga xabar yuborildi.\n"
                     : "🔔 E'lon bozorda turadi — shu yo'nalishdagi haydovchilar ko'radi.\n");
         }
-        sb.append("📩 Haydovchi «Olaman» desa yoki narx taklif qilsa — shu yerga xabar keladi; savollari saytdagi yozishmada turadi (🔔).\n");
+        sb.append("📩 Haydovchi «Olaman» desa yoki narx taklif qilsa — shu yerga xabar keladi; savollari saytdagi «💬 Xabarlar»da turadi.\n");
         sb.append("🔒 Telefon raqamingiz haydovchi e'loningizni olgandan keyingina ko'rinadi.");
         String html = sb.toString();
         List<Object> buttons = postedButtons("#/orders/" + o.getId(), "📤 Ulashish", shareUrl(o), "❌ Bekor qilish", "oc:" + o.getId());
@@ -564,7 +682,10 @@ public class TelegramBot {
         return "https://t.me/share/url?url=" + enc(notifications.siteUrl(hash)) + "&text=" + enc(text);
     }
 
-    /** «❌ Bekor qilish» (oc:ID — e'lon) va «❌ O'chirish» (tc:ID — reys): faqat egasi */
+    /**
+     * «❌ Bekor qilish» (oc:ID — e'lon), «❌ O'chirish» (tc:ID — reys) va sanasi o'tgan e'lon eslatmasidagi
+     * «📅 Bugunga» (ek:ID) / «📅 Ertaga» (et:ID): faqat egasi
+     */
     void onPostCallback(String callbackId, long chatId, int promptId, String kind, long id) {
         User u = userRepository.findFirstByTelegramChatIdOrderByIdDesc(chatId).orElse(null);
         if (u == null || !u.isActive()) {
@@ -579,6 +700,15 @@ public class TelegramBot {
                         + "\n\nYangi e'lon uchun shunchaki qayta yozing.";
                 afterCommit(() -> {
                     client.answerCallback(callbackId, "E'lon bekor qilindi");
+                    client.editMessage(chatId, promptId, html, null);
+                });
+            } else if ("ek".equals(kind) || "et".equals(kind)) {
+                boolean tomorrow = "et".equals(kind);
+                Order o = orders.rescheduleFromBot(u, id, LocalDate.now(TZ).plusDays(tomorrow ? 1 : 0));
+                String html = "✅ <b>E'lon " + (tomorrow ? "ertaga" : "bugunga") + " ko'chirildi</b> (#" + o.getId() + ")\n\n"
+                        + OrderCard.text(o) + "\n\n📩 Haydovchi «Olaman» desa yoki narx taklif qilsa — shu yerga xabar keladi.";
+                afterCommit(() -> {
+                    client.answerCallback(callbackId, tomorrow ? "Ertaga ko'chirildi" : "Bugunga ko'chirildi");
                     client.editMessage(chatId, promptId, html, null);
                 });
             } else {
@@ -798,7 +928,7 @@ public class TelegramBot {
         long chatId = cq.path("message").path("chat").path("id").asLong();
         int promptId = cq.path("message").path("message_id").asInt();
         String[] parts = data.split(":");
-        if (parts.length == 2 && ("oc".equals(parts[0]) || "tc".equals(parts[0])) && parts[1].matches("\\d{1,18}")) {
+        if (parts.length == 2 && Set.of("oc", "tc", "ek", "et").contains(parts[0]) && parts[1].matches("\\d{1,18}")) {
             onPostCallback(callbackId, chatId, promptId, parts[0], Long.parseLong(parts[1]));
             return;
         }
@@ -876,6 +1006,10 @@ public class TelegramBot {
             }
             if ((m = NEW_START.matcher(param)).matches()) {
                 onNewStart(chatId, m.group(1));
+                return;
+            }
+            if ((m = GROUP_START.matcher(param)).matches()) {
+                onGroupStart(chatId, m.group(1));
                 return;
             }
             if ((m = SRC_START.matcher(param)).matches()) {

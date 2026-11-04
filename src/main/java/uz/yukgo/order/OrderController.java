@@ -17,6 +17,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OrderController {
     private final OrderService orderService;
+    private final PriceHintService priceHints;
 
     @Operation(summary = "Ochiq e'lonlar (yuk, pochta, yo'lovchi): kirganlarga avval o'z tumani va viloyatidan")
     @GetMapping
@@ -36,6 +37,13 @@ public class OrderController {
     }
 
     @Operation(summary = "Narxni taxminiy hisoblash (masofa va og'irlik bo'yicha)")
+    /** Yo'lovchi va pochta: shu yo'nalishdagi odatiy narx (ma'lumot kam bo'lsa — bo'sh javob) */
+    @GetMapping("/price-hint")
+    public PriceHintDto priceHint(@RequestParam OrderKind kind, @RequestParam Long fromRegion, @RequestParam Long toRegion,
+                                  @RequestParam(required = false) Long fromDistrict, @RequestParam(required = false) Long toDistrict) {
+        return priceHints.hint(kind, fromRegion, toRegion, fromDistrict, toDistrict);
+    }
+
     @GetMapping("/estimate")
     public EstimateDto estimate(@RequestParam double distanceKm,
                                 @RequestParam(required = false) Double weightKg,
@@ -118,6 +126,12 @@ public class OrderController {
     @PostMapping("/{id}/deliver")
     public OrderDto deliver(@PathVariable Long id, @Valid @RequestBody(required = false) DeliverRequest req) {
         return orderService.deliver(id, req);
+    }
+
+    /** Sanani o'zgartirish (masalan, sanasi o'tgan e'lonni bugunga) */
+    @PostMapping("/{id}/reschedule")
+    public OrderDto reschedule(@PathVariable Long id, @Valid @RequestBody RescheduleRequest req) {
+        return orderService.reschedule(id, req);
     }
 
     @PostMapping("/{id}/cancel")

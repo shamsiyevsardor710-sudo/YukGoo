@@ -193,6 +193,7 @@ sharh qoldiradi — **Ha**; joylashuv boshqa foydalanuvchiga ko'rsatiladi — **
 | Messages → Other in-app messages (buyurtma yozishmalari) | Ha | Yo'q | Optional | App functionality |
 | App activity → Other user-generated content (e'lonlar, sharhlar) | Ha | Yo'q | Optional | App functionality |
 | Financial info → Purchase history (balansni to'ldirish: summa, vaqt, to'lov raqami) | Ha | Yo'q | Optional | App functionality |
+| Device or other IDs (push-bildirishnoma tokeni — Firebase Cloud Messaging, 1.1.0 dan) | Ha | Yo'q | Optional | App functionality |
 
 Karta ma'lumotlari («Financial info → User payment info») **yig'ilmaydi**: karta Click, Payme yoki Paynet'ning o'z sahifasida
 yoki ilovasida kiritiladi va YukGo'ga kelmaydi.
@@ -201,7 +202,8 @@ yoki ilovasida kiritiladi va YukGo'ga kelmaydi.
 Bunga ikki holat kirmaydi:
 - Foydalanuvchining o'z harakati bilan ko'rinadigan ma'lumot. Masalan, e'lon bergan yoki buyurtmani olgan odamning ismi,
   telefoni va joylashuvi buyurtma tomoniga ko'rinadi.
-- Xizmat ko'rsatuvchilar: Telegram (xabarlar), Eskiz.uz (SMS), Click, Payme va Paynet (to'lovlar), Yandex (xarita), Railway (server).
+- Xizmat ko'rsatuvchilar: Telegram (xabarlar), Eskiz.uz (SMS), Click, Payme va Paynet (to'lovlar), Yandex (xarita), Railway (server),
+  Google Firebase (push-bildirishnomalar).
 
 Ikkilansangiz «Ha» deb belgilashingiz ham mumkin. Unda sahifada «ma'lumot uchinchi tomonga beriladi» deb ko'rinadi.
 
@@ -298,3 +300,11 @@ Daromad tizimini yoqqaningizda Play Console'da:
 
 - Faqat sayt o'zgarsa — Railway'ga push kifoya, ilova o'zi yangilanadi.
 - Ilovaning o'zi o'zgarsa — `versionCode` ni oshirib, yangi AAB ni yuklang (README.md, 4-qadam).
+
+### 1.1.0 (versionCode 2) — push-bildirishnomalar
+
+Play Console'da yangi AAB yuklashdan oldin:
+- **App content → Data safety → Edit**: «Device or other IDs» ni qo'shing — Collected: Ha, Shared: Yo'q, Optional,
+  maqsad: App functionality (yuqoridagi jadval). Saqlang va yuboring.
+- Bildirishnoma ruxsati (Android 13+) ilovada avvaldan bor — yangi ruxsat qo'shilmaydi.
+- **Release notes** (masalan): «Yangi xabar, taklif va «Olaman» haqida bildirishnomalar. Barcha yozishmalar — «Xabarlar» bo'limida.»

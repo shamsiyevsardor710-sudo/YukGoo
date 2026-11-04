@@ -6,11 +6,13 @@ import { marketPage, createOrderPage, orderPage, myOrdersPage } from './pages/or
 import { navigationPage } from './pages/navigation.js';
 import { profilePage, publicProfilePage, notificationsPage, driversPage, deleteAccountModal } from './pages/profile.js';
 import { tripsPage } from './pages/trips.js';
+import { messagesPage } from './pages/messages.js';
 import { adminPage } from './pages/admin.js';
 import { tg, initTelegram, telegramRoute, telegramAutoLogin, telegramLogout } from './telegram.js';
 import { captureAttribution } from './attribution.js';
 import { bindDocLinks, termsGate } from './legal.js';
 import { currentTheme, themeLabel, toggleTheme } from './theme.js';
+import { initPush, stopPush } from './push.js';
 
 const routes = [
   { path: '/', page: marketPage, nav: 'market' },
@@ -27,6 +29,7 @@ const routes = [
   { path: '/profile', page: profilePage, auth: true, nav: 'profile' },
   { path: '/u/:id', page: publicProfilePage, auth: true },
   { path: '/notifications', page: notificationsPage, auth: true },
+  { path: '/messages', page: messagesPage, auth: true },
   { path: '/admin', page: adminPage, auth: true, staff: true, nav: 'admin' },
 ];
 
@@ -131,7 +134,8 @@ function renderShell(active) {
   $('#topbar-right').innerHTML = u
     ? `<a class="btn btn-primary btn-sm" href="#/new">${icon('plus')}<span>E'lon berish</span></a>
        ${themeBtn}
-       <a class="icon-btn" href="#/notifications" aria-label="Bildirishnomalar">${icon('bell')}<span class="badge-dot hidden" id="unread"></span></a>
+       <a class="icon-btn" href="#/messages" aria-label="Xabarlar" title="Xabarlar">${icon('chat')}<span class="badge-dot badge-msg hidden" id="unread-msg"></span></a>
+       <a class="icon-btn" href="#/notifications" aria-label="Bildirishnomalar" title="Bildirishnomalar">${icon('bell')}<span class="badge-dot hidden" id="unread"></span></a>
        <a class="me-chip" href="#/profile">${avatar(u.avatarUrl, u.fullName)}<span>${esc(u.firstName)}</span></a>`
     : `${themeBtn}
        <a class="btn btn-sm btn-onbar" href="#/login">Kirish</a>
@@ -158,15 +162,21 @@ function renderShell(active) {
     ? `<a href="${href}" class="plus ${k === active ? 'active' : ''}"><span class="plus-disc">${icon(ic)}</span>${esc(label)}</a>`
     : `<a href="${href}" class="${k === active ? 'active' : ''}">${icon(ic)}${esc(label)}</a>`).join('');
   refreshUnread();
+  // Android ilovada: push-bildirishnomalar (bosilganda — tegishli sahifa; ilova ochiq bo'lsa — belgilar yangilanadi)
+  if (u) initPush({ onOpen: (link) => go(link), onReceive: refreshUnread });
 }
 
+function setBadge(id, count) {
+  const el = $(id);
+  if (el) { el.textContent = count > 99 ? '99+' : count; el.classList.toggle('hidden', !count); }
+}
+
+/** Tepadagi belgilar: 🔔 — o'qilmagan bildirishnomalar, 💬 — yozishmalardagi o'qilmagan xabarlar */
 export async function refreshUnread() {
   if (!auth.loggedIn) return;
-  try {
-    const { count } = await get('/notifications/unread-count');
-    const el = $('#unread');
-    if (el) { el.textContent = count > 99 ? '99+' : count; el.classList.toggle('hidden', !count); }
-  } catch { /* */ }
+  const [n, m] = await Promise.allSettled([get('/notifications/unread-count'), get('/messages/unread-count')]);
+  if (n.status === 'fulfilled') setBadge('#unread', n.value.count);
+  if (m.status === 'fulfilled') setBadge('#unread-msg', m.value.count);
 }
 
 export async function refreshMe() {
@@ -197,6 +207,7 @@ export function afterLogin(fallback = '#/') {
  */
 export async function logout({ server = true } = {}) {
   if (server) await telegramLogout();   // Telegram ichida: keyingi ochilishda o'zi kirib qolmasin
+  await stopPush({ server });   // bu telefonga endi shu hisobning push xabarlari kelmasin
   auth.token = null;
   auth.user = null;
   redirect('#/login');
@@ -211,6 +222,8 @@ setTermsRequiredHandler(() => {
 });
 
 setUnauthorizedHandler(async (msg) => {
+  // Sessiya tugadi: keyingi kirishda telefon (push) yangi hisobga qayta ulanadi — eski hisob xabarlari bu yerga kelmasin
+  void stopPush({ server: false });
   // Telegram ichida sessiya tugagan bo'lsa — parolsiz qayta kirib ko'ramiz
   if (await telegramAutoLogin()) {
     render();

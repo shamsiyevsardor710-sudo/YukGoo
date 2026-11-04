@@ -522,11 +522,11 @@ public class TelegramClient {
         return Map.of("inline_keyboard", List.of(List.of(Map.of("text", text, "web_app", Map.of("url", url)))));
     }
 
-    static boolean isHttpsPublic(String url) {
+    public static boolean isHttpsPublic(String url) {
         return url != null && url.startsWith("https://") && isPublicUrl(url);
     }
 
-    static boolean isPublicUrl(String url) {
+    public static boolean isPublicUrl(String url) {
         try {
             URI u = URI.create(url);
             String host = u.getHost();

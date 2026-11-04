@@ -51,6 +51,7 @@ export async function marketPage(main, _p, query) {
     </div>
     <div id="results" style="margin-top:16px">${skeletons()}</div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="btn hidden" id="more">Yana ko'rsatish</button></div>
+    ${auth.loggedIn ? '' : `<p class="small muted" style="text-align:center;margin-top:20px"><a href="/yo">Barcha yo'nalishlar ro'yxati</a></p>`}
   </div>`;
 
   const rs = $('#rs', main);
@@ -288,10 +289,36 @@ const FORM_TEXT = {
   },
 };
 
+/**
+ * «Qayta joylash»: o'z e'lonidan forma qiymatlari (sana — bugun). Begona yoki topilmagan e'lon — null.
+ * Yo'lovchida narx bir kishi uchun (e'londa jami saqlanadi).
+ */
+export function prefillFromOrder(o, today) {
+  if (!o || o.viewerRole !== 'SENDER') return null;
+  const seats = o.kind === 'PASSENGER' ? Math.min(30, Math.max(1, o.seats || 1)) : null;
+  const total = o.price || null;
+  const price = total && seats > 1 ? Math.max(1000, Math.round(total / seats / 1000) * 1000) : total;
+  return {
+    fromBot: false, copied: true,
+    kind: KIND[o.kind] ? o.kind : 'CARGO',
+    seats,
+    fr: o.from?.regionId || null, fd: o.from?.districtId || null, tr: o.to?.regionId || null, td: o.to?.districtId || null,
+    weight: o.weightKg || null, price, negotiable: !total,
+    date: today,
+    body: o.requiredBodyType ? bodyCanon(o.requiredBodyType) : '',
+    cargo: CARGO[o.cargoType] ? o.cargoType : 'GENERAL',
+    title: o.kind === 'PASSENGER' ? '' : (o.title || '').slice(0, 120),
+    description: (o.description || '').slice(0, 1500),
+    fromAddress: (o.from?.address || '').slice(0, 250), toAddress: (o.to?.address || '').slice(0, 250),
+  };
+}
+
 export async function createOrderPage(main, _p, query) {
   const cfg = await get('/config').catch(() => config());   // narxlar o'zgargan bo'lishi mumkin — keshdan emas, yangisini olamiz
   const today = localISO();
-  const pre = prefillFrom(query, today);
+  const copyId = /^\d{1,18}$/.test(query?.get?.('copy') || '') ? query.get('copy') : null;
+  const copied = copyId ? prefillFromOrder(await get(`/orders/${copyId}`).catch(() => null), today) : null;
+  const pre = copied || prefillFrom(query, today);
   const urgentFee = cfg.pricing?.enabled && cfg.pricing.urgentFee > 0 ? cfg.pricing.urgentFee : 0;
   // Birinchi shoshilinch e'lon bepul (admin yoqqan bo'lsa va hali ishlatilmagan bo'lsa)
   const wallet = urgentFee && cfg.pricing.firstUrgentFree ? await get('/wallet').catch(() => null) : null;
@@ -305,6 +332,7 @@ export async function createOrderPage(main, _p, query) {
   main.innerHTML = `<div class="page page-narrow">
     <div class="page-head"><div><h1>Yangi e'lon</h1><p class="muted">Yo'nalishingizdagi haydovchilarga darhol xabar boradi.</p></div></div>
     ${pre.fromBot ? `<div class="prefill-note">${icon('check')}<div><b>Botga yozgan e'loningizdan to'ldirildi.</b> Tekshirib chiqing va «E'lon qilish» ni bosing.</div></div>` : ''}
+    ${pre.copied ? `<div class="prefill-note">${icon('refresh')}<div><b>Avvalgi e'loningizdan to'ldirildi.</b> Sana — bugun; kerak bo'lsa o'zgartiring va «E'lon qilish» ni bosing.</div></div>` : ''}
     <form id="order-form" class="stack" novalidate>
       <div class="kind-switch" role="radiogroup" aria-label="Nima kerak?">
         ${kindBtn('CARGO', "Yuk jo'nataman")}${kindBtn('PARCEL', 'Hujjat, kichik quti')}${kindBtn('PASSENGER', "O'zim boraman")}
@@ -344,6 +372,7 @@ export async function createOrderPage(main, _p, query) {
         <label class="field"><span><span id="price-label">Narx, so'm</span> <span class="muted">(ixtiyoriy)</span></span>
           <input class="input" name="price" type="number" min="1000" step="1000" inputmode="numeric" placeholder="Masalan: 300000" value="${pre.negotiable ? '' : (pre.price ?? '')}">
           <small id="price-hint">Bo'sh qoldirsangiz — narx kelishiladi.</small></label>
+        <p class="price-norm hidden" id="price-norm" aria-live="polite"></p>
         <div class="panel-sunk hidden" id="estimate"></div>
         <div class="field" data-for="CARGO PARCEL"><span>Kim qabul qiladi?</span>
           <div class="seg" id="receiver-mode"><button type="button" class="on" data-r="me">O'zim</button><button type="button" data-r="other">Boshqa odam</button></div>
@@ -357,8 +386,8 @@ export async function createOrderPage(main, _p, query) {
         <details class="more" id="more-box">
           <summary>Aniq manzil va xarita <span class="muted">(ixtiyoriy)</span></summary>
           <div class="stack" style="margin-top:14px">
-            <label class="field"><span id="from-addr-label">Olish manzili</span><input class="input" name="fromAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing"></label>
-            <label class="field"><span id="to-addr-label">Topshirish manzili</span><input class="input" name="toAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing"></label>
+            <label class="field"><span id="from-addr-label">Olish manzili</span><input class="input" name="fromAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing" value="${esc(pre.fromAddress || '')}"></label>
+            <label class="field"><span id="to-addr-label">Topshirish manzili</span><input class="input" name="toAddress" maxlength="250" placeholder="Xaritadan belgilang yoki yozing" value="${esc(pre.toAddress || '')}"></label>
             <div class="map-tools">
               <div class="seg" id="pick-mode"><button type="button" class="on" data-mode="from">Olish nuqtasi</button><button type="button" data-mode="to">Borish nuqtasi</button></div>
               <button type="button" class="btn btn-sm" id="my-loc">${icon('locate')}Mening joylashuvim</button>
@@ -408,6 +437,7 @@ export async function createOrderPage(main, _p, query) {
     $('#to-addr-label', main).textContent = t.toAddr;
     $$('#pick-mode button', main)[0].textContent = k === 'PASSENGER' ? 'Olib ketish nuqtasi' : 'Olish nuqtasi';
     updatePriceHint();
+    schedulePriceNorm();
   }
   $$('.kind-switch button', main).forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
 
@@ -441,6 +471,33 @@ export async function createOrderPage(main, _p, query) {
     }
   }
   form.price.addEventListener('input', updatePriceHint);
+
+  // ---- Shu yo'nalishdagi odatiy narx (yo'lovchi va pochta; yukda — masofa bo'yicha hisob) ----
+  let normSeq = 0, normTimer = null;
+  function schedulePriceNorm() {
+    clearTimeout(normTimer);
+    normTimer = setTimeout(loadPriceNorm, 250);
+  }
+  async function loadPriceNorm() {
+    const box = $('#price-norm', main);
+    if (!box) return;
+    const seq = ++normSeq;
+    const fr = form.fromRegionId.value, tr = form.toRegionId.value;
+    if (kind === 'CARGO' || !fr || !tr) { box.classList.add('hidden'); return; }
+    let h = null;
+    try {
+      h = await get('/orders/price-hint', { kind, fromRegion: fr, toRegion: tr,
+        fromDistrict: form.fromDistrictId.value || undefined, toDistrict: form.toDistrictId.value || undefined });
+    } catch { /* maslahatsiz ham bo'ladi */ }
+    if (seq !== normSeq || !document.body.contains(box)) return;
+    if (!h || !h.typical) { box.classList.add('hidden'); return; }
+    const range = h.low === h.high ? money(h.low) : `${money(h.low)} – ${money(h.high)}`;
+    box.innerHTML = `💡 Bu yo'nalishda odatda <b>${esc(range)}</b>${h.perPerson ? ' (1 kishi uchun)' : ''}
+      <button type="button" class="link-btn" id="use-norm">${esc(money(h.typical))} qo'yish</button>`;
+    box.classList.remove('hidden');
+    $('#use-norm', box).addEventListener('click', () => { form.price.value = h.typical; updatePriceHint(); });
+  }
+  [form.fromRegionId, form.fromDistrictId, form.toRegionId, form.toDistrictId].forEach(el => el.addEventListener('change', schedulePriceNorm));
 
   // ---- Qabul qiluvchi: o'zim yoki boshqa odam ----
   let receiverOther = false;
@@ -739,15 +796,20 @@ export async function orderPage(main, { id }, query) {
 
     if (role === 'SENDER') {
       if (o.status === 'NEW') {
+        // Sanasi o'tgan e'lon: eng avval — sanani ko'chirish (server bunday e'lonni shoshilinch qilmaydi)
+        const late = o.pickupDate && o.pickupDate < localISO();
+        if (late) {
+          html += `<section class="panel stack-sm late-box"><h2>${passenger ? "Jo'nash" : 'Olib ketish'} sanasi o'tdi</h2>
+            <p class="small muted">Hali kerak bo'lsa, sanani ko'chiring — e'lon yana yangilar qatorida turadi va haydovchilarga qayta xabar boradi.
+              Ko'chirilmasa, sanasi o'tganiga 7 kun bo'lgach e'lon avtomatik yopiladi.</p>
+            <div class="row"><button class="btn btn-primary" type="button" data-move="0">📅 Bugunga ko'chirish</button>
+              <button class="btn" type="button" data-move="1">Ertaga</button></div></section>`;
+        }
         html += `<section class="panel"><div class="row-between"><h2>Takliflar</h2><span class="muted small">${o.offersCount} ta</span></div><div id="offers">${skeletons(2)}</div></section>`;
         html += `<section class="panel stack-sm"><h2>Tezroq topish uchun ulashing</h2>
           <p class="small muted">E'lonni Telegram guruhlari yoki tanishlaringizga yuboring — havolani ochgan haydovchi darhol «Olaman» deya oladi.</p>
           <button class="btn btn-route btn-block" type="button" data-share>${icon('share')}Ulashish</button></section>`;
-        const late = o.pickupDate && o.pickupDate < localISO();   // sanasi o'tgan e'lonni server shoshilinch qilmaydi
-        if (late) {
-          html += `<section class="panel stack-sm"><h2>${passenger ? "Jo'nash" : 'Olib ketish'} sanasi o'tdi</h2>
-            <p class="small muted">Sanasi o'tganiga 7 kun bo'lgach e'lon avtomatik yopiladi. Hali kerak bo'lsa, bu e'lonni bekor qilib, yangi sana bilan qayta joylang.</p></section>`;
-        } else if (!o.urgent && !urgentHidden) {
+        if (!late && !o.urgent && !urgentHidden) {
           html += `<section class="panel stack-sm"><h2>Tezroq haydovchi topish</h2>
             <p class="small muted">Shoshilinch e'lon o'z hududidagi e'lonlar ichida eng yuqorida turadi va haydovchilarga qayta xabar boradi.</p>
             <button class="btn btn-primary btn-block" id="make-urgent">🔥 Shoshilinch qilish${urgentFee ? ' — ' + (urgentFree ? 'bepul' : esc(money(urgentFee))) : ''}</button></section>`;
@@ -764,6 +826,8 @@ export async function orderPage(main, { id }, query) {
       if (o.status === 'NEW' || o.status === 'ACCEPTED') {
         html += `<button class="btn btn-danger btn-block" id="cancel">${passenger ? "E'lonni bekor qilish" : 'Buyurtmani bekor qilish'}</button>`;
       }
+      // Yana shunday e'lon kerak bo'lsa — forma shu e'lon bilan to'ldirilib, bugungi sana bilan ochiladi
+      html += `<a class="btn btn-block" href="#/new?copy=${o.id}">${icon('refresh')}${o.status === 'NEW' ? "Shunga o'xshash yana e'lon" : 'Qayta joylash'}</a>`;
     } else if (role === 'DRIVER') {
       if (o.status === 'ACCEPTED') {
         html += passenger
@@ -996,6 +1060,14 @@ export async function orderPage(main, { id }, query) {
         render();
       } catch (err) { toast(err.message, 'err'); }
     });
+    $$('[data-move]', main).forEach(b => b.addEventListener('click', async () => {
+      const date = addDays(localISO(), Number(b.dataset.move));
+      try {
+        o = await busy(b, () => post(`/orders/${id}/reschedule`, { date }));
+        toast(b.dataset.move === '0' ? "E'lon bugunga ko'chirildi" : "E'lon ertaga ko'chirildi", 'ok');
+        render();
+      } catch (err) { toast(err.message, 'err'); }
+    }));
     on('#make-urgent', async (e) => {
       const btn = e.currentTarget;   // await dan keyin currentTarget null bo'lib qoladi
       const r = await confirmDialog("E'lonni shoshilinch qilasizmi?",

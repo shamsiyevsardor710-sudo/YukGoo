@@ -3,3 +3,5 @@ node_modules/
 *.jks
 *.keystore
 keystore.properties
+# Firebase sozlamasi (push) — har kim o'z kompyuterida qo'yadi
+android/app/google-services.json

@@ -113,6 +113,7 @@ p { margin: 0; }
   position: absolute; top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--signal); color: var(--signal-ink); font-size: 11px; font-weight: 700; display: grid; place-items: center;
 }
+.badge-dot.badge-msg { background: #E5484D; color: #fff; }
 .me-chip { display: flex; align-items: center; gap: 8px; color: #fff; padding: 3px 12px 3px 3px; border-radius: 999px; background: rgba(255,255,255,.08); }
 .me-chip:hover { text-decoration: none; background: rgba(255,255,255,.16); }
 .me-chip .avatar { width: 34px; height: 34px; font-size: 13px; }
@@ -787,6 +788,22 @@ fieldset.field > legend { font-size: 14px; font-weight: 600; color: var(--asphal
 .thread-badge {
   justify-self: start; margin-top: 4px; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
   white-space: nowrap; background: var(--signal-soft); color: var(--asphalt);
+}
+
+/* Narx maslahati (shu yo'nalishda odatda) */
+.price-norm { margin: -4px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--route-soft); font-size: 14px; line-height: 1.45; }
+.price-norm .link-btn { margin-left: 6px; font-size: 14px; }
+
+/* «Xabarlar»: barcha yozishmalar */
+a.thread { text-decoration: none; }
+.inbox .thread { grid-template-columns: auto minmax(0, 1fr) auto; }
+.inbox .thread-sub { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.thread.is-unread .thread-top b, .thread.is-unread .thread-text { color: var(--asphalt); font-weight: 700; }
+.thread-badge.is-agreed { background: var(--ok-soft); color: var(--ok); }
+.thread-badge.is-closed { background: var(--surface-2); color: var(--muted); }
+.count-badge {
+  align-self: center; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: #E5484D; color: #fff;
+  font-size: 12px; font-weight: 700; display: grid; place-items: center;
 }
 
 /* Profil: «Sozlamalar» (kam ishlatiladiganlar bitta joyda) */

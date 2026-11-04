@@ -22,7 +22,9 @@ import java.time.LocalDate;
 @Entity(name = "Shipment") // "Order" HQL kalit so'zi bilan to'qnashmasligi uchun
 @Table(name = "orders", indexes = {
         @Index(name = "idx_orders_status", columnList = "status,createdAt"),
-        @Index(name = "idx_orders_from_to", columnList = "from_region_id,to_region_id")
+        @Index(name = "idx_orders_from_to", columnList = "from_region_id,to_region_id"),
+        // E'lon egasi bo'yicha («Xabarlar», «Buyurtmalarim»)
+        @Index(name = "idx_orders_sender", columnList = "sender_id,status")
 })
 @Getter
 @Setter

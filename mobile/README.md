@@ -9,12 +9,25 @@ Saytdan farqi:
   Bu vaqtda telefonda "YukGo: buyurtma bajarilmoqda" bildirishnomasi turadi (Android talabi), navigatsiyadan chiqqanda to'xtaydi.
 - Ilova ikonkasi, to'q rangli ishga tushish ekrani, internet yo'q bo'lsa — "Qayta urinish" sahifasi.
 - Telefonning **«Orqaga»** tugmasi: ochiq oynani yopadi, keyin ilova ichida orqaga qaytadi, birinchi sahifada ilovani yig'ib qo'yadi.
+- **Push-bildirishnomalar** (1.1.0 dan): yangi xabar, taklif, «Olaman», buyurtma holati, ertalabki xulosa telefonga keladi.
+  Bosilsa — ilovada tegishli sahifa (masalan, yozishma) ochiladi. Firebase sozlanishi kerak — pastdagi «Push» bo'limi.
 
 ## Kerakli dasturlar (bir marta)
 
 1. **Node.js 20 yoki yangisi** — https://nodejs.org (tekshirish: `node -v`)
 2. **Android Studio** (eng so'nggi versiya) — https://developer.android.com/studio
    O'rnatishda "Android SDK" belgilangan bo'lsin. Java alohida kerak emas — Android Studio o'zinikini ishlatadi.
+
+## Push (Firebase) — bir marta
+
+1. https://console.firebase.google.com → loyiha (masalan, `YukGo`) → **Android** ilova qo'shing, package name: **`uz.yukgo.app`**.
+2. Yuklab olingan **`google-services.json`** ni `mobile\android\app\` papkasiga qo'ying (`build.gradle` yonida).
+   Fayl `.gitignore` da — GitHub'ga yuklanmaydi; boshqa kompyuterda yig'sangiz, uni o'sha yerga ham qo'ying.
+3. Serverga kalit: Firebase → ⚙️ Project settings → **Service accounts → Generate new private key** → JSON matnini
+   Railway'dagi **`FCM_SERVICE_ACCOUNT`** o'zgaruvchisiga qo'ying (asosiy README → «Push-bildirishnomalar»).
+
+`google-services.json` siz yig'ilgan ilova ham ishlaydi: sayt buni ilovaning o'zidan so'raydi (`YukGoPush` plagini) va
+push'ni yoqmaydi — ilova yopilib qolmaydi.
 
 ## 1. Loyihani ochish
 
@@ -61,7 +74,7 @@ Nimalarni tekshirish kerak:
 
 ## 4. Keyingi versiyalar
 
-1. `android/app/build.gradle` da `versionCode` ni bittaga oshiring (1 → 2 → 3 …), `versionName` ni o'zgartiring (`1.0.1`).
+1. `android/app/build.gradle` da `versionCode` ni bittaga oshiring (hozir 2, versiya `1.1.0` — push), `versionName` ni o'zgartiring.
 2. `npx cap sync android`
 3. Android Studio → Generate Signed App Bundle (o'sha keystore bilan) → Play Console'ga yangi reliz.
 

@@ -52,8 +52,12 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   har birida «Faol» va «Tugatilgan».
 - **Topshirish kodi**: 4 xonali kod faqat yuboruvchiga ko'rinadi; haydovchi yuk va pochtani faqat qabul qiluvchidan olingan kod bilan topshira oladi. Qabul qiluvchi Telegramga ulangan bo'lsa, kod unga bot orqali ham boradi. Yo'lovchida kod yo'q: «Yo'lovchini oldim» → «Manzilga yetib keldik».
 - **Jonli kuzatuv**: haydovchining GPS joylashuvi yuboruvchi xaritasida yangilanib turadi.
-- **Yozishma** yuboruvchi ↔ haydovchi — xabarlar faqat saytdagi yozishmada turadi (Telegramga yuborilmaydi), ikkinchi tomonga
-  sayt ichida 🔔 bildirishnoma (matnsiz, bitta yozishma bo'yicha o'qilmaguncha bittadan). Haydovchi **«Olaman» dan oldin ham** yoza oladi («E'lon egasiga yozish»):
+- **Yozishma** yuboruvchi ↔ haydovchi — xabarlar faqat saytdagi yozishmada turadi (Telegramga ham, 🔔 ga ham yuborilmaydi).
+  **«💬 Xabarlar»** (`#/messages`, tepadagi 💬 belgisi qizil raqam bilan): barcha yozishmalar bir joyda — har birida suhbatdosh,
+  yo'nalish, oxirgi xabar va o'qilmaganlar soni; yozishma ochilganda o'qilgan hisoblanadi (o'qilganlik `message_reads` jadvalida;
+  16-paketgacha yozilgan xabarlar birinchi ishga tushishda bir marta «o'qilgan» deb belgilanadi). Ro'yxatda eng yangi 50 ta
+  yozishma va o'qilmagani bor hammasi.
+  Android ilovasi bo'lsa — yangi xabar telefonga push bo'lib keladi. Haydovchi **«Olaman» dan oldin ham** yoza oladi («E'lon egasiga yozish»):
   har bir haydovchi bilan alohida yozishma, e'lon egasi sahifasida «Yozishmalar» ro'yxati (kim yozgan, «Javob kutmoqda»).
   Shu vaqtda ikki tomonning ham telefon raqami yashirin, xabarga yozilgan raqam ham `[raqam «Olaman»dan keyin ko'rinadi]` bo'lib
   ko'rinadi (Telegram @username va t.me havolalari ham); e'lon shu haydovchiga berilgach — raqamlar ochiladi, qolgan haydovchilar
@@ -77,6 +81,18 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   admin «Tekshiruv» bo'limida ko'rib tasdiqlaydi yoki sababini yozib rad etadi. Rasmlar bazada saqlanadi, faqat adminga ko'rinadi va
   qaror qilingan zahoti o'chiriladi. Davlat raqami o'zgarsa yoki mashina o'chirilsa — belgi olinadi.
 - Haydovchi voz kechsa buyurtma avtomatik qayta e'lon qilinadi; 30 kun olinmagan e'lonlar avtomatik yopiladi.
+- **Sanasi o'tgan e'lon** (`order/OrderReminders`): ertasi kuni soat 09:00 da egasiga «📅 E'loningiz sanasi o'tdi — hali kerakmi?»
+  (🔔, push va Telegramda «📅 Bugunga», «📅 Ertaga», «❌ Kerak emas» tugmalari). E'lon sahifasida ham «Bugunga ko'chirish» / «Ertaga»
+  (`POST /api/orders/{id}/reschedule`). Ko'chirilgan e'lon yana yangilar qatorida turadi va haydovchilarga qayta xabar boradi.
+- **Ertalabki xulosa**: har kuni 07:00 da haydovchiga «☀️ Bugun va ertaga yo'nalishlaringizda 7 ta ochiq e'lon bor» — turi va eng ko'p
+  yo'nalishlar bilan (yangi e'lonlar haqidagi xabar yoqilgan va «Hozir bo'shman» bo'lsa; Telegramga, Telegrami yo'q bo'lsa — push).
+- **Qayta joylash**: e'lon sahifasida «🔁 Qayta joylash» (`#/new?copy=ID`) — forma o'sha e'lon bilan, bugungi sana bilan to'ldiriladi.
+- **Narx maslahati**: yo'lovchi va pochta formasida «💡 Bu yo'nalishda odatda 120 000 – 150 000 so'm (1 kishi uchun)» va «… qo'yish»
+  tugmasi (`GET /api/orders/price-hint`): so'nggi 4 oydagi shu yo'nalishdagi (ikkala tomonga) e'lonlar narxining o'rtadagi yarmi,
+  kamida 3 ta e'lon bo'lsa; viloyat ichida — faqat aynan shu tumanlar bo'yicha.
+- **Yo'nalish sahifalari (Google uchun)**: `/yo` — barcha yo'nalishlar, `/yo/toshkent-shahri/samarqand` — shu yo'nalishdagi ochiq e'lonlar
+  va reyslar (serverda tayyor HTML, telefon va ismsiz), «E'lon berish» tugmalari to'ldirilgan forma bilan. `/sitemap.xml` va `/robots.txt` —
+  Google Search Console'ga `https://SAYT/sitemap.xml` ni qo'shing.
 - Shikoyat / adminga murojaat: profil va buyurtma sahifasida (buyurtma tomonlari ham bir-biri haqida), istasa — shikoyat bilan birga bloklash.
 - **Bloklash** (Google Play talabi — 1:1 yozishma bor): bloklangan foydalanuvchi bilan bir-biringizga yoza olmaysiz, taklif bera/qabul qila
   olmaysiz, e'lonlar, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz, yangi e'lon va mos reys xabari bormaydi; ochiq takliflar yopiladi.
@@ -93,11 +109,19 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 ### Haydovchilar uchun
 - **Ilova ichidagi navigatsiya** (Yandex xarita sayt ichida ishlaydi, Yandex ilovasiga o'tib ketmaydi): joriy joylashuvdan olish nuqtasigacha, keyin topshirish nuqtasigacha marshrut, qolgan masofa va yetib borish vaqti, tirbandlik qatlami, «meni kuzatish» rejimi, ekran o'chmasligi.
 - Navigatsiya ekranidan to'g'ridan-to'g'ri: qo'ng'iroq, «Yukni oldim» / «Yo'lovchini oldim», «Topshirish (kod)» / «Yetib keldik».
-- «Hozir bo'shman» rejimi, xabar olinadigan e'lon turlari, ishlaydigan viloyatlar (o'z viloyati doim hisobga olinadi), yangi mos e'lonlar Telegramga.
+- «Hozir bo'shman» rejimi, xabar olinadigan e'lon turlari, ishlaydigan viloyatlar (o'z viloyati doim hisobga olinadi), yangi mos e'lonlar
+  Telegramga (Telegrami ulanmagan, Android ilovadagi haydovchiga — push).
 
 ### Telegram bot
 - Tasdiqlash kodlarini yuboradi.
 - Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yangi mos e'lonlar va yo'nalishdagi haydovchilar (yozishmadagi xabarlar — faqat saytda).
+- **Guruhlarda**: botni Telegram guruhiga qo'shsangiz, u guruhdagi aniq e'lonni (*«Toshkentdan Samarqandga 2 kishi ertaga»*) ko'rib,
+  muallifga «✅ YukGo'ga joylash» tugmasini taklif qiladi (`t.me/BOT?start=gp_…`). Muallif bossa — botga o'tadi va e'lon bir bosishda
+  saytga chiqadi (ulanmagan bo'lsa — to'ldirilgan forma va raqam tugmasi, manba «guruh»). Savol va oddiy gaplarga javob bermaydi;
+  bitta odamga bitta guruhda 6 soatda bir marta, guruhda 3 daqiqada ko'pi bilan bitta javob. Guruh matni bazaga yozilmaydi (24 soat xotirada).
+  «Kanallar» bo'limida ulangan (hamkor) guruhlarda bot a'zolarga javob yozmaydi — u yerda faqat e'lon joylaydi.
+  **Sozlash:** @BotFather → `/setprivacy` → botni tanlang → **Disable** (aks holda bot guruhdagi oddiy xabarlarni ko'rmaydi), so'ng
+  botni guruhdan chiqarib, qayta qo'shing. Yoki botni guruh admini qiling.
 - Menyu: 📦 Buyurtmalarim, ⭐ Profilim, 🔑 Kod olish, ℹ️ Yordam.
 - Pastdagi **«YukGo»** tugmasi saytni Telegram ichida (Mini App) ochadi: bir marta parol bilan kirilgach, keyingi safar o'zi kiradi.
 - **Matn bilan e'lon:** foydalanuvchi botga guruhga yozgandek yozadi — *«Toshkent - Samarqand, 5 tonna mebel, tent kerak, ertaga, 3 mln»*,
@@ -232,6 +256,7 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    | `PAYME_MERCHANT_ID`, `PAYME_KEY` | Payme orqali to'lov. Sinov paytida `PAYME_TEST=true` va sinov kaliti (Payme foydalanuvchilarga ko'rinmaydi) |
    | `PAYNET_USERNAME`, `PAYNET_PASSWORD`, `PAYNET_SERVICE_ID` | Paynet orqali to'lov (Paynet beradi). Uchalasi ham bo'lmasa Paynet o'chiq |
    | `PAYMENT_MIN`, `PAYMENT_MAX` | ixtiyoriy: bitta to'lov chegarasi, so'm (standart 1 000 va 10 000 000) |
+   | `FCM_SERVICE_ACCOUNT` | Android ilovaga push-bildirishnoma (pastdagi «Push-bildirishnomalar» bo'limi): Firebase xizmat hisobi JSON faylining to'liq matni. Berilmasa — push o'chiq |
 
    `JWT_SECRET` yaratish (PowerShell):
    ```powershell
@@ -241,6 +266,25 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    - `HikariPool-1 - Added connection org.postgresql…` chiqishi kerak (`jdbc:h2` emas);
    - `Telegram bot @… ishga tushdi` chiqishi kerak;
    - `DIQQAT:` bilan boshlanadigan qatorlar bo'lmasligi kerak.
+
+### Push-bildirishnomalar (Android ilova, Firebase)
+
+Yangi xabar, taklif, «Olaman», buyurtma holati, ertalabki xulosa — Android ilovada telefonga bildirishnoma bo'lib keladi
+(Telegrami ulanmagan haydovchiga yangi mos e'lonlar ham). Sozlanmagan bo'lsa, qolgan hammasi avvalgidek ishlaydi.
+
+1. <https://console.firebase.google.com> → **Add project** (nomi, masalan, `YukGo`; Google Analytics shart emas).
+2. Loyihada **Android** belgisi → package name: **`uz.yukgo.app`** → **Register app** → **`google-services.json`** ni yuklab oling
+   va `mobile/android/app/` papkasiga qo'ying (u `.gitignore` da — GitHub'ga yuklanmaydi). Qolgan qadamlarni («Add Firebase SDK»)
+   o'tkazib yuboring — loyihada tayyor.
+3. ⚙️ **Project settings → Service accounts → Generate new private key** → JSON fayl yuklanadi. Faylni Notepad'da oching, butun
+   matnini nusxalab, Railway → YukGoo → Variables → **`FCM_SERVICE_ACCOUNT`** ga qo'ying. Bu kalit — maxfiy: faqat Railway'da tursin,
+   GitHub'ga, chatga yoki boshqa joyga yubormang. Deploydan keyin logda `Push-bildirishnomalar yoqilgan (Firebase loyiha: …)` chiqadi.
+4. Ilovani qayta yig'ing (`mobile/README.md`): `npm install` → `npx cap sync android` → Android Studio'da yangi AAB (versiya 1.1.0).
+   `google-services.json` siz yig'ilgan ilova ham ishlaydi — faqat push bo'lmaydi.
+
+Ilova kirgan foydalanuvchidan bildirishnomaga ruxsat so'raydi va qurilma tokenini serverga yuboradi (`POST /api/push/register`,
+`push_tokens` jadvali, bir hisobga ko'pi bilan 5 ta telefon); «Chiqish» bosilganda token o'chiriladi. Ilova telefondan o'chirilsa,
+Firebase buni aytgan zahoti token ham o'chiriladi.
 
 ### SMS orqali tasdiqlash (Eskiz.uz)
 

@@ -148,7 +148,7 @@ export async function profilePage(main, _p, query) {
           <h2>Haydovchi sozlamalari</h2>
           <label class="setting"><span><b>Hozir bo'shman</b><br><span class="small muted">O'chirsangiz, yangi e'lonlar haqida xabar kelmaydi (reyslaringizga moslari bundan mustasno)</span></span>
             <span class="switch"><input type="checkbox" id="s-available" ${u.available ? 'checked' : ''}><span></span></span></label>
-          <label class="setting"><span><b>Yangi e'lonlar Telegramga</b><br><span class="small muted">Yo'nalishingiz va hududingiz bo'yicha</span></span>
+          <label class="setting"><span><b>Yangi e'lonlar haqida xabar</b><br><span class="small muted">Yo'nalishingiz va hududingiz bo'yicha — Telegramga yoki ilovaga; har kuni ertalab 7 da qisqa xulosa ham</span></span>
             <span class="switch"><input type="checkbox" id="s-notify" ${u.notifyNewOrders ? 'checked' : ''}><span></span></span></label>
           <div><b>Qaysi e'lonlar haqida xabar kelsin</b>
             <div class="kind-picks" id="s-kinds" role="group" aria-label="E'lon turlari">${Object.keys(KIND).map(k =>

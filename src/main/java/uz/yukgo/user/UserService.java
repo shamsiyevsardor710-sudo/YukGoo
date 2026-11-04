@@ -68,6 +68,7 @@ public class UserService {
     private final TelegramAuthService telegramAuth;
     private final DriverVerificationService driverVerification;
     private final BlockService blocks;
+    private final uz.yukgo.push.PushTokenRepository pushTokens;
 
     /** O'chirilgan hisobning ism-familiyasi (buyurtmalar tarixida shunday ko'rinadi) */
     private static final String DELETED_FIRST = "O'chirilgan";
@@ -327,6 +328,7 @@ public class UserService {
         driverVerification.deleteAllFor(u.getId());
         wallet.forfeitBalance(u.getId(), "Hisob o'chirildi — bonus qoldig'i bekor qilindi");   // hujjat rasmlari (ko'rib chiqilmagan ariza bo'lsa)
         notificationRepository.deleteAllForUser(u.getId());
+        pushTokens.deleteAllForUser(u.getId());   // telefoniga endi push bormaydi
         // Boshqalarga kelgan bildirishnomalardagi telefon raqami ("Yuboruvchi: ..., +998...") olib tashlanadi
         for (Notification n : notificationRepository.findByBodyContaining(oldPhone)) {
             n.setBody(n.getBody().replace(oldPhone, "***"));

@@ -77,16 +77,30 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /**
      * Yangi e'lon haqida xabar olishi mumkin bo'lgan haydovchilar (viloyat bo'yicha): e'lon haydovchining o'z (uy)
      * viloyatidan yoki viloyatiga, yoki u tanlagan ishlaydigan viloyatlardan biridan yoki biriga.
-     * Avvalgidek "hamma viloyatlar" emas: uzoqdagi e'lonlar bilan bezovta qilinmaydi.
+     * Avvalgidek "hamma viloyatlar" emas: uzoqdagi e'lonlar bilan bezovta qilinmaydi. Telegram yoki Android ilovasi (push)
+     * ulangan bo'lishi kerak.
      */
     @Query("""
             select distinct u from User u left join u.workRegionIds wr
             where u.status = uz.yukgo.user.UserStatus.ACTIVE and u.vehicle.brand is not null and u.notifyNewOrders = true
-              and u.available = true and u.telegramChatId is not null and u.id <> :excludeId
+              and u.available = true and u.id <> :excludeId
+              and (u.telegramChatId is not null or exists (select p.id from PushToken p where p.userId = u.id))
               and (wr = :regionA or wr = :regionB or u.region.id = :regionA or u.region.id = :regionB)
             """)
     List<User> findDriversToNotify(@Param("regionA") Long regionA, @Param("regionB") Long regionB,
                                    @Param("excludeId") Long excludeId);
+
+    /**
+     * Ertalabki xulosa oladigan haydovchilar: yangi e'lonlar haqida xabar yoqilgan, bo'sh, Telegram yoki Android ilovasi
+     * (push) ulangan. Ishlaydigan viloyatlari birga yuklanadi (xulosa tranzaksiyadan tashqarida yuboriladi).
+     */
+    @Query("""
+            select distinct u from User u left join fetch u.workRegionIds
+            where u.status = uz.yukgo.user.UserStatus.ACTIVE and u.vehicle.brand is not null and u.notifyNewOrders = true
+              and u.available = true
+              and (u.telegramChatId is not null or exists (select p.id from PushToken p where p.userId = u.id))
+            """)
+    List<User> findDriversForDigest();
 
     @Query("select distinct u.telegramChatId from User u where u.telegramChatId is not null and u.status = uz.yukgo.user.UserStatus.ACTIVE")
     List<Long> findAllActiveChatIds();

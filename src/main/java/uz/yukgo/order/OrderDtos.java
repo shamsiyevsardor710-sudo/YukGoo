@@ -93,6 +93,9 @@ public final class OrderDtos {
 
     public record CancelRequest(@Size(max = 300) String reason) {}
 
+    /** E'lon sanasini o'zgartirish (masalan, sanasi o'tgan e'lonni bugunga ko'chirish) */
+    public record RescheduleRequest(@jakarta.validation.constraints.NotNull(message = "Sanani tanlang") java.time.LocalDate date) {}
+
     public record TrackRequest(
             @NotNull @DecimalMin("-90") @DecimalMax("90") Double lat,
             @NotNull @DecimalMin("-180") @DecimalMax("180") Double lng,
@@ -137,4 +140,15 @@ public final class OrderDtos {
     }
 
     public record EstimateDto(long suggested, long min, long max, DeliveryScope scope) {}
+
+    /**
+     * «Xabarlar» ro'yxatidagi bitta yozishma. iAmSender — men e'lon egasiman (counterpart — haydovchi), aks holda men
+     * haydovchiman (counterpart — e'lon egasi). Telefonlar berilmaydi; oxirgi xabardagi raqam haydovchi tanlanguncha yopiq.
+     */
+    public record InboxItem(Long orderId, Long driverId, String title, OrderKind kind, String fromName, String toName,
+                            OrderStatus status, UserBrief counterpart, String lastText, Instant lastAt, boolean lastMine,
+                            int unread, boolean assigned, boolean open, boolean iAmSender) {}
+
+    /** Shu yo'nalishdagi odatiy narx: low–high — o'rtadagi yarmi (25–75%), typical — o'rtachasi; yo'lovchida 1 kishi uchun */
+    public record PriceHintDto(long low, long high, long typical, int count, boolean perPerson) {}
 }

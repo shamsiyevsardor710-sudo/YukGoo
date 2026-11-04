@@ -31,6 +31,14 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Push-bildirishnomalar (Firebase): kichik oq belgi va kanal (kanalni sayt ilova ochilganda yaratadi) -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_yukgo" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="yukgo" />
+
         <!-- Fon GPS xizmatiga faqat ilovaning o'zi ulanadi (plagin uni tashqi ilovalarga ochiq e'lon qiladi) -->
         <service
             android:name="com.equimaps.capacitor_background_geolocation.BackgroundGeolocationService"
@@ -41,6 +49,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 13+: bildirishnomalar (push va navigatsiyadagi joylashuv bildirishnomasi) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- GPS'siz qurilmalar (ba'zi planshetlar) ham Play'da ilovani ko'ra olsin: joylashuv faqat haydovchi navigatsiyasida kerak -->
     <uses-feature

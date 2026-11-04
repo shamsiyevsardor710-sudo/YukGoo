@@ -14,9 +14,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     long countByUserIdAndReadFalse(Long userId);
 
-    /** Shu havola bo'yicha o'qilmagan bildirishnoma bormi (yozishmadagi har xabar uchun yangisi qo'shilmasin) */
-    boolean existsByUserIdAndLinkAndReadFalse(Long userId, String link);
-
     @Modifying
     @Query("update Notification n set n.read = true where n.userId = :userId and n.read = false")
     int markAllRead(Long userId);

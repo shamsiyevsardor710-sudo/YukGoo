@@ -2,6 +2,7 @@
 // bilan alohida). Telefon raqamlar shungacha yashirin: server xabar ichidagi raqamni ham yopib beradi.
 import { auth, get, post } from '../api.js';
 import { $, $$, esc, icon, avatar, stars, dateTime, ago, modal, toast, verifiedBadge } from '../ui.js';
+import { refreshUnread } from '../app.js';
 
 const POLL_MS = 5000;
 
@@ -60,6 +61,7 @@ export function openChat({ orderId, driverId = null, title, intro = '', canWrite
       if (added) {
         empty?.remove();
         list.scrollTop = list.scrollHeight;
+        refreshUnread();   // o'qildi — tepadagi 💬 raqami kamayadi
       }
     } catch (e) {
       if (!loaded) {

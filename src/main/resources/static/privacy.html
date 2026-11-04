@@ -33,7 +33,7 @@
   <main>
     <article>
       <h1>Maxfiylik siyosati</h1>
-      <p class="muted">Oxirgi yangilanish: 2026-yil 1-noyabr</p>
+      <p class="muted">Oxirgi yangilanish: 2026-yil 4-noyabr</p>
 
       <p>YukGo — yuk, pochta jo'natuvchilar va yo'lovchilarni haydovchilar bilan bog'laydigan xizmat: veb-sayt, Telegram bot (@YukGoobot), Telegram ichidagi ilova va Android ilova.
         Bu sahifa qanday ma'lumotlar yig'ilishi, nima uchun ishlatilishi, kimga ko'rinishi va qanday o'chirilishini tushuntiradi.</p>
@@ -46,6 +46,13 @@
           (SMS ulanmagan yoki yetib bormagan bo'lsa — Telegram bot orqali) yuboriladi.
           Bazada kodning o'zi emas, faqat shifrlangan izi saqlanadi va 2 kundan keyin o'chiriladi.</li>
         <li><b>Telegram:</b> raqamingizni bot orqali tasdiqlaganingizda yoki YukGo'ni Telegram ichida ochganingizda — Telegram ID raqamingiz (xabar yuborish va avtomatik kirish uchun).</li>
+        <li><b>Android ilovada bildirishnomalar:</b> ilovada hisobingizga kirsangiz va bildirishnomalarga ruxsat bersangiz — telefoningizning
+          push-bildirishnoma manzili (Google Firebase Cloud Messaging bergan qurilma tokeni). U faqat shu telefonga xabar yuborish uchun kerak;
+          ilovada «Chiqish» bosilganda, hisob o'chirilganda yoki ilova telefondan o'chirilganda o'chiriladi.</li>
+        <li><b>Guruhlardagi xabarlar:</b> @YukGoobot Telegram guruhiga qo'shilgan bo'lsa, u guruhdagi xabarlarni o'qiydi va aniq e'lonni
+          (masalan, «Toshkentdan Samarqandga 2 kishi, ertaga») ko'rsa, muallifga «YukGo'ga joylash» tugmasini taklif qiladi. Bunday xabar matni
+          bazaga yozilmaydi — 24 soatgacha serverning vaqtinchalik xotirasida turadi va faqat muallifning o'zi tugmani bosib, botda tasdiqlasa
+          e'lon bo'ladi. Boshqa xabarlar saqlanmaydi.</li>
         <li><b>Haydovchilar:</b> mashina nomi, davlat raqami, turi, rangi va mashina rasmi, ishlaydigan viloyatlar, qaysi e'lonlar (yuk, pochta, yo'lovchi) haqida xabar olish,
           reys e'lonlari (yo'nalish, jo'nash vaqti yoki «har kuni», bo'sh o'rinlar, narx haqida izoh).</li>
         <li><b>«Tekshirilgan haydovchi» arizasi (ixtiyoriy):</b> haydovchilik guvohnomasi va texnik pasport rasmi. Ularni faqat YukGo adminlari ko'radi,
@@ -72,8 +79,11 @@
       <h2>2. Nima uchun ishlatamiz</h2>
       <ul>
         <li>Xizmatni ko'rsatish: e'lon joylash, haydovchi topish, narx kelishish, yukni kuzatish va topshirishni tasdiqlash.</li>
-        <li>Yangi takliflar va buyurtma holati haqida bildirishnoma yuborish (saytda va Telegramda). Yozishmadagi xabarlar Telegramga
-          yuborilmaydi — ular faqat saytdagi yozishmada turadi, yangi xabar haqida sayt ichida bildirishnoma (xabar matnisiz) chiqadi.</li>
+        <li>Yangi takliflar va buyurtma holati haqida bildirishnoma yuborish (saytda, Telegramda va Android ilovada). Yozishmadagi xabarlar Telegramga
+          yuborilmaydi — ular faqat saytdagi yozishmada («💬 Xabarlar») turadi; Android ilovasi bo'lsa, yangi xabar telefonga ham keladi
+          (haydovchi tanlanmaguncha undagi raqamlar yopiq ko'rsatiladi).</li>
+        <li>Eslatmalar: haydovchilarga har kuni ertalab yo'nalishidagi ochiq e'lonlar soni (yangi e'lonlar haqidagi xabar yoqilgan bo'lsa),
+          e'lon egasiga — sanasi o'tib ketgan e'lon hali kerakmi, deb bir marta savol.</li>
         <li>E'lon va reyslarni moslash: yangi e'lon shu yo'nalishda reys e'lon qilgan va shu hududdagi haydovchilarga, yangi reys esa shu yo'nalishda
           haydovchi kutayotganlarga avtomatik xabar qilinadi.</li>
         <li>Xavfsizlik: firibgarlikka qarshi kurash, shikoyatlarni ko'rib chiqish, qoidabuzarlarni bloklash.</li>
@@ -91,19 +101,22 @@
           yozishma alohida — boshqa haydovchilar uni ko'rmaydi. Haydovchilar ro'yxati va reyslarda haydovchi raqami ochiq turadi — bu bo'limlar aynan haydovchi bilan bog'lanish uchun;
           yangi reys e'lon qilganingizda shu yo'nalishda haydovchi kutayotganlarga ismingiz, mashinangiz va raqamingiz bilan xabar boradi.</li>
         <li><b>Qabul qiluvchi:</b> u Telegram botga ulangan bo'lsa, unga yuk yo'lga chiqqani, haydovchi ismi va raqami hamda topshirish kodi yuboriladi.</li>
+        <li><b>Yo'nalish sahifalari:</b> ochiq e'lonlar va reyslar qidiruv tizimlari uchun yo'nalish sahifalarida (masalan, «Toshkent → Samarqand»)
+          qisqa ko'rinishda chiqadi: turi, tuman, sana, narx, reyslarda — mashina, vaqt va bo'sh o'rinlar. Ism, telefon va aniq manzil u yerda yo'q.</li>
         <li><b>E'lon havolasi:</b> e'lonni ulashsangiz, havolani ochgan odam (kirmagan bo'lsa ham) e'lon turi, yo'nalish (viloyat va tuman),
           sana, narx va tavsifni hamda ismingiz va reytingingizni ko'radi; telefoningiz va aniq manzil ko'rinmaydi.</li>
         <li><b>Telegram kanallar:</b> ochiq e'lonlar YukGo'ning va hamkorlarning Telegram kanallarida ham chiqishi mumkin — faqat yuk, yo'nalish (viloyat va tuman),
           sana, og'irlik yoki yo'lovchilar soni, kerakli mashina va narx. E'lon egasining ismi, telefoni va aniq manzili kanalda <b>ko'rsatilmaydi</b>.
           Haydovchi topilganda yoki e'lon bekor qilinganda post shunga mos o'zgaradi.</li>
         <li><b>Xizmat ko'rsatuvchilar:</b> server va ma'lumotlar bazasi (Railway, serverlar AQShda), Eskiz.uz (tasdiqlash kodi SMS'lari — telefon raqam va kod matni), Click, Payme va Paynet (balansni to'ldirish — to'lov summasi va
-          to'lov raqami; Paynet orqali to'lashda to'lovchi tasdiqlashi uchun ismingiz qisqartirilgan holda, masalan «Akmal R.», ko'rsatiladi), Telegram (xabarlar), Yandex Xaritalar (xarita, manzilni topish va marshrut — manzil va koordinatalar Yandex'ga yuboriladi), Google Fonts (shriftlar).</li>
+          to'lov raqami; Paynet orqali to'lashda to'lovchi tasdiqlashi uchun ismingiz qisqartirilgan holda, masalan «Akmal R.», ko'rsatiladi), Telegram (xabarlar),
+          Google Firebase Cloud Messaging (Android ilovaga bildirishnoma — qurilma tokeni, bildirishnoma sarlavhasi va matni), Yandex Xaritalar (xarita, manzilni topish va marshrut — manzil va koordinatalar Yandex'ga yuboriladi), Google Fonts (shriftlar).</li>
         <li><b>Davlat organlari:</b> faqat qonunda belgilangan hollarda.</li>
       </ul>
 
       <h2>4. Qancha vaqt saqlaymiz</h2>
       <p>Ma'lumotlar hisobingiz faol bo'lguncha saqlanadi. Hisobni o'chirsangiz, shaxsiy ma'lumotlaringiz o'chiriladi: ism, telefon, manzil, rasmlar, mashina,
-        Telegram ulanishi, joylashuv va haydovchi sifatidagi GPS yo'llari, reys e'lonlari, bildirishnomalar, bloklanganlar ro'yxati.
+        Telegram ulanishi, Android ilovadagi bildirishnoma tokenlari, joylashuv va haydovchi sifatidagi GPS yo'llari, reys e'lonlari, bildirishnomalar, bloklanganlar ro'yxati.
         Buyurtmalar, baholar, yozishmalar va balans harakatlari tarixi nizolar va hisob-kitob uchun «O'chirilgan foydalanuvchi» nomi bilan, sizga bog'lanmagan holda qoladi
         (siz yozgan xabar va sharhlar matni ikkinchi tomonda ko'rinib turadi). Boshqa foydalanuvchilarga avval kelgan bildirishnomalardan telefon raqamingiz
         olib tashlanadi, ismingiz esa ularda qolishi mumkin; ularning Telegramiga avval yuborilgan xabarlar o'sha yerda qoladi.
