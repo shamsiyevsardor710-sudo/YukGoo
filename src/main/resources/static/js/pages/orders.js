@@ -24,11 +24,9 @@ export async function marketPage(main, _p, query) {
     fromRegion: qid('from'), fromDistrict: qid('fd'), toRegion: qid('to'), toDistrict: qid('td'),
   };
   let page = 0;
-  const stats = await get('/stats/public').catch(() => null);
   const home = me?.region ? [me.district?.name, me.region.name].filter(Boolean).join(', ') : '';
 
   main.innerHTML = `<div class="page">
-    ${auth.loggedIn ? '' : intro(stats)}
     <div class="page-head">
       <div><h1>E'lonlar</h1><p class="muted">${home
         ? `Avval ${esc(home)} bo'yicha, keyin yaqin hududlardan.`
@@ -51,7 +49,6 @@ export async function marketPage(main, _p, query) {
     </div>
     <div id="results" style="margin-top:16px">${skeletons()}</div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="btn hidden" id="more">Yana ko'rsatish</button></div>
-    ${auth.loggedIn ? '' : `<p class="small muted" style="text-align:center;margin-top:20px"><a href="/yo">Barcha yo'nalishlar ro'yxati</a></p>`}
   </div>`;
 
   const rs = $('#rs', main);
@@ -104,29 +101,7 @@ export async function marketPage(main, _p, query) {
   reload();
 }
 
-function intro(stats) {
-  return `<section class="intro">
-    <div>
-      <h1>Yuk, pochta va yo'lovchi — viloyatdan viloyatga</h1>
-      <p>E'lon bering — yo'nalishingizdagi haydovchilarga darhol xabar boradi. Reyting bo'yicha tanlang, yukingizni xaritada jonli kuzating.</p>
-      <div class="row"><a class="btn btn-primary btn-lg" href="#/register">Ro'yxatdan o'tish</a><a class="btn btn-lg" href="#/login">Kirish</a></div>
-      ${stats ? `<div class="intro-facts">
-        <div><b class="num">${num(stats.openOrders)}</b>ochiq e'lon</div>
-        <div><b class="num">${num(stats.drivers)}</b>haydovchi</div>
-        <div><b class="num">${num(stats.delivered)}</b>bajarilgan buyurtma</div></div>` : ''}
-    </div>
-    <div class="intro-road" aria-hidden="true">
-      <svg viewBox="0 0 320 140" fill="none">
-        <path d="M10 110 C 90 110, 120 40, 200 40 S 300 30, 310 30" stroke="#3A4850" stroke-width="18" stroke-linecap="round"/>
-        <path d="M10 110 C 90 110, 120 40, 200 40 S 300 30, 310 30" stroke="#F2B705" stroke-width="3" stroke-dasharray="12 10" stroke-linecap="round"/>
-        <circle cx="12" cy="110" r="9" fill="#F2B705"/><circle cx="308" cy="30" r="9" fill="#fff"/>
-        <g class="truck"><rect x="40" y="76" width="34" height="20" rx="3" fill="#fff"/><rect x="74" y="82" width="14" height="14" rx="2" fill="#C9D3D7"/><circle cx="50" cy="98" r="4" fill="#F2B705"/><circle cx="80" cy="98" r="4" fill="#F2B705"/></g>
-      </svg>
-    </div>
-  </section>`;
-}
-
-// ---- Mehmon uchun: olib ketish sanasi bo'yicha guruhlar: Shoshilinch → Bugun → Ertaga → Indinga → sanalar → muddati o'tgan → sanasiz ----
+// ---- Manzili ko'rsatilmagan foydalanuvchi uchun: olib ketish sanasi bo'yicha guruhlar: Shoshilinch → Bugun → Ertaga → Indinga → sanalar → muddati o'tgan → sanasiz ----
 // (backenddagi OrderRepository.market tartibi bilan bir xil, shuning uchun "Yana ko'rsatish" guruhlarni buzmaydi)
 const WEEKDAYS = ['yakshanba', 'dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba'];
 
@@ -1396,9 +1371,11 @@ export async function myOrdersPage(main, _p, query) {
   function reset() { page = 0; items = []; $('#list', main).innerHTML = skeletons(); load(); }
   async function load() {
     const my = ++seq;
+    const list = $('#list', main);
     try {
       const data = await get('/orders/my', { role, group, page });
-      if (my !== seq) return;   // shu orada boshqa tugma bosildi
+      // shu orada boshqa tugma bosildi yoki sahifadan chiqildi (masalan, sessiya tugab kirish sahifasi ochildi)
+      if (my !== seq || !document.body.contains(list)) return;
       items = items.concat(data.items);
       const empty = {
         'sender-active': ["Faol e'loningiz yo'q", "Yuk, pochta jo'natish yoki o'zingiz borish uchun e'lon bering — yo'nalishdagi haydovchilarga darhol xabar boradi.",
@@ -1408,11 +1385,11 @@ export async function myOrdersPage(main, _p, query) {
           `<a class="btn btn-primary" href="#/">E'lonlarni ko'rish</a>`],
         'all-done': ["Tugatilgan buyurtma yo'q", "Yetkazilgan yoki bekor qilingan buyurtmalaringiz shu yerda ko'rinadi.", ''],
       }[`${role}-${group}`];
-      $('#list', main).innerHTML = items.length
+      list.innerHTML = items.length
         ? `<div class="orders">${items.map(o => orderRow(o, { tag: role === 'all' ? myRoleTag(o) : '' })).join('')}</div>`
         : emptyState(...empty);
       $('#more', main).classList.toggle('hidden', data.page + 1 >= data.totalPages);
-    } catch (e) { if (my === seq) $('#list', main).innerHTML = emptyState("Yuklab bo'lmadi", e.message); }
+    } catch (e) { if (my === seq && document.body.contains(list)) list.innerHTML = emptyState("Yuklab bo'lmadi", e.message); }
   }
   sync();
   load();

@@ -1,35 +1,40 @@
 // YukGo — ilova qobig'i va marshrutlash (hash router)
 import { auth, loadMe, get, setUnauthorizedHandler, setTermsRequiredHandler } from './api.js';
 import { $, esc, icon, avatar, toast } from './ui.js';
-import { loginPage, registerPage, forgotPage } from './pages/auth.js';
+import { loginPage, registerPage, forgotPage, welcomePage } from './pages/auth.js';
 import { marketPage, createOrderPage, orderPage, myOrdersPage } from './pages/orders.js';
 import { navigationPage } from './pages/navigation.js';
 import { profilePage, publicProfilePage, notificationsPage, driversPage, deleteAccountModal } from './pages/profile.js';
 import { tripsPage } from './pages/trips.js';
 import { messagesPage } from './pages/messages.js';
 import { adminPage } from './pages/admin.js';
+import { supportPage, supportInboxPage } from './pages/support.js';
 import { tg, initTelegram, telegramRoute, telegramAutoLogin, telegramLogout } from './telegram.js';
 import { captureAttribution } from './attribution.js';
 import { bindDocLinks, termsGate } from './legal.js';
 import { currentTheme, themeLabel, toggleTheme } from './theme.js';
 import { initPush, stopPush } from './push.js';
 
+// Mehmonga (kirmagan) faqat bosh oyna, kirish va ro'yxatdan o'tish ko'rinadi: qolgan sahifalar (e'lonlar, reyslar,
+// ulashilgan e'lon havolasi ham) kirgandan keyin — kirgach yoki ro'yxatdan o'tgach o'sha sahifaning o'zi ochiladi
 const routes = [
-  { path: '/', page: marketPage, nav: 'market' },
+  { path: '/', page: marketPage, auth: true, nav: 'market' },
+  { path: '/welcome', page: welcomePage, guest: true },
   { path: '/login', page: loginPage, guest: true },
   { path: '/register', page: registerPage, guest: true },
   { path: '/forgot', page: forgotPage, guest: true },
   { path: '/new', page: createOrderPage, auth: true, nav: 'new' },
-  // E'lon sahifasi mehmonga ham ochiq (ulashilgan havola): raqam va aniq manzilsiz, kirish tugmasi bilan
-  { path: '/orders/:id', page: orderPage, nav: 'my' },
+  { path: '/orders/:id', page: orderPage, auth: true, nav: 'my' },
   { path: '/nav/:id', page: navigationPage, auth: true, bare: true },
   { path: '/my', page: myOrdersPage, auth: true, nav: 'my' },
-  { path: '/trips', page: tripsPage, nav: 'trips' },
-  { path: '/drivers', page: driversPage, nav: 'drivers' },
+  { path: '/trips', page: tripsPage, auth: true, nav: 'trips' },
+  { path: '/drivers', page: driversPage, auth: true, nav: 'drivers' },
   { path: '/profile', page: profilePage, auth: true, nav: 'profile' },
   { path: '/u/:id', page: publicProfilePage, auth: true },
   { path: '/notifications', page: notificationsPage, auth: true },
   { path: '/messages', page: messagesPage, auth: true },
+  { path: '/support', page: supportPage, auth: true },
+  { path: '/support/inbox', page: supportInboxPage, auth: true, staff: true },
   { path: '/admin', page: adminPage, auth: true, staff: true, nav: 'admin' },
 ];
 
@@ -77,14 +82,18 @@ async function render() {
   }
   const { route, params, query } = m;
   if (route.auth && !auth.loggedIn) {
-    sessionStorageSafe('yukgo_after_login', location.hash);
-    return redirect('#/login');
+    // Kirgach shu sahifa ochiladi. Oddiy bosh sahifa «maqsad» emas: u avvalgi e'lon havolasini o'chirmaydi va ro'yxatdan
+    // o'tgandan keyingi «Haydovchimisiz yoki e'lon berasizmi?» savoli chiqaveradi
+    const target = location.hash || '#/';
+    if (target !== '#/') sessionStorageSafe('yukgo_after_login', target);
+    // Birinchi marta kelganga — bosh oyna (ro'yxatdan o'tish va kirish); shu qurilmada avval kirganga — darhol kirish
+    return redirect(auth.knownDevice ? '#/login' : '#/welcome');
   }
   if (route.guest && auth.loggedIn) return redirect('#/');
   if (route.staff && !auth.isStaff) return redirect('#/');
   // Foydalanish shartlari hali qabul qilinmagan (shartlardan oldingi hisob yoki shartlar yangilangan) — avval shartlar
   if (auth.user && auth.user.termsAccepted === false) {
-    document.body.classList.remove('bare');
+    document.body.classList.remove('bare', 'guest');
     $('#topbar').classList.remove('hidden');
     $('#tabbar').classList.remove('hidden');
     renderShell(null);
@@ -94,8 +103,10 @@ async function render() {
   }
 
   document.body.classList.toggle('bare', !!route.bare);
+  // Mehmonga pastki menyu yo'q (u yerdagi hamma sahifa kirishni talab qiladi)
+  document.body.classList.toggle('guest', !auth.loggedIn);
   $('#topbar').classList.toggle('hidden', !!route.bare);
-  $('#tabbar').classList.toggle('hidden', !!route.bare);
+  $('#tabbar').classList.toggle('hidden', !!route.bare || !auth.loggedIn);
   renderShell(route.nav);
   main.innerHTML = '';
   window.scrollTo(0, 0);
@@ -116,11 +127,11 @@ async function render() {
 
 function renderShell(active) {
   const u = auth.user;
-  // Menyu sodda: e'lonlar va reyslar (haydovchilar katalogi — reyslar sahifasidagi havola orqali)
-  const links = [
+  // Menyu sodda: e'lonlar va reyslar (haydovchilar katalogi — reyslar sahifasidagi havola orqali). Mehmonga — yo'q
+  const links = auth.loggedIn ? [
     ['market', '#/', "E'lonlar", 'market'],
     ['trips', '#/trips', 'Reyslar', 'route'],
-  ];
+  ] : [];
   if (u) links.push(['my', '#/my', 'Buyurtmalarim', 'box']);
   if (auth.isStaff) links.push(['admin', '#/admin', 'Boshqaruv', 'shield']);
   $('#topnav').innerHTML = links.map(([k, href, label]) =>
@@ -188,18 +199,23 @@ function sessionStorageSafe(k, v) {
   try { if (v === undefined) { const x = sessionStorage.getItem(k); sessionStorage.removeItem(k); return x; } sessionStorage.setItem(k, v); } catch { return null; }
 }
 
+/** Kirgandan keyin ochiladigan sahifa: oddiy bosh sahifa, kirish va ro'yxatdan o'tish — maqsad emas */
+function isTarget(x) {
+  return !!x && x !== '#/' && x !== '#' && !x.includes('login') && !x.includes('register') && !x.includes('welcome');
+}
+
 /** Kirishdan keyin ochilishi kerak bo'lgan sahifa bormi (masalan, botdan kelgan to'ldirilgan forma) — o'chirmasdan */
 export function pendingAfterLogin() {
   try {
     const x = sessionStorage.getItem('yukgo_after_login');
-    return x && !x.includes('login') && !x.includes('register') ? x : null;
+    return isTarget(x) ? x : null;
   } catch { return null; }
 }
 
 /** Kirish yoki ro'yxatdan o'tishdan keyin: oldin ochmoqchi bo'lgan sahifaga (masalan, botdan kelgan to'ldirilgan forma) */
 export function afterLogin(fallback = '#/') {
   const back = sessionStorageSafe('yukgo_after_login');
-  redirect(back && !back.includes('login') && !back.includes('register') ? back : fallback);
+  redirect(isTarget(back) ? back : fallback);
 }
 
 /**
@@ -210,6 +226,7 @@ export async function logout({ server = true } = {}) {
   await stopPush({ server });   // bu telefonga endi shu hisobning push xabarlari kelmasin
   auth.token = null;
   auth.user = null;
+  sessionStorageSafe('yukgo_after_login');   // keyingi kirgan odam avvalgi hisobning sahifasiga tushib qolmasin
   redirect('#/login');
 }
 

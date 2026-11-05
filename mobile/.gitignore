@@ -5,3 +5,5 @@ node_modules/
 keystore.properties
 # Firebase sozlamasi (push) — har kim o'z kompyuterida qo'yadi
 android/app/google-services.json
+# Android Studio'da yig'ilgan imzolangan AAB/APK (Generate Signed App Bundle) — GitHub'ga emas, Play Console'ga
+android/app/release/

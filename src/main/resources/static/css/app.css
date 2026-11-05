@@ -817,3 +817,34 @@ details.more.settings-box > summary { font-size: 17px; }
 .my-role { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--route); }
 .my-role.is-own { color: var(--muted); }
 .my-role svg { width: 14px; height: 14px; }
+
+/* Mehmon: pastki menyu yo'q (kirmaganga faqat bosh oyna, kirish va ro'yxatdan o'tish) */
+body.guest { --tabbar-h: 0px; }
+.intro .intro-lead { color: #fff; font-weight: 600; }
+
+/* Bildirishnomalar: «Hammasini o'qilgan qilish» va tagida «Hammasini o'chirish» */
+.head-actions { display: grid; gap: 6px; justify-items: end; }
+@media (max-width: 520px) { .head-actions { justify-items: start; } }
+
+/* Profil: «Faqat reyslarimga mos e'lonlar» — faol reys bo'lmasa ogohlantirish */
+.warn-note { display: block; margin-top: 6px; color: var(--danger); }
+
+/* «Biz bilan bog'lanish» va murojaatlar */
+.support-item { display: grid; gap: 8px; }
+.support-item:not(.panel) { padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: var(--r-md); background: var(--surface-2); }
+.support-item.panel { gap: 0; }
+.support-text { white-space: pre-line; overflow-wrap: anywhere; }
+.support-item.panel > .support-text { margin-top: 10px; }
+.support-reply { border-left: 3px solid var(--route); background: var(--route-soft); border-radius: 8px; padding: 10px 12px; }
+.support-item.panel > .support-reply { margin-top: 10px; }
+.support-reply .support-text { margin-top: 4px; }
+.topic-chips button { white-space: nowrap; }
+@media (max-width: 480px) { .kind-chips.topic-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+#support-line a { white-space: nowrap; }
+/* «Aloqa xabarlari»: telefonda «Haydovchilardan» va «Foydalanuvchilardan» yonma-yon, teng kenglikda */
+@media (max-width: 480px) {
+  #sx-from { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  #sx-from button { position: relative; padding: 9px 4px; font-size: 12.5px; text-align: center; white-space: nowrap; }
+  #sx-from .tab-count { position: absolute; top: -7px; right: -3px; margin: 0; }
+}
+@media (max-width: 340px) { #sx-from button { white-space: normal; } }

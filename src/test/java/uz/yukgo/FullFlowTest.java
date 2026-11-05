@@ -107,17 +107,18 @@ class FullFlowTest {
         String code = order.get("deliveryCode").asText();
         assertThat(order.get("scope").asText()).isEqualTo("INTERREGION");
 
-        // Bozorda ko'rinadi (mehmon uchun ham)
-        JsonNode market = call("GET", "/api/orders", null, null, 200);
+        // Bozorda ko'rinadi — faqat kirganlarga; mehmonga e'lonlar, reyslar va haydovchilar yopiq, faqat umumiy sonlar
+        JsonNode market = call("GET", "/api/orders", null, driver, 200);
         assertThat(market.get("total").asLong()).isGreaterThanOrEqualTo(1);
+        call("GET", "/api/orders", null, null, 401);
+        call("GET", "/api/trips", null, null, 401);
+        call("GET", "/api/drivers", null, null, 401);
+        call("GET", "/api/users/" + call("GET", "/api/users/me", null, driver, 200).get("id").asLong(), null, null, 401);
+        assertThat(call("GET", "/api/stats/public", null, null, 200).get("openOrders").asLong()).isGreaterThanOrEqualTo(1);
         // Begona odam topshirish kodini ko'rmaydi
         assertThat(call("GET", "/api/orders/" + orderId, null, driver, 200).has("deliveryCode")).isFalse();
-        // Mehmon bitta e'lonni ko'radi (ulashilgan havola): raqam, aniq joy va kodsiz; boshqa amallar — kirish kerak
-        JsonNode guestView = call("GET", "/api/orders/" + orderId, null, null, 200);
-        assertThat(guestView.get("viewerRole").asText()).isEqualTo("GUEST");
-        assertThat(guestView.get("sender").has("phone")).isFalse();
-        assertThat(guestView.get("from").has("lat")).isFalse();
-        assertThat(guestView.has("deliveryCode")).isFalse();
+        // Ulashilgan havola ham — avval kirish yoki ro'yxatdan o'tish (ilova kirgach o'sha e'lonni ochadi)
+        call("GET", "/api/orders/" + orderId, null, null, 401);
         call("GET", "/api/orders/" + orderId + "/messages", null, null, 401);
         call("GET", "/api/orders/my", null, null, 401);
 
@@ -337,5 +338,88 @@ class FullFlowTest {
         mvc.perform(get("/yo/toshkent-shahri/moskva")).andExpect(status().isNotFound());
         assertThat(mvc.perform(get("/robots.txt")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
                 .contains("Sitemap:");
+    }
+
+    @Test
+    @Order(6)
+    void supportContactAndNotificationCleanup() throws Exception {
+        String owner = call("POST", "/api/auth/login", Map.of("phone", "+998900000000", "password", "owner12345"), null, 200)
+                .get("token").asText();
+        String user = register("+998901010101", "Murojaat", "Qiluvchi");
+        String driver = register("+998901010102", "Murojaat", "Haydovchi");
+        call("PUT", "/api/users/me/vehicle", Map.of("brand", "Cobalt", "plateNumber", "01 a 101 ab", "bodyType", "SEDAN"), driver, 200);
+
+        // «Biz bilan bog'lanish»: foydalanuvchidan va haydovchidan — ega «Foydalanuvchilardan» / «Haydovchilardan» bo'limida
+        call("POST", "/api/support", Map.of("topic", "PROBLEM", "text", "Taklif yuborganda xato chiqdi"), user, 200);
+        call("POST", "/api/support", Map.of("topic", "IDEA", "text", "Qaytish reysini ham qo'shing"), driver, 200);
+        call("POST", "/api/support", Map.of("topic", "IDEA", "text", "   "), user, 400);
+        call("POST", "/api/support", Map.of("text", "Turi ko'rsatilmagan"), user, 400);
+        call("POST", "/api/support", Map.of("topic", "IDEA", "text", "Mehmondan"), null, 401);
+        call("GET", "/api/admin/support", null, user, 403);
+        JsonNode counts = call("GET", "/api/admin/support/counts", null, owner, 200);
+        assertThat(counts.get("users").asLong()).isGreaterThanOrEqualTo(1);
+        assertThat(counts.get("drivers").asLong()).isGreaterThanOrEqualTo(1);
+        JsonNode first = call("GET", "/api/admin/support?from=users&status=NEW", null, owner, 200).get("items").get(0);
+        assertThat(first.get("text").asText()).isEqualTo("Taklif yuborganda xato chiqdi");
+        assertThat(first.get("fromDriver").asBoolean()).isFalse();
+        assertThat(first.get("author").get("phone").asText()).isEqualTo("+998901010101");
+        assertThat(call("GET", "/api/admin/support?from=drivers", null, owner, 200).get("items").get(0).get("author")
+                .get("vehicle").asText()).contains("Cobalt");
+        call("GET", "/api/admin/support?from=hammasi", null, owner, 400);
+        boolean told = false;
+        for (JsonNode n : call("GET", "/api/notifications", null, owner, 200).get("items")) told |= n.get("title").asText().startsWith("📩 Muammo");
+        assertThat(told).isTrue();
+
+        // Javob: muallifga bildirishnoma va «Mening murojaatlarim»da (kim javob bergani ko'rsatilmaydi)
+        long id = first.get("id").asLong();
+        JsonNode replied = call("POST", "/api/admin/support/" + id + "/reply", Map.of("text", "Tuzatdik, qayta urinib ko'ring"), owner, 200);
+        assertThat(replied.get("status").asText()).isEqualTo("ANSWERED");
+        JsonNode mine = call("GET", "/api/support", null, user, 200);
+        assertThat(mine.get(0).get("reply").asText()).isEqualTo("Tuzatdik, qayta urinib ko'ring");
+        assertThat(mine.get(0).has("repliedByName")).isFalse();
+        call("POST", "/api/admin/support/" + id + "/close", null, owner, 200);
+        assertThat(call("GET", "/api/support", null, user, 200).get(0).get("status").asText()).isEqualTo("CLOSED");
+        // Bir kunda ko'pi bilan 5 ta
+        for (int i = 1; i <= 4; i++) call("POST", "/api/support", Map.of("topic", "QUESTION", "text", "Savol raqam " + i), user, 200);
+        call("POST", "/api/support", Map.of("topic", "QUESTION", "text", "Oltinchi savol"), user, 400);
+
+        // 🔔 «Hammasini o'chirish» — faqat o'zinikilar
+        assertThat(call("GET", "/api/notifications", null, user, 200).get("total").asLong()).isGreaterThanOrEqualTo(1);
+        long ownerNotes = call("GET", "/api/notifications", null, owner, 200).get("total").asLong();
+        call("DELETE", "/api/notifications", null, user, 200);
+        assertThat(call("GET", "/api/notifications", null, user, 200).get("total").asLong()).isZero();
+        assertThat(call("GET", "/api/notifications/unread-count", null, user, 200).get("count").asLong()).isZero();
+        assertThat(call("GET", "/api/notifications", null, owner, 200).get("total").asLong()).isEqualTo(ownerNotes);
+        call("DELETE", "/api/notifications", null, null, 401);
+
+        // «Faqat reyslarimga mos e'lonlar»: reysiga mos e'lon haqida xabar keladi; ertalabki xulosa uning reyslari bilan
+        // haqiqiy bazada ishlaydi (push qurilmasi bor — xulosa oladiganlar ro'yxatiga tushadi)
+        assertThat(call("GET", "/api/users/me", null, driver, 200).get("routeOnly").asBoolean()).isFalse();
+        assertThat(call("PUT", "/api/users/me/settings", Map.of("routeOnly", true), driver, 200).get("routeOnly").asBoolean()).isTrue();
+        call("POST", "/api/push/register", Map.of("token", "route-only-device-1", "platform", "android"), driver, 200);
+        long r = firstRegion();
+        call("POST", "/api/trips", Map.of("fromRegionId", r, "toRegionId", r + 1,
+                "departAt", LocalDate.now(ZoneId.of("Asia/Tashkent")) + "T07:00:00", "daily", true, "seats", 3), driver, 200);
+        long onRoute = call("POST", "/api/orders", Map.of("kind", "PASSENGER", "seats", 1,
+                "from", Map.of("regionId", r), "to", Map.of("regionId", r + 1)), user, 200).get("id").asLong();
+        boolean matched = false;
+        for (JsonNode n : call("GET", "/api/notifications", null, driver, 200).get("items")) {
+            matched |= n.get("link").asText().equals("#/orders/" + onRoute);
+        }
+        assertThat(matched).isTrue();
+        reminders.morningDigest();
+        assertThat(call("PUT", "/api/users/me/settings", Map.of("routeOnly", false), driver, 200).get("routeOnly").asBoolean()).isFalse();
+
+        // Hisob o'chirilsa — murojaatlari ham, ular haqida egaga kelgan bildirishnomalar ham (ism va matn bilan) o'chadi
+        long ownerBefore = call("GET", "/api/notifications", null, owner, 200).get("total").asLong();
+        call("POST", "/api/users/me/delete", Map.of("password", "secret123"), user, 200);
+        assertThat(call("GET", "/api/admin/support?from=users", null, owner, 200).get("items").size()).isZero();
+        boolean left = false;
+        for (JsonNode n : call("GET", "/api/notifications", null, owner, 200).get("items")) {
+            left |= n.get("title").asText().contains("Murojaat Qiluvchi");
+        }
+        assertThat(left).isFalse();
+        assertThat(call("GET", "/api/notifications", null, owner, 200).get("total").asLong()).isEqualTo(ownerBefore - 5);
+        assertThat(call("GET", "/api/admin/support?from=drivers", null, owner, 200).get("items").size()).isEqualTo(1);
     }
 }

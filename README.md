@@ -41,9 +41,14 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   chiqqan e'lonlar (ro'yxatdan o'tishda ko'rsatgan manzili bo'yicha); har birining ichida shoshilinchlar tepada, keyin sana bo'yicha.
   Qidiruv: «Qayerdan» va «Qayerga» — viloyat, keyin tuman; tur bo'yicha: Hammasi · Yuk · Pochta · Yo'lovchi.
   «Shoshilinch» — faqat daromad tizimi yoqilganda (aks holda formada ham, e'lon sahifasida ham ko'rinmaydi).
-- **E'lon havolasi hammaga ochiq**: `#/orders/123` ni kirmagan odam ham ko'radi (raqam, aniq manzil va kodsiz) — «Ro'yxatdan o'tish /
-  Kirish» dan keyin shu e'longa qaytadi. **«Ulashish»** tugmasi: Telegram ichida — Telegram «Ulashish» oynasi (bot havolasi bilan),
-  telefonda — tizimning ulashish oynasi, kompyuterda — havola nusxalanadi. Reyslarni ham («Mening reyslarim») ulashish mumkin.
+- **Kirmaganga faqat kirish va ro'yxatdan o'tish**: mehmon (saytda, Android ilovada, Telegram Mini App'da) bosh oynani — qisqa tavsif,
+  «Ro'yxatdan o'tish», «Kirish» va umumiy sonlar (`#/welcome`) — ko'radi; shu qurilmada avval kirgan bo'lsa (chiqib ketgan yoki sessiyasi
+  tugagan) — darhol kirish sahifasi. E'lonlar, reyslar, haydovchilar va profillar faqat kirganlarga
+  (API ham: `/api/orders`, `/api/trips`, `/api/drivers`, `/api/users/{id}` — kirishsiz 401; ochiq qolgani — `/api/stats/public`).
+  Ulashilgan havola (`#/orders/123`), botdan kelgan to'ldirilgan forma va boshqa sahifalar ham avval shu oynani ochadi, kirgach yoki ro'yxatdan
+  o'tgach o'sha sahifaning o'zi ochiladi. Google uchun yo'nalish sahifalari (`/yo/...`) avvalgidek ochiq (ism va telefonsiz).
+  **«Ulashish»** tugmasi: Telegram ichida — Telegram «Ulashish» oynasi (bot havolasi bilan), telefonda — tizimning ulashish oynasi,
+  kompyuterda — havola nusxalanadi. Reyslarni ham («Mening reyslarim») ulashish mumkin.
 - **Takliflar (auksion)**: haydovchilar narx taklif qiladi, yuboruvchi reyting va mashinaga qarab tanlaydi. Yoki haydovchi e'londagi narxga
   rozi bo'lib darhol oladi. Pochta va yo'lovchida narx ko'rsatilmagan bo'lsa ham **«Olaman»** — ikki tomonga bir-birining raqami ochiladi,
   narxni telefonda kelishadi.
@@ -94,6 +99,14 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   va reyslar (serverda tayyor HTML, telefon va ismsiz), «E'lon berish» tugmalari to'ldirilgan forma bilan. `/sitemap.xml` va `/robots.txt` —
   Google Search Console'ga `https://SAYT/sitemap.xml` ni qo'shing.
 - Shikoyat / adminga murojaat: profil va buyurtma sahifasida (buyurtma tomonlari ham bir-biri haqida), istasa — shikoyat bilan birga bloklash.
+- **«Biz bilan bog'lanish»** (Profil → «Biz bilan bog'lanish», `#/support`): haydovchi yoki foydalanuvchi taklif, muammo, savol yoki boshqa
+  xabar yozadi (bir kunda ko'pi bilan 5 ta) yoki qo'ng'iroq qiladi (Railway'da `SUPPORT_PHONE` berilgan bo'lsa — kirish sahifasida ham).
+  Ega va faol adminlarga darhol 🔔, Telegram va push. Ular **Profil → Murojaatlar → «Haydovchilardan» / «Foydalanuvchilardan»**
+  (`#/support/inbox`) yoki **Boshqaruv → Aloqa** da ko'radi: muallif ismi, telefoni (qo'ng'iroq tugmasi), manzili, mashinasi; «Javob yozish» —
+  javob muallifga bildirishnoma bo'lib boradi va uning «Mening murojaatlarim» ro'yxatida chiqadi; «Yopish» — yangilar ro'yxatidan chiqadi.
+  Hisob o'chirilsa, murojaatlari ham o'chiriladi.
+- **🔔 Bildirishnomalar**: «Hammasini o'qilgan qilish» va tagida «Hammasini o'chirish» (tasdiqlash bilan; faqat bildirishnomalar ro'yxati
+  tozalanadi — buyurtma, taklif va yozishmalar o'chmaydi).
 - **Bloklash** (Google Play talabi — 1:1 yozishma bor): bloklangan foydalanuvchi bilan bir-biringizga yoza olmaysiz, taklif bera/qabul qila
   olmaysiz, e'lonlar, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz, yangi e'lon va mos reys xabari bormaydi; ochiq takliflar yopiladi.
   Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Ro'yxat va blokdan chiqarish: Profil → Bloklanganlar.
@@ -111,6 +124,9 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 - Navigatsiya ekranidan to'g'ridan-to'g'ri: qo'ng'iroq, «Yukni oldim» / «Yo'lovchini oldim», «Topshirish (kod)» / «Yetib keldik».
 - «Hozir bo'shman» rejimi, xabar olinadigan e'lon turlari, ishlaydigan viloyatlar (o'z viloyati doim hisobga olinadi), yangi mos e'lonlar
   Telegramga (Telegrami ulanmagan, Android ilovadagi haydovchiga — push).
+- **«Faqat reyslarimga mos e'lonlar»** (Profil → Haydovchi sozlamalari): yoqilsa, yangi e'lon haqida faqat «Reyslar»da e'lon qilgan
+  yo'nalishiga (viloyatdan viloyatga, sanasi va bo'sh joylari mos) xabar keladi; uyi va ishlaydigan viloyatlari bo'yicha xabarlar va ertalabki
+  xulosadagi boshqa e'lonlar — yo'q. Faol reysi bo'lmasa, profilda «xabar kelmaydi» ogohlantirishi va «Reys e'lon qilish» havolasi chiqadi.
 
 ### Telegram bot
 - Tasdiqlash kodlarini yuboradi.
@@ -249,6 +265,7 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    | `PUBLIC_URL` | `https://<sizning-domeningiz>` |
    | `APP_DEV_MODE` | `false` |
    | `YANDEX_MAPS_API_KEY`, `SUPPORT_EMAIL` | ixtiyoriy |
+   | `SUPPORT_PHONE` | ixtiyoriy: «Biz bilan bog'lanish», kirish sahifasi va maxfiylik siyosatidagi qo'ng'iroq raqami (masalan, `+998 90 123 45 67`). Berilmasa — faqat xabar yozish |
    | `ESKIZ_EMAIL`, `ESKIZ_PASSWORD` | SMS orqali kod (pastdagi «SMS orqali tasdiqlash» bo'limi). Berilmasa, kodlar Telegram bot orqali |
    | `ESKIZ_FROM`, `SMS_DAILY_LIMIT` | ixtiyoriy: jo'natuvchi nomi (standart `4546`), sutkalik SMS chegarasi (standart 500) |
    | `SMS_TEMPLATE_REGISTER`, `SMS_TEMPLATE_RESET`, `SMS_TEMPLATE_PHONE` | ixtiyoriy: Eskiz boshqacha matnni tasdiqlasa (pastda) |
@@ -266,6 +283,10 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    - `HikariPool-1 - Added connection org.postgresql…` chiqishi kerak (`jdbc:h2` emas);
    - `Telegram bot @… ishga tushdi` chiqishi kerak;
    - `DIQQAT:` bilan boshlanadigan qatorlar bo'lmasligi kerak.
+
+   Saytdagi o'zgarishlar (HTML, `/js`, `/css`) deploy'dan keyin Android ilovada, Telegram Mini App'da va brauzerda o'zi yangilanadi:
+   sahifalar (`*.html`), `/js` va `/css` keshda turadi, lekin har ochilganda serverdan tekshiriladi (`Cache-Control: no-cache` — o'zgarmagan
+   bo'lsa qayta yuklanmaydi). AAB'ni qayta yig'ish faqat `mobile/` ichidagi o'zgarishlarda kerak.
 
 ### Push-bildirishnomalar (Android ilova, Firebase)
 
@@ -370,7 +391,8 @@ Qo'shimcha:
 
 ## Mobil ilova uchun API
 
-Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
+Barcha so'rovlar `Authorization: Bearer <token>` bilan (kirishsiz faqat ro'yxatdan o'tish, kirish, parolni tiklash, hududlar, `/api/config`,
+`/api/stats/public` va to'lov tizimlari so'rovlari; qolganlari tokensiz — **401**). Asosiy endpointlar:
 
 | Bo'lim | Endpoint |
 |---|---|
@@ -381,7 +403,7 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Profil | `GET/PUT /api/users/me`, `POST /api/users/me/avatar`, `PUT /api/users/me/vehicle`, `PUT /api/users/me/settings`, `GET /api/users/{id}` |
 | Shartlar | `POST /api/users/me/terms` (qabul qilish). Qabul qilinmagan bo'lsa kontent yaratuvchi so'rovlar **428** qaytaradi |
 | Bloklash | `POST/DELETE /api/users/{id}/block`, `GET /api/users/me/blocks` |
-| Buyurtmalar | `GET /api/orders` (e'lonlar: `kind`=CARGO/PARCEL/PASSENGER, `fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`, `bodyType`, `q`, `page`; kirgan foydalanuvchiga — yaqinlik bo'yicha), `POST /api/orders` (`kind`, `seats`), `GET /api/orders/my` (`role`=sender/all, `group`=active/done), `GET /api/orders/{id}` (kirmagan foydalanuvchiga ham — raqam va aniq manzilsiz) |
+| Buyurtmalar | `GET /api/orders` (e'lonlar: `kind`=CARGO/PARCEL/PASSENGER, `fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`, `bodyType`, `q`, `page`; kirgan foydalanuvchiga — yaqinlik bo'yicha), `POST /api/orders` (`kind`, `seats`), `GET /api/orders/my` (`role`=sender/all, `group`=active/done), `GET /api/orders/{id}` (raqam va aniq manzil — maxfiylik qoidasi bo'yicha) |
 | Takliflar | `POST /api/orders/{id}/offers`, `POST .../offers/{offerId}/accept`, `POST /api/orders/{id}/take` |
 | Holat | `POST /api/orders/{id}/pickup`, `POST /api/orders/{id}/deliver {code}` (yo'lovchida — kodsiz, `{}`), `POST /api/orders/{id}/cancel` |
 | Kuzatuv | `POST /api/orders/{id}/track {lat,lng}`, `GET /api/orders/{id}/track` |
@@ -389,10 +411,12 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan. Asosiy endpointlar:
 | Baho | `POST /api/orders/{id}/review`, `GET /api/users/{id}/reviews` |
 | Reyslar | `GET /api/trips` (`fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`), `POST /api/trips` (`daily`, `seats`; javobda `matches` — mos e'lonlar soni), `GET /api/trips/my` |
 | Taklif | `GET /api/users/me/referral` |
+| Bildirishnomalar | `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all`, `DELETE /api/notifications` (hammasini o'chirish) |
+| Biz bilan bog'lanish | `GET/POST /api/support {topic: IDEA/PROBLEM/QUESTION/OTHER, text}`; ega va adminlar: `GET /api/admin/support?from=drivers\|users&status=NEW`, `GET /api/admin/support/counts`, `POST /api/admin/support/{id}/reply {text}`, `POST /api/admin/support/{id}/close` |
 | Haydovchi tekshiruvi | `GET/POST /api/users/me/driver-verification` (multipart: `license`, `techPassport`) |
 | Balansni to'ldirish | `GET /api/payments/options`, `POST /api/payments/topup {provider, amount}`, `GET /api/payments/{id}` |
 | To'lov tizimlari | `POST /api/pay/click/prepare`, `/api/pay/click/complete`, `/api/pay/payme`, `/api/pay/paynet` (token emas — imzo yoki login-parol) |
-| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications, payments) |
+| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications, payments, support) |
 
 To'liq sxema: `/swagger-ui.html`. Mobil ilovada Yandex MapKit SDK (Android/iOS) dan foydalanish tavsiya etiladi.
 

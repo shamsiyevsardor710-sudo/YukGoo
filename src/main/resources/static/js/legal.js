@@ -31,14 +31,22 @@ async function loadDoc(ctx, url) {
     const body = $('.modal-body', ctx.el);
     body.innerHTML = `<div class="legal-doc">${art.innerHTML}</div>`;
     const se = $('#support-email', body);
-    if (se) {
-      se.removeAttribute('id');
+    const sp = $('#support-phone', body);
+    if (se || sp) {
+      se?.removeAttribute('id');
+      sp?.removeAttribute('id');
       const c = await config();
-      if (c && c.supportEmail) {
+      if (se && c && c.supportEmail) {
         const a = se.querySelector('a');
         a.href = 'mailto:' + c.supportEmail;
         a.textContent = c.supportEmail;
         se.hidden = false;
+      }
+      if (sp && c && c.supportPhone) {
+        const a = sp.querySelector('a');
+        a.href = 'tel:' + String(c.supportPhone).replace(/[^\d+]/g, '');
+        a.textContent = c.supportPhone;
+        sp.hidden = false;
       }
     }
   } catch {

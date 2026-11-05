@@ -31,6 +31,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     long countByRole(Role role);
 
+    /** Ega va faol adminlar — «Biz bilan bog'lanish» murojaatlari haqida xabar oladi */
+    @Query("""
+            select u from User u
+            where u.role in (uz.yukgo.user.Role.ADMIN, uz.yukgo.user.Role.OWNER)
+              and u.status = uz.yukgo.user.UserStatus.ACTIVE
+            """)
+    List<User> findActiveStaff();
+
     @Query("select count(u) from User u where u.vehicle.brand is not null and u.status = uz.yukgo.user.UserStatus.ACTIVE")
     long countDrivers();
 

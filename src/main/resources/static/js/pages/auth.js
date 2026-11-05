@@ -1,6 +1,6 @@
 // Kirish, ro'yxatdan o'tish (SMS yoki Telegram kod bilan) va parolni tiklash
 import { auth, post, get, config } from '../api.js';
-import { $, $$, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt, money } from '../ui.js';
+import { $, $$, esc, icon, toast, formData, showError, clearError, busy, bindRegionDistrict, phoneFmt, money, num } from '../ui.js';
 import { afterLogin, go, pendingAfterLogin } from '../app.js';
 import { tg, telegramInitData, telegramLoggedIn } from '../telegram.js';
 import { attribution, clearAttribution } from '../attribution.js';
@@ -8,6 +8,54 @@ import { attribution, clearAttribution } from '../attribution.js';
 function shell(main, inner) {
   main.innerHTML = `<div class="auth-wrap"><div class="auth-card">${inner}</div></div>`;
   return $('.auth-card', main);
+}
+
+/** «Savolingiz bo'lsa: +998 …» — serverda SUPPORT_PHONE berilgan bo'lsa (kira olmayotganlar uchun ham) */
+async function supportLine(el, text) {
+  const c = await config().catch(() => null);
+  if (!el || !document.body.contains(el) || !c || !c.supportPhone) return;
+  el.innerHTML = `${esc(text)} <a href="tel:${esc(String(c.supportPhone).replace(/[^\d+]/g, ''))}">${esc(phoneFmt(c.supportPhone) || c.supportPhone)}</a>`;
+  el.classList.remove('hidden');
+}
+
+// =====================================================================
+// Mehmon uchun bosh oyna: e'lonlar kirgandan keyin — bu yerda faqat ro'yxatdan o'tish va kirish
+// =====================================================================
+export function welcomePage(main) {
+  const target = pendingAfterLogin();
+  const lead = target && target.startsWith('#/orders/') ? "Bu e'lonni ko'rish uchun kiring yoki ro'yxatdan o'ting."
+    : target && target.startsWith('#/new') ? "E'lon berish uchun kiring yoki ro'yxatdan o'ting — bir daqiqa."
+      : "E'lonlarni ko'rish va e'lon berish uchun kiring yoki ro'yxatdan o'ting — bir daqiqa.";
+  // Darhol chiziladi (sekin internetda «Kirish» bosilgach, kechikkan javob kirish sahifasini bosib ketmasin); sonlar keyin qo'shiladi
+  main.innerHTML = `<div class="page">
+    <section class="intro">
+      <div>
+        <h1>Yuk, pochta va yo'lovchi — viloyatdan viloyatga</h1>
+        <p>E'lon bering — yo'nalishingizdagi haydovchilarga darhol xabar boradi. Reyting bo'yicha tanlang, yukingizni xaritada jonli kuzating.</p>
+        <p class="intro-lead">${esc(lead)}</p>
+        <div class="row"><a class="btn btn-primary btn-lg" href="#/register">Ro'yxatdan o'tish</a><a class="btn btn-lg" href="#/login">Kirish</a></div>
+        <div class="intro-facts hidden" id="intro-facts"></div>
+      </div>
+      <div class="intro-road" aria-hidden="true">
+        <svg viewBox="0 0 320 140" fill="none">
+          <path d="M10 110 C 90 110, 120 40, 200 40 S 300 30, 310 30" stroke="#3A4850" stroke-width="18" stroke-linecap="round"/>
+          <path d="M10 110 C 90 110, 120 40, 200 40 S 300 30, 310 30" stroke="#F2B705" stroke-width="3" stroke-dasharray="12 10" stroke-linecap="round"/>
+          <circle cx="12" cy="110" r="9" fill="#F2B705"/><circle cx="308" cy="30" r="9" fill="#fff"/>
+          <g class="truck"><rect x="40" y="76" width="34" height="20" rx="3" fill="#fff"/><rect x="74" y="82" width="14" height="14" rx="2" fill="#C9D3D7"/><circle cx="50" cy="98" r="4" fill="#F2B705"/><circle cx="80" cy="98" r="4" fill="#F2B705"/></g>
+        </svg>
+      </div>
+    </section>
+    <p class="small muted hidden" id="support-line" style="text-align:center;margin-top:18px"></p>
+  </div>`;
+  const facts = $('#intro-facts', main);
+  get('/stats/public').then(stats => {
+    if (!stats || !document.body.contains(facts)) return;
+    facts.innerHTML = `<div><b class="num">${num(stats.openOrders)}</b>ochiq e'lon</div>
+      <div><b class="num">${num(stats.drivers)}</b>haydovchi</div>
+      <div><b class="num">${num(stats.delivered)}</b>bajarilgan buyurtma</div>`;
+    facts.classList.remove('hidden');
+  }).catch(() => {});
+  supportLine($('#support-line', main), "Savolingiz bo'lsa, qo'ng'iroq qiling:");
 }
 
 // =====================================================================
@@ -32,7 +80,9 @@ export function loginPage(main) {
         <a href="#/forgot">Parolni unutdingizmi?</a>
       </div>
     </form>
-    <p class="small muted" style="margin-top:22px;text-align:center">Hisobingiz yo'qmi? <a href="#/register">Ro'yxatdan o'ting</a></p>`);
+    <p class="small muted" style="margin-top:22px;text-align:center">Hisobingiz yo'qmi? <a href="#/register">Ro'yxatdan o'ting</a></p>
+    <p class="tiny muted hidden" id="support-line" style="margin-top:10px;text-align:center"></p>`);
+  supportLine($('#support-line', card), "Kira olmayapsizmi? Qo'ng'iroq qiling:");
 
   const form = $('#login-form', card);
   let byPhone = false;
@@ -371,7 +421,7 @@ export function forgotPage(main) {
           auth.user = res.user;
           telegramLoggedIn();
           toast('Parol yangilandi', 'ok');
-          go('#/');
+          afterLogin('#/');   // havola orqali kelgan bo'lsa — o'sha sahifaga
         } catch (err) { showError(form, err); }
       });
     },

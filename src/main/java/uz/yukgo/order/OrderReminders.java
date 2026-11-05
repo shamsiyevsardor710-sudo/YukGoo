@@ -10,6 +10,8 @@ import uz.yukgo.channel.OrderCard;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.telegram.TelegramClient;
 import uz.yukgo.trip.MatchService;
+import uz.yukgo.trip.Trip;
+import uz.yukgo.trip.TripRepository;
 import uz.yukgo.user.BlockService;
 import uz.yukgo.user.User;
 import uz.yukgo.user.UserRepository;
@@ -17,6 +19,7 @@ import uz.yukgo.user.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.function.Supplier;
@@ -40,6 +43,8 @@ public class OrderReminders {
     /** Sanasiz e'lonlar — shuncha kun ichida berilganlari */
     static final Duration NO_DATE_WINDOW = Duration.ofDays(3);
     static final int TOP_ROUTES = 3;
+    /** «Faqat reyslarimga mos» haydovchilar reyslari shuncha haydovchidan bir so'rovda olinadi */
+    static final int TRIP_BATCH = 500;
 
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
@@ -47,6 +52,7 @@ public class OrderReminders {
     private final TelegramClient telegram;
     private final BlockService blocks;
     private final PlatformTransactionManager txManager;
+    private final TripRepository tripRepository;
 
     /** Bitta haydovchiga ertalabki xulosa */
     record Digest(User driver, int total, String html, String pushTitle, String pushBody) {}
@@ -74,20 +80,32 @@ public class OrderReminders {
         if (sent > 0) log.info("Ertalabki xulosa: {} ta haydovchiga", sent);
     }
 
-    /** Har bir haydovchi uchun: uyi yoki ishlaydigan viloyatidan / viloyatiga, turi va mashinasiga mos ochiq e'lonlar */
+    /**
+     * Har bir haydovchi uchun: uyi yoki ishlaydigan viloyatidan / viloyatiga, turi va mashinasiga mos ochiq e'lonlar.
+     * «Faqat reyslarimga mos e'lonlar» yoqqan haydovchiga — faqat faol reyslaridan biriga (yo'nalishi, sanasi va bo'sh
+     * joylari bo'yicha, xuddi yangi e'lon xabaridagidek) mos kelganlari; faol reysi bo'lmasa — xulosa yo'q.
+     */
     List<Digest> digests(LocalDate today, Instant now) {
         List<Order> open = orderRepository.openForDigest(today, today.plusDays(1), now.minus(NO_DATE_WINDOW));
         if (open.isEmpty()) return List.of();
+        List<User> drivers = userRepository.findDriversForDigest();
+        LocalDateTime at = LocalDateTime.ofInstant(now, TZ);
+        Map<Long, List<Trip>> tripsByDriver = routeOnlyTrips(drivers, at);
         List<Digest> out = new ArrayList<>();
-        for (User d : userRepository.findDriversForDigest()) {
+        for (User d : drivers) {
+            boolean routeOnly = d.isRouteOnly();
+            List<Trip> trips = routeOnly ? tripsByDriver.getOrDefault(d.getId(), List.of()) : List.of();
             Set<Long> regions = new HashSet<>(d.getWorkRegionIds());
             if (d.getRegion() != null) regions.add(d.getRegion().getId());
-            if (regions.isEmpty()) continue;
+            if (routeOnly ? trips.isEmpty() : regions.isEmpty()) continue;
             Set<Long> hidden = null;
             List<Order> fit = new ArrayList<>();
             for (Order o : open) {
                 if (o.getSender().getId().equals(d.getId())) continue;
-                if (!regions.contains(o.getFromRegion().getId()) && !regions.contains(o.getToRegion().getId())) continue;
+                boolean onRoute = routeOnly
+                        ? trips.stream().anyMatch(t -> onTrip(t, o, at))
+                        : regions.contains(o.getFromRegion().getId()) || regions.contains(o.getToRegion().getId());
+                if (!onRoute) continue;
                 if (!MatchService.kindAndVehicleFit(d, o)) continue;
                 if (hidden == null) hidden = blocks.related(d.getId());
                 if (hidden.contains(o.getSender().getId())) continue;
@@ -96,6 +114,27 @@ public class OrderReminders {
             if (!fit.isEmpty()) out.add(digest(d, fit));
         }
         return out;
+    }
+
+    /** «Faqat reyslarimga mos» haydovchilarning faol reyslari (haydovchi bo'yicha) — har {@link #TRIP_BATCH} tadan bitta so'rov */
+    private Map<Long, List<Trip>> routeOnlyTrips(List<User> drivers, LocalDateTime at) {
+        List<Long> ids = new ArrayList<>();
+        for (User d : drivers) if (d.isRouteOnly()) ids.add(d.getId());
+        Map<Long, List<Trip>> out = new HashMap<>();
+        for (int i = 0; i < ids.size(); i += TRIP_BATCH) {
+            List<Long> part = ids.subList(i, Math.min(ids.size(), i + TRIP_BATCH));
+            for (Trip t : tripRepository.findActiveForDrivers(part, at.minusHours(3))) {
+                out.computeIfAbsent(t.getDriver().getId(), k -> new ArrayList<>()).add(t);
+            }
+        }
+        return out;
+    }
+
+    /** Reys e'longa mosmi: viloyatdan viloyatga yo'nalishi bir xil, sanasi va bo'sh joylari to'g'ri keladi */
+    static boolean onTrip(Trip t, Order o, LocalDateTime at) {
+        return t.getFromRegion().getId().equals(o.getFromRegion().getId())
+                && t.getToRegion().getId().equals(o.getToRegion().getId())
+                && MatchService.tripFits(t, o, at);
     }
 
     static Digest digest(User d, List<Order> fit) {
@@ -111,7 +150,8 @@ public class OrderReminders {
 
         StringBuilder sb = new StringBuilder("☀️ <b>Xayrli tong");
         if (d.getFirstName() != null && !d.getFirstName().isBlank()) sb.append(", ").append(TelegramClient.esc(d.getFirstName().trim()));
-        sb.append("!</b>\nBugun va ertaga yo'nalishlaringizda <b>").append(fit.size()).append(" ta</b> ochiq e'lon bor:\n")
+        sb.append("!</b>\nBugun va ertaga ").append(d.isRouteOnly() ? "reyslaringizga mos" : "yo'nalishlaringizda").append(" <b>")
+                .append(fit.size()).append(" ta</b> ochiq e'lon bor:\n")
                 .append(kindLine).append("\n\n");
         int shown = 0;
         for (Map.Entry<String, Integer> r : top) {
@@ -122,7 +162,7 @@ public class OrderReminders {
         if (rest > 0) sb.append("… va yana ").append(rest).append(" ta yo'nalish\n");
         sb.append("\n👇 Ko'rish va taklif berish uchun tugmani bosing. Bunday xabarlarni profilingizda o'chirib qo'yishingiz mumkin.");
 
-        String pushTitle = "☀️ Bugun " + fit.size() + " ta e'lon yo'nalishingizda";
+        String pushTitle = "☀️ Bugun " + fit.size() + " ta e'lon " + (d.isRouteOnly() ? "reysingizga mos" : "yo'nalishingizda");
         String pushBody = kindLine + (top.isEmpty() ? "" : " · " + top.get(0).getKey() + " (" + top.get(0).getValue() + ")");
         return new Digest(d, fit.size(), sb.toString(), pushTitle, pushBody);
     }

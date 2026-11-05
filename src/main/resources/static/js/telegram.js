@@ -204,7 +204,7 @@ export function telegramRoute(path) {
   const bb = tg.app && tg.app.BackButton;
   if (!bb) return;
   try {
-    if (path === '/') bb.hide();
+    if (path === '/' || path === '/welcome') bb.hide();
     else bb.show();
   } catch { /* */ }
 }

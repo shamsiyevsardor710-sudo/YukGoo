@@ -33,4 +33,10 @@ public class NotificationController {
     public void readAll() {
         service.markAllRead(currentUser.id());
     }
+
+    /** «Hammasini o'chirish» — faqat o'zining bildirishnomalari */
+    @DeleteMapping
+    public Map<String, Integer> deleteAll() {
+        return Map.of("deleted", service.deleteAll(currentUser.id()));
+    }
 }

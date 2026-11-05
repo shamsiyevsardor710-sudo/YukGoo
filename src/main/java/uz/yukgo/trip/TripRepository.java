@@ -55,6 +55,17 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
 
     List<Trip> findByDriverIdOrderByDepartAtDesc(Long driverId);
 
+    /**
+     * Ertalabki xulosa: «Faqat reyslarimga mos e'lonlar» yoqqan haydovchilarning faol reyslari — «har kuni» yoki
+     * hali jo'nab ketmaganlari (since — biroz oldingi vaqt). Sana va joylar MatchService.tripFits bilan tekshiriladi.
+     */
+    @Query("""
+            select t from Trip t
+            where t.active = true and t.driver.id in :driverIds and (t.daily = true or t.departAt >= :since)
+            """)
+    List<Trip> findActiveForDrivers(@Param("driverIds") java.util.Collection<Long> driverIds,
+                                    @Param("since") LocalDateTime since);
+
     /** Botdan e'lon qilingan reys: takror va kunlik chegara uchun */
     List<Trip> findByDriverIdAndCreatedAtAfterOrderByIdDesc(Long driverId, java.time.Instant after);
 

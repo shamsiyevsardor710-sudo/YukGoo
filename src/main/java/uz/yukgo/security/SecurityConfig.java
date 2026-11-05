@@ -14,7 +14,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -46,12 +45,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**", "/api/locations/**", "/api/config").permitAll()
                         // Click, Payme va Paynet serverlari so'rovlari: ular o'z imzosi yoki login-paroli bilan tekshiriladi
                         .requestMatchers("/api/pay/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/orders", "/api/orders/estimate",
-                                "/api/trips", "/api/drivers", "/api/users/{id}", "/api/users/{id}/reviews",
-                                "/api/stats/public").permitAll()
-                        // Bitta e'lon sahifasi mehmonga ham ochiq (ulashilgan havola): raqam va aniq manzilsiz. Faqat
-                        // /api/orders/123 — /api/orders/my va boshqa amallar kirishni talab qiladi
-                        .requestMatchers(new RegexRequestMatcher("^/api/orders/\\d+(\\?.*)?$", "GET")).permitAll()
+                        // Mehmonga faqat umumiy sonlar (kirish sahifasidagi «N ta ochiq e'lon, N ta haydovchi»). E'lonlar (bittasi
+                        // ham — ulashilgan havola kirgandan keyin ochiladi), reyslar, haydovchilar va profillar — faqat kirganlarga
+                        .requestMatchers(HttpMethod.GET, "/api/stats/public").permitAll()
                         .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "OWNER")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())

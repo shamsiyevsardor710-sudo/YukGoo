@@ -133,6 +133,13 @@ public class User {
     @Column(length = 40)
     private String notifyKinds;
 
+    /**
+     * «Faqat reyslarimga mos e'lonlar»: yoqilgan bo'lsa, yangi e'lonlar haqida faqat «Reyslar»da e'lon qilgan yo'nalishiga
+     * moslari keladi — uyi va ishlaydigan viloyatlari bo'yicha xabarlar ham, ertalabki xulosadagi boshqa e'lonlar ham yo'q.
+     * null — eski qatorlar (o'chiq). Boolean — mavjud qatorlarga ustun qo'shilganda NOT NULL xatosi bo'lmasin.
+     */
+    private Boolean routeOnly;
+
     /** Haydovchi ishlaydigan viloyatlar (bo'sh bo'lsa — hammasi) */
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "user_work_regions", joinColumns = @JoinColumn(name = "user_id"))
@@ -203,6 +210,11 @@ public class User {
 
     public boolean acceptsKind(OrderKind kind) {
         return effectiveNotifyKinds().contains(kind == null ? OrderKind.CARGO : kind);
+    }
+
+    /** Yangi e'lonlar haqida faqat reyslariga moslari (hudud bo'yicha emas) */
+    public boolean isRouteOnly() {
+        return Boolean.TRUE.equals(routeOnly);
     }
 
     public boolean isActive() {

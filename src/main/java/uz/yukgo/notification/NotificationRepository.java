@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
@@ -20,6 +21,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     /** Hisob o'chirilganda: boshqalarga kelgan, ichida uning telefon raqami bor bildirishnomalar */
     List<Notification> findByBodyContaining(String fragment);
+
+    /** Hisob o'chirilganda: ega va adminlarga kelgan, uning «Biz bilan bog'lanish» murojaatlari haqidagi bildirishnomalar */
+    @Modifying(flushAutomatically = true)
+    @Query("delete from Notification n where n.link in :links")
+    int deleteByLinkIn(@Param("links") Collection<String> links);
 
     /** Hisob o'chirilganda: foydalanuvchining barcha bildirishnomalari (ichida boshqalarning ismi va telefoni bor) */
     @Modifying(flushAutomatically = true)

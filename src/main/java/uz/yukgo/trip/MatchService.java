@@ -26,7 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * E'lon va reyslarni bir-biriga moslaydi va avtomatik xabar yuboradi:
  *  • yangi e'lon (yuk, pochta, yo'lovchi) → shu yo'nalishda reys e'lon qilgan haydovchilarga «Siz uchun yangi yo'lovchi»
- *    (ilovada ham, Telegramda ham), keyin uyi yoki ishlaydigan viloyati shu yerda bo'lgan haydovchilarga (Telegram);
+ *    (ilovada ham, Telegramda ham), keyin uyi yoki ishlaydigan viloyati shu yerda bo'lgan haydovchilarga (Telegram) —
+ *    «Faqat reyslarimga mos e'lonlar» yoqqan haydovchilardan tashqari (ularga faqat birinchi qadamdagi xabar boradi);
  *  • yangi reys → shu yo'nalishda haydovchi kutayotganlarga «Yo'nalishingizda haydovchi bor».
  * Blok bo'lgan juftliklar, haydovchi xabar olmaydigan e'lon turlari va mos kelmaydigan mashina turi hisobga olinadi.
  * Xatolar e'lon yoki reys yaratilishini to'xtatmaydi.
@@ -100,12 +101,13 @@ public class MatchService {
             if (++sent >= MAX_DRIVERS) return sent;
         }
 
-        // 2) Uyi yoki ishlaydigan viloyati e'lon yo'nalishida bo'lgan bo'sh haydovchilar — Telegram orqali (yoki push)
+        // 2) Uyi yoki ishlaydigan viloyati e'lon yo'nalishida bo'lgan bo'sh haydovchilar — Telegram orqali (yoki push).
+        //    «Faqat reyslarimga mos e'lonlar» yoqqanlar bu yerda xabar olmaydi (reysiga moslari — yuqorida)
         List<User> drivers = new ArrayList<>(userRepository.findDriversToNotify(
                 o.getFromRegion().getId(), o.getToRegion().getId(), sender.getId()));
         drivers.sort(Comparator.comparingInt(d -> nearRank(d, o)));   // avval o'z tumanidan, keyin viloyatidan
         for (User d : drivers) {
-            if (done.contains(d.getId()) || blocked.contains(d.getId())) continue;
+            if (done.contains(d.getId()) || blocked.contains(d.getId()) || d.isRouteOnly()) continue;
             if (!kindAndVehicleFit(d, o)) continue;
             done.add(d.getId());
             boolean near = nearRank(d, o) == 0;
@@ -128,7 +130,7 @@ public class MatchService {
     }
 
     /** Reys sanasi, joylar soni e'longa mosmi (yo'nalish so'rovning o'zida tekshirilgan) */
-    static boolean tripFits(Trip t, Order o, LocalDateTime now) {
+    public static boolean tripFits(Trip t, Order o, LocalDateTime now) {
         if (!t.isActive()) return false;
         if (o.isPassenger() && t.getSeats() != null && o.getSeats() != null && o.getSeats() > t.getSeats()) return false;
         if (t.isDaily()) return true;

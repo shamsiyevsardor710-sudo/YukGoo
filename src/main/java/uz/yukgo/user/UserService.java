@@ -69,6 +69,7 @@ public class UserService {
     private final DriverVerificationService driverVerification;
     private final BlockService blocks;
     private final uz.yukgo.push.PushTokenRepository pushTokens;
+    private final uz.yukgo.support.SupportMessageRepository supportMessages;
 
     /** O'chirilgan hisobning ism-familiyasi (buyurtmalar tarixida shunday ko'rinadi) */
     private static final String DELETED_FIRST = "O'chirilgan";
@@ -213,6 +214,7 @@ public class UserService {
             Set<OrderKind> kinds = req.notifyKinds().stream().filter(Objects::nonNull).collect(Collectors.toSet());
             u.setNotifyKinds(kinds.isEmpty() ? null : OrderKind.format(kinds));
         }
+        if (req.routeOnly() != null) u.setRouteOnly(req.routeOnly() ? Boolean.TRUE : null);
         return MeDto.of(u);
     }
 
@@ -329,6 +331,12 @@ public class UserService {
         wallet.forfeitBalance(u.getId(), "Hisob o'chirildi — bonus qoldig'i bekor qilindi");   // hujjat rasmlari (ko'rib chiqilmagan ariza bo'lsa)
         notificationRepository.deleteAllForUser(u.getId());
         pushTokens.deleteAllForUser(u.getId());   // telefoniga endi push bormaydi
+        // «Biz bilan bog'lanish» murojaatlari va ular haqida ega/adminlarga kelgan bildirishnomalar (ism va xabar matni bor)
+        List<String> supportLinks = supportMessages.findByAuthorId(u.getId()).stream()
+                .map(uz.yukgo.support.SupportMessage::staffLink).toList();
+        if (!supportLinks.isEmpty()) notificationRepository.deleteByLinkIn(supportLinks);
+        supportMessages.deleteAllForUser(u.getId());
+        supportMessages.renameReplier(u.getId(), DELETED_NAME);   // u admin bo'lib javob yozgan bo'lsa
         // Boshqalarga kelgan bildirishnomalardagi telefon raqami ("Yuboruvchi: ..., +998...") olib tashlanadi
         for (Notification n : notificationRepository.findByBodyContaining(oldPhone)) {
             n.setBody(n.getBody().replace(oldPhone, "***"));
@@ -363,6 +371,7 @@ public class UserService {
         u.setLastLocationAt(null);
         u.setAvailable(false);
         u.setNotifyNewOrders(false);
+        u.setRouteOnly(null);
         u.getWorkRegionIds().clear();
         if (u.getRole() == Role.ADMIN) u.setRole(Role.USER);
         u.setStatus(UserStatus.REMOVED);

@@ -10,6 +10,7 @@ import { phoneVerification } from './auth.js';
 import { inviteBlock, verifyBlock } from './growth-ui.js';
 import { reportDialog, blockUser, unblockUser } from './orders.js';
 import { refreshMe, logout, refreshUnread } from '../app.js';
+import { supportCounts, telHref } from './support.js';
 import { openTopup, topupAvailable, topupReturn } from './topup.js';
 import { digitalSalesBlocked } from '../platform.js';
 
@@ -136,6 +137,14 @@ export async function profilePage(main, _p, query) {
         ${u.ratingCount ? `<section class="panel"><h2>Baholar</h2><div id="reviews" style="margin-top:14px">${skeletons(2)}</div></section>` : ''}
       </div>
       <div class="stack">
+        ${auth.isStaff ? `<section class="panel stack-sm">
+          <h2>Aloqa xabarlari</h2>
+          <p class="small muted">«Biz bilan bog'lanish» orqali kelgan taklif, muammo va savollar — javob yozasiz yoki qo'ng'iroq qilasiz.</p>
+          <div class="row">
+            <a class="btn" href="#/support/inbox?from=drivers">🚚 Haydovchilardan<span class="tab-count hidden" data-sc="drivers"></span></a>
+            <a class="btn" href="#/support/inbox?from=users">👤 Foydalanuvchilardan<span class="tab-count hidden" data-sc="users"></span></a>
+          </div>
+        </section>` : ''}
         ${u.telegramLinked ? '' : `<section class="panel stack-sm">
           <h2>Telegram</h2>
           <p class="small muted">Botni ulang — yangi takliflar va buyurtma holati haqida xabar darhol keladi, botga yozgan e'loningiz esa forma to'ldirmasdan saytga chiqadi. Botda «Telefon raqamni yuborish» tugmasini bosing.</p>
@@ -150,6 +159,9 @@ export async function profilePage(main, _p, query) {
             <span class="switch"><input type="checkbox" id="s-available" ${u.available ? 'checked' : ''}><span></span></span></label>
           <label class="setting"><span><b>Yangi e'lonlar haqida xabar</b><br><span class="small muted">Yo'nalishingiz va hududingiz bo'yicha — Telegramga yoki ilovaga; har kuni ertalab 7 da qisqa xulosa ham</span></span>
             <span class="switch"><input type="checkbox" id="s-notify" ${u.notifyNewOrders ? 'checked' : ''}><span></span></span></label>
+          <div><label class="setting"><span><b>Faqat reyslarimga mos e'lonlar</b><br><span class="small muted">Yoqsangiz, faqat «Reyslar» bo'limida e'lon qilgan yo'nalishingizga mos e'lonlar haqida xabar keladi. Uyingiz va ishlaydigan viloyatlaringiz bo'yicha boshqa e'lonlar haqida — yo'q.</span></span>
+            <span class="switch"><input type="checkbox" id="s-route-only" ${u.routeOnly ? 'checked' : ''}><span></span></span></label>
+            <p class="tiny warn-note hidden" id="route-only-warn">Hozir faol reysingiz yo'q — yangi e'lonlar haqida xabar kelmaydi. <a href="#/trips?new=1">Reys e'lon qilish</a></p></div>
           <div><b>Qaysi e'lonlar haqida xabar kelsin</b>
             <div class="kind-picks" id="s-kinds" role="group" aria-label="E'lon turlari">${Object.keys(KIND).map(k =>
               `<button type="button" class="kind-pick ${(u.notifyKinds || []).includes(k) ? 'on' : ''}" data-kind="${k}" aria-pressed="${(u.notifyKinds || []).includes(k)}">${icon(KIND_ICON[k])}${esc(KIND[k])}</button>`).join('')}</div>
@@ -157,6 +169,14 @@ export async function profilePage(main, _p, query) {
           <div><b>Ishlaydigan viloyatlarim</b><p class="small muted" id="work-regions">…</p>
             <button class="btn btn-sm" style="margin-top:8px" id="edit-regions">Tanlash</button></div>
         </section>` : ''}
+        <section class="panel stack-sm">
+          <h2>Biz bilan bog'lanish</h2>
+          <p class="small muted">Taklif, muammo yoki savolingiz bo'lsa — yozing${cfg.supportPhone ? " yoki qo'ng'iroq qiling" : ''}. Javob bildirishnoma bo'lib keladi.</p>
+          <div class="row">
+            <a class="btn btn-primary btn-sm" href="#/support">${icon('chat')}Xabar yozish</a>
+            ${cfg.supportPhone ? `<a class="btn btn-sm" href="${esc(telHref(cfg.supportPhone))}">${icon('phone')}${esc(phoneFmt(cfg.supportPhone) || cfg.supportPhone)}</a>` : ''}
+          </div>
+        </section>
         <details class="more settings-box" id="settings">
           <summary>Sozlamalar</summary>
           <div class="stack-sm" style="margin-top:12px">
@@ -192,6 +212,16 @@ export async function profilePage(main, _p, query) {
   }
   verifyBlock($('#verify-slot', main), u);
   inviteBlock($('#invite-slot', main));
+  if (auth.isStaff) {
+    supportCounts().then(c => {
+      if (!c) return;
+      $$('[data-sc]', main).forEach(el => {
+        const n = c[el.dataset.sc] || 0;
+        el.textContent = n > 99 ? '99+' : n;
+        el.classList.toggle('hidden', !n);
+      });
+    });
+  }
 
   $('#avatar-input', main).addEventListener('change', async (e) => {
     const f = e.target.files[0];
@@ -225,6 +255,21 @@ export async function profilePage(main, _p, query) {
     };
     $('#s-available', main).addEventListener('change', (e) => saveSetting({ available: e.target.checked }));
     $('#s-notify', main).addEventListener('change', (e) => saveSetting({ notifyNewOrders: e.target.checked }));
+    // «Faqat reyslarimga mos»: faol reys bo'lmasa, xabar umuman kelmasligini ogohlantiramiz
+    let hasTrip = null;
+    const routeWarn = async () => {
+      const warn = $('#route-only-warn', main);
+      if (!warn) return;
+      if (!auth.user?.routeOnly) { warn.classList.add('hidden'); return; }
+      if (hasTrip === null) {
+        const mine = await get('/trips/my').catch(() => null);
+        const soon = Date.now() - 3 * 3600 * 1000;
+        hasTrip = !mine || mine.some(t => t.active && (t.daily || new Date(t.departAt).getTime() > soon));
+      }
+      warn.classList.toggle('hidden', hasTrip);
+    };
+    $('#s-route-only', main).addEventListener('change', async (e) => { await saveSetting({ routeOnly: e.target.checked }); routeWarn(); });
+    routeWarn();
     const all = await regions();
     const showRegions = () => {
       const ids = auth.user.workRegionIds || [];
@@ -470,10 +515,13 @@ export async function publicProfilePage(main, { id }) {
 // =====================================================================
 export async function notificationsPage(main) {
   main.innerHTML = `<div class="page page-narrow">
-    <div class="page-head"><h1>Bildirishnomalar</h1><button class="btn btn-sm" id="read-all">Hammasini o'qilgan qilish</button></div>
+    <div class="page-head"><h1>Bildirishnomalar</h1>
+      <div class="head-actions"><button class="btn btn-sm" id="read-all">Hammasini o'qilgan qilish</button>
+        <button class="btn btn-sm btn-danger hidden" id="delete-all">Hammasini o'chirish</button></div></div>
     <div id="list">${skeletons()}</div></div>`;
   const load = async () => {
     const data = await get('/notifications');
+    $('#delete-all', main).classList.toggle('hidden', !data.items.length);
     $('#list', main).innerHTML = data.items.length
       ? `<div class="orders">${data.items.map(n => `<a class="order-row" href="${esc(n.link || '#/notifications')}" data-id="${n.id}" style="${n.read ? '' : 'background:var(--signal-soft)'}">
           <div class="order-top"><b>${esc(n.title)}</b><span class="small muted">${esc(ago(n.createdAt))}</span></div>
@@ -482,6 +530,18 @@ export async function notificationsPage(main) {
     $$('[data-id]', main).forEach(a => a.addEventListener('click', () => { post(`/notifications/${a.dataset.id}/read`).then(refreshUnread).catch(() => {}); }));
   };
   $('#read-all', main).addEventListener('click', async () => { await post('/notifications/read-all'); refreshUnread(); load(); });
+  $('#delete-all', main).addEventListener('click', async (e) => {
+    const btn = e.currentTarget;   // await'dan keyin e.currentTarget bo'sh bo'ladi
+    const ok = await confirmDialog("Barcha bildirishnomalar o'chirilsinmi?",
+      "Bildirishnomalar ro'yxati tozalanadi. Buyurtmalar, takliflar va yozishmalardagi xabarlar o'chmaydi.", { danger: true, okText: "O'chirish" });
+    if (!ok) return;
+    try {
+      await busy(btn, () => del('/notifications'));
+      toast("Bildirishnomalar o'chirildi", 'ok');
+      refreshUnread();
+      load();
+    } catch (err) { toast(err.message, 'err'); }
+  });
   await load();
 }
 
@@ -499,9 +559,11 @@ export async function driversPage(main) {
   const f = $('#f', main);
   const load = async () => {
     const d = formData(f);
+    const list = $('#list', main);
     try {
       const data = await get('/drivers', d);
-      $('#list', main).innerHTML = data.items.length ? `<div class="orders">${data.items.map(u => `<div class="order-row">
+      if (!document.body.contains(list)) return;   // shu orada boshqa sahifaga o'tildi (masalan, sessiya tugadi)
+      list.innerHTML = data.items.length ? `<div class="orders">${data.items.map(u => `<div class="order-row">
           <div class="row-between"><a class="person" href="#/u/${u.id}">${avatar(u.avatarUrl, u.fullName)}
             <div style="min-width:0"><div class="person-name">${esc(u.fullName)} ${verifiedBadge(u.verified)}</div><div class="person-sub">${stars(u.rating, u.ratingCount)}</div></div></a>
             ${u.phone ? `<a class="btn btn-sm" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>` : ''}</div>
@@ -512,7 +574,7 @@ export async function driversPage(main) {
             <span>${u.available ? "Hozir bo'sh" : 'Band'}</span>
           </div></div>`).join('')}</div>`
         : emptyState('Mos haydovchi topilmadi', "Filtrlarni o'zgartirib ko'ring.");
-    } catch (e) { $('#list', main).innerHTML = emptyState("Yuklab bo'lmadi", e.message); }
+    } catch (e) { if (document.body.contains(list)) list.innerHTML = emptyState("Yuklab bo'lmadi", e.message); }
   };
   $$('[name]', f).forEach(el => el.addEventListener('change', load));
   f.addEventListener('submit', (e) => { e.preventDefault(); load(); });

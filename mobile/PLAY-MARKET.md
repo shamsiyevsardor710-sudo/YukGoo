@@ -190,7 +190,7 @@ sharh qoldiradi — **Ha**; joylashuv boshqa foydalanuvchiga ko'rsatiladi — **
 | Personal info → Address (profildagi viloyat va tuman; e'lon manzillari) | Ha | Yo'q | Required | App functionality |
 | Location → Precise location (faqat haydovchi navigatsiyasida) | Ha | Yo'q | Optional | App functionality |
 | Photos and videos → Photos (profil, mashina, yuk, haydovchi hujjatlari) | Ha | Yo'q | Optional | App functionality, Account management |
-| Messages → Other in-app messages (buyurtma yozishmalari) | Ha | Yo'q | Optional | App functionality |
+| Messages → Other in-app messages (buyurtma yozishmalari, «Biz bilan bog'lanish» murojaatlari) | Ha | Yo'q | Optional | App functionality |
 | App activity → Other user-generated content (e'lonlar, sharhlar) | Ha | Yo'q | Optional | App functionality |
 | Financial info → Purchase history (balansni to'ldirish: summa, vaqt, to'lov raqami) | Ha | Yo'q | Optional | App functionality |
 | Device or other IDs (push-bildirishnoma tokeni — Firebase Cloud Messaging, 1.1.0 dan) | Ha | Yo'q | Optional | App functionality |

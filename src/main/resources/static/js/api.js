@@ -1,5 +1,7 @@
 // YukGo — backend bilan ishlash (REST + JWT)
 const TOKEN_KEY = 'yukgo_token';
+/** Shu qurilmada avval kirilganmi: chiqqandan yoki sessiya tugagandan keyin bosh oyna emas, darhol kirish sahifasi */
+const KNOWN_KEY = 'yukgo_known';
 
 function storage(fn) {
   try { return fn(window.localStorage); } catch { return null; }
@@ -7,7 +9,9 @@ function storage(fn) {
 
 export const auth = {
   get token() { return storage(s => s.getItem(TOKEN_KEY)); },
-  set token(v) { storage(s => v ? s.setItem(TOKEN_KEY, v) : s.removeItem(TOKEN_KEY)); },
+  set token(v) { storage(s => { if (v) { s.setItem(TOKEN_KEY, v); s.setItem(KNOWN_KEY, '1'); } else s.removeItem(TOKEN_KEY); }); },
+  /** Bu qurilmada avval kimdir kirganmi (ro'yxatdan o'tgan) */
+  get knownDevice() { return storage(s => s.getItem(KNOWN_KEY)) === '1'; },
   user: null,
   get loggedIn() { return !!this.token; },
   get isStaff() { return this.user && (this.user.role === 'ADMIN' || this.user.role === 'OWNER'); },

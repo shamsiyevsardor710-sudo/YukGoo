@@ -178,4 +178,10 @@ public class NotificationService {
     public void markAllRead(Long userId) {
         repository.markAllRead(userId);
     }
+
+    /** 🔔 ro'yxatini tozalash: foydalanuvchining barcha bildirishnomalari o'chiriladi. @return nechtasi o'chdi */
+    @Transactional
+    public int deleteAll(Long userId) {
+        return repository.deleteAllForUser(userId);
+    }
 }

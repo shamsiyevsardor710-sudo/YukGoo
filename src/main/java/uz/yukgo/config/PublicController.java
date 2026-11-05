@@ -52,7 +52,23 @@ public class PublicController {
         // Maxfiylik siyosati va "hisobni o'chirish" sahifalaridagi aloqa (Railway: SUPPORT_EMAIL o'zgaruvchisi)
         String email = env.getProperty("SUPPORT_EMAIL");
         if (email != null && !email.isBlank()) m.put("supportEmail", email.trim());
+        // «Biz bilan bog'lanish» sahifasidagi qo'ng'iroq raqami (Railway: SUPPORT_PHONE) — berilmasa faqat xabar yozish
+        String phone = supportPhone(env.getProperty("SUPPORT_PHONE"));
+        if (phone != null) m.put("supportPhone", phone);
         return m;
+    }
+
+    /**
+     * "+998 90 123-45-67", "998901234567", "90 123 45 67" → "+998901234567" (boshqa davlat raqami "+" bilan yozilsa — o'zicha);
+     * raqamga o'xshamasa — null (sahifada ko'rsatilmaydi)
+     */
+    static String supportPhone(String raw) {
+        if (raw == null) return null;
+        String digits = raw.replaceAll("[^0-9]", "");
+        if (digits.length() == 9) return "+998" + digits;
+        if (digits.length() == 12 && digits.startsWith("998")) return "+" + digits;
+        if (raw.trim().startsWith("+") && digits.length() >= 7 && digits.length() <= 15) return "+" + digits;
+        return null;
     }
 
     @GetMapping("/api/stats/public")

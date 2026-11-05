@@ -89,6 +89,7 @@ public final class UserDtos {
      * Foydalanuvchining o'z profili (qo'shimcha maxfiy maydonlar bilan).
      * termsAccepted — joriy foydalanish shartlarini qabul qilganmi (false bo'lsa ilova avval shartlarni ko'rsatadi).
      * notifyKinds — haydovchi qaysi e'lonlar (yuk, pochta, yo'lovchi) haqida xabar oladi; notifyKindsChosen — o'zi tanlaganmi.
+     * routeOnly — yangi e'lonlar haqida faqat reyslariga moslari keladimi («Faqat reyslarimga mos e'lonlar»).
      */
     public record MeDto(
             Long id, String firstName, String lastName, String fullName, String phone, String avatarUrl,
@@ -96,7 +97,8 @@ public final class UserDtos {
             double rating, int ratingCount, int ordersCreated, int deliveriesCompleted,
             RegionDto region, DistrictDto district, String village, String house,
             boolean telegramLinked, boolean notifyNewOrders, Set<Long> workRegionIds, Instant memberSince,
-            boolean verified, boolean termsAccepted, Set<OrderKind> notifyKinds, boolean notifyKindsChosen) {
+            boolean verified, boolean termsAccepted, Set<OrderKind> notifyKinds, boolean notifyKindsChosen,
+            boolean routeOnly) {
         public static MeDto of(User u) {
             return new MeDto(u.getId(), u.getFirstName(), u.getLastName(), u.getFullName(), u.getPhone(),
                     u.getAvatarUrl(), u.getBio(), u.getRole(), u.isDriver(), u.isAvailable(),
@@ -104,7 +106,8 @@ public final class UserDtos {
                     u.getDeliveriesCompleted(), RegionDto.of(u.getRegion()), DistrictDto.of(u.getDistrict()),
                     u.getVillage(), u.getHouse(), u.getTelegramChatId() != null, u.isNotifyNewOrders(),
                     Set.copyOf(u.getWorkRegionIds()), u.getCreatedAt(), u.isVerifiedDriver(), u.hasAcceptedTerms(),
-                    u.effectiveNotifyKinds(), u.getNotifyKinds() != null && !OrderKind.parse(u.getNotifyKinds()).isEmpty());
+                    u.effectiveNotifyKinds(), u.getNotifyKinds() != null && !OrderKind.parse(u.getNotifyKinds()).isEmpty(),
+                    u.isRouteOnly());
         }
     }
 
@@ -118,9 +121,9 @@ public final class UserDtos {
             @Size(max = 120) String village,
             @Size(max = 120) String house) {}
 
-    /** notifyKinds — bo'sh to'plam yuborilsa: mashinasiga qarab (standart) */
+    /** notifyKinds — bo'sh to'plam yuborilsa: mashinasiga qarab (standart). routeOnly — «Faqat reyslarimga mos e'lonlar» */
     public record SettingsRequest(Boolean available, Boolean notifyNewOrders, Set<Long> workRegionIds,
-                                  Set<OrderKind> notifyKinds) {}
+                                  Set<OrderKind> notifyKinds, Boolean routeOnly) {}
 
     public record ChangePasswordRequest(
             @NotBlank String oldPassword,

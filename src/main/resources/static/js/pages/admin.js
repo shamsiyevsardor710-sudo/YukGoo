@@ -5,6 +5,7 @@ import {
   options, statusPill, emptyState, skeletons, ROLE, USTATUS, STATUS, kindTag,
 } from '../ui.js';
 import { channelsTab, sourcesTab, verifyTab, pendingVerifications } from './admin-growth.js';
+import { supportInbox, supportCounts } from './support.js';
 
 export async function adminPage(main) {
   const owner = auth.isOwner;
@@ -15,6 +16,7 @@ export async function adminPage(main) {
     <div class="seg" id="tabs" style="margin-bottom:18px">
       <button data-t="stats" class="on">Statistika</button><button data-t="users">Foydalanuvchilar</button>
       <button data-t="orders">Buyurtmalar</button><button data-t="reports">Murojaatlar</button>
+      <button data-t="support">Aloqa<span class="tab-count hidden" id="sup-count"></span></button>
       <button data-t="revenue">Daromad</button>
       <button data-t="verify">Tekshiruv<span class="tab-count hidden" id="ver-count"></span></button>
       <button data-t="channels">Kanallar</button><button data-t="sources">Manbalar</button>
@@ -27,8 +29,16 @@ export async function adminPage(main) {
     if (el) { el.textContent = n; el.classList.toggle('hidden', !n); }
   };
   const verify = (p, o) => verifyTab(p, o, setCount);
-  const show = () => ({ stats, users, orders, reports, revenue, verify, channels: channelsTab, sources: sourcesTab, broadcast, logs })[tab](pane, owner);
+  // «Aloqa»: «Biz bilan bog'lanish» orqali kelgan taklif, muammo va savollar (haydovchilardan / foydalanuvchilardan)
+  const setSupport = (c) => {
+    const el = $('#sup-count', main);
+    const n = c ? (c.drivers || 0) + (c.users || 0) : 0;
+    if (el) { el.textContent = n > 99 ? '99+' : n; el.classList.toggle('hidden', !n); }
+  };
+  const support = (p) => supportInbox(p, { onCounts: setSupport });
+  const show = () => ({ stats, users, orders, reports, support, revenue, verify, channels: channelsTab, sources: sourcesTab, broadcast, logs })[tab](pane, owner);
   pendingVerifications().then(setCount);
+  supportCounts().then(setSupport);
   $$('#tabs button', main).forEach(b => b.addEventListener('click', () => {
     tab = b.dataset.t;
     $$('#tabs button', main).forEach(x => x.classList.toggle('on', x === b));
