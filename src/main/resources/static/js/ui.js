@@ -47,6 +47,153 @@ export function phoneFmt(p) {
   if (d.length !== 12) return p;
   return `+${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}`;
 }
+
+// ---- Telefon maydonlari (type="tel"): «+998» o'zi yoziladi, qolgani «90 123 45 67» ko'rinishida ----
+export const PHONE_PREFIX = '+998 ';
+
+/**
+ * Maydondagi matndan mahalliy 9 xonali qism (998 kodisiz) va boshidan olib tashlangan raqamlar soni (lead).
+ * "+998 90 123 45 67", "998901234567", "901234567", "+998 " ustiga yopishtirilgan to'liq raqam — hammasi to'g'ri.
+ * Ucell'ning «99 8..» raqami ham: 9 xonali raqam (ortiqcha 998siz) o'zgarmaydi.
+ */
+export function phoneParts(v) {
+  const s = String(v ?? '');
+  let d = s.replace(/\D/g, '');
+  let lead = 0;
+  if (/^\s*\+/.test(s) || d.length >= 12) {
+    if (d.startsWith('998')) { d = d.slice(3); lead = 3; }
+    if (d.length > 9 && d.startsWith('998')) { d = d.slice(3); lead += 3; }
+  }
+  return { local: d.slice(0, 9), lead };
+}
+
+/** Mahalliy raqamlardan maydon qiymati: "+998 90 123 45 67" (to'liq bo'lmasa — shu paytgacha yozilgani) */
+function phoneFromLocal(d) {
+  return PHONE_PREFIX + [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)].filter(Boolean).join(' ');
+}
+
+export function phoneInputValue(v) {
+  return phoneFromLocal(phoneParts(v).local);
+}
+
+const phonePrev = new WeakMap();
+/**
+ * Bo'sh maydondan boshlab ketma-ket (oxiriga, bittadan) yozilgan raqamlar; ketma-ketlik buzilsa (yopishtirish, o'rtasiga
+ * yozish, oldindan to'ldirilgan raqam) — null. «+998» dan keyin odat bo'yicha yana «998 90 …» deb yozilayotganini
+ * (ortiqcha 998 olib tashlanadi) tayyor «99 8…» raqamga tasodifan qo'shilgan raqamdan ajratish uchun.
+ */
+const phoneTyped = new WeakMap();
+
+const onlyDigits = (s) => s.replace(/\D/g, '');
+
+/**
+ * Har bir o'zgarishda qayta formatlash; kursor o'sha raqamning yonida qoladi. «+998 » o'chirilmaydi: uning ichida
+ * o'chirilsa — joyiga qaytadi (faqat mahalliy qismdan o'chirilgan raqamlar ketadi), ichiga yozilgan raqam esa mahalliy
+ * raqam boshiga o'tadi. Raqam to'liq (9 xona) bo'lsa — ortiqcha raqam qo'shilmaydi.
+ */
+function formatPhoneField(input, inputType) {
+  const raw = input.value;
+  const focused = document.activeElement === input;
+  const caret = focused && input.selectionStart != null ? input.selectionStart : raw.length;
+  const prev = phonePrev.get(input);
+  const prevLocal = prev != null ? phoneParts(prev).local : '';
+  const stored = phoneTyped.get(input);
+  const typedBefore = stored !== undefined ? stored : (prevLocal === '' ? '' : null);
+  const P = PHONE_PREFIX.length;
+  const inserting = typeof inputType === 'string' && inputType.startsWith('insert');
+  let local, before, typing = false;
+  if (raw.startsWith(PHONE_PREFIX)) {
+    // Prefiks joyida: qolgani — mahalliy raqam
+    const d = onlyDigits(raw.slice(P));
+    typing = inputType === 'insertText' && caret >= raw.length && d.length === prevLocal.length + 1;
+    // Ortiqcha 998: ustiga to'liq raqam yopishtirilgan («998 90 123 45 67») yoki «998…» deb boshidan yozilmoqda
+    const dup = d.length > 9 && d.startsWith('998')
+      && (d.length >= 12 || (typing && typedBefore != null && typedBefore.startsWith('998'))) ? 3 : 0;
+    if (!dup && inserting && prevLocal.length === 9 && d.length > 9) {
+      // Raqam to'liq — ortiqcha raqam (oxiriga ham, o'rtasiga ham) qo'shilmaydi
+      local = prevLocal;
+      before = Math.max(0, Math.min(9, onlyDigits(raw.slice(P, Math.max(P, caret))).length - (d.length - 9)));
+      typing = false;
+    } else {
+      local = d.slice(dup, dup + 9);
+      before = Math.max(0, Math.min(local.length, onlyDigits(raw.slice(P, Math.max(P, caret))).length - dup));
+      // Probel o'chirildi (raqamlar o'zgarmadi) — undan oldingi raqam o'chsin, aks holda «Backspace» ishlamagandek tuyuladi
+      if (inputType === 'deleteContentBackward' && prev != null && local === prevLocal && before > 0) {
+        local = local.slice(0, before - 1) + local.slice(before);
+        before--;
+      }
+    }
+  } else if (inputType && inputType.startsWith('delete') && prev != null && prev.startsWith(PHONE_PREFIX)
+    && raw.length < prev.length) {
+    // Prefiks ichida (yoki uni ham qamrab) o'chirildi: prefiks qoladi, mahalliy qismdan faqat o'chirilgani ketadi
+    const from = caret, to = caret + (prev.length - raw.length);
+    let kept = '';
+    for (let i = P; i < prev.length; i++) if (i < from || i >= to) kept += prev[i];
+    local = onlyDigits(kept).slice(0, 9);
+    before = Math.min(local.length, onlyDigits(prev.slice(P, Math.max(P, from))).length);
+  } else if (inserting && prev != null && prev.startsWith(PHONE_PREFIX) && raw.length > prev.length) {
+    // «+998» ichiga yozildi yoki yopishtirildi: prefiks joyida qoladi, kiritilgan raqam — mahalliy raqam boshiga
+    const k = raw.length - prev.length;
+    const added = phoneParts(raw.slice(Math.max(0, caret - k), caret)).local;
+    if (added.length >= 9) { local = added; before = 9; }                          // to'liq raqam yopishtirildi
+    else if (prevLocal.length === 9) { local = prevLocal; before = 0; }            // raqam to'liq — qo'shilmaydi
+    else { local = (added + prevLocal).slice(0, 9); before = Math.min(local.length, added.length); }
+  } else {
+    // Yangidan yozildi yoki yopishtirildi: «+998901234567», «998901234567», «90 123 45 67»
+    const parts = phoneParts(raw);
+    local = parts.local;
+    before = Math.max(0, Math.min(local.length, onlyDigits(raw.slice(0, caret)).length - parts.lead));
+  }
+  const next = phoneFromLocal(local);
+  if (next !== raw) input.value = next;
+  phonePrev.set(input, next);
+  // Ketma-ket yozilganlar: bittadan oxiriga — qo'shiladi; oxiridan o'chirildi — qisqaradi; boshqa o'zgarish — uziladi
+  let typed = null;
+  if (local === '') typed = '';
+  else if (typing && typedBefore != null) typed = typedBefore + raw.slice(-1);
+  else if (typedBefore != null && inputType && inputType.startsWith('delete') && typedBefore.startsWith(local)) typed = local;
+  phoneTyped.set(input, typed);
+  if (!focused) return;
+  let pos = P, seen = 0;
+  while (seen < before && pos < next.length) { if (/\d/.test(next[pos])) seen++; pos++; }
+  try { input.setSelectionRange(pos, pos); } catch { /* */ }
+}
+
+let phoneInputsReady = false;
+
+/**
+ * Barcha telefon maydonlari uchun bir marta (ilova ishga tushganda): bosilganda «+998 » yoziladi va kursor oxiriga
+ * o'tadi; yozilganda formatlanadi; faqat «+998» qolsa — maydondan chiqqanda va forma yuborilganda bo'sh bo'ladi
+ * (ixtiyoriy maydon «+998» bilan yuborilib, xato bermasin).
+ */
+export function setupPhoneInputs() {
+  if (phoneInputsReady) return;
+  phoneInputsReady = true;
+  const isPhone = (el) => el instanceof HTMLInputElement && el.type === 'tel';
+  document.addEventListener('focusin', (e) => {
+    const el = e.target;
+    if (!isPhone(el)) return;
+    const has = phoneParts(el.value).local;
+    el.value = has ? phoneInputValue(el.value) : PHONE_PREFIX;
+    phonePrev.set(el, el.value);
+    phoneTyped.set(el, has ? null : '');
+    requestAnimationFrame(() => {
+      if (document.activeElement !== el) return;
+      const n = el.value.length;
+      try { el.setSelectionRange(n, n); } catch { /* */ }
+    });
+  });
+  document.addEventListener('input', (e) => { if (isPhone(e.target)) formatPhoneField(e.target, e.inputType); });
+  document.addEventListener('focusout', (e) => {
+    const el = e.target;
+    if (isPhone(el) && !phoneParts(el.value).local) el.value = '';
+  });
+  document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    form.querySelectorAll('input[type=tel]').forEach(el => { if (!phoneParts(el.value).local) el.value = ''; });
+  }, true);
+}
 export function initials(name) {
   return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase();
 }
@@ -173,6 +320,9 @@ const P = {
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.2a6.5 6.5 0 0 1 3 5.8"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
   car: '<path d="M5 17h14M3 13l2-6h14l2 6v4H3z"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   pin: '<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>',

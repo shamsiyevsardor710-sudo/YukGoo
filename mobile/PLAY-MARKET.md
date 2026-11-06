@@ -232,10 +232,10 @@ havolasini qo'ying.
 
 **Foydalanuvchi kontenti (UGC)** — alohida forma yo'q, lekin tekshiruvchi qaraydi. Agar Google so'rasa:
 foydalanish shartlari — `https://yukgoo-production.up.railway.app/terms.html` (ro'yxatdan o'tishda rozilik belgisi);
-shikoyat — profil va buyurtma sahifasidagi «Shikoyat qilish»; bloklash — «Bloklash», ro'yxat — Profil → Bloklanganlar;
+shikoyat — profil va buyurtma sahifasidagi «Shikoyat qilish»; bloklash — «Bloklash», ro'yxat — Profil → Sozlamalar → Bloklanganlar;
 moderatsiya — admin paneli: Shikoyatlar, foydalanuvchini bloklash, e'lonni bekor qilish, sharhni o'chirish.
 
-**Account deletion:** ilova ichida — Profil → "Hisobni o'chirish"; web havola — `…/delete-account.html`.
+**Account deletion:** ilova ichida — Profil → Sozlamalar → "Hisobni o'chirish"; web havola — `…/delete-account.html`.
 
 ## 5. Yopiq test (shaxsiy hisob uchun majburiy)
 

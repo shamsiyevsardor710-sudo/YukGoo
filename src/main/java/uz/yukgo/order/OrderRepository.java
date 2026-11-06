@@ -181,6 +181,21 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     /** Haydovchida hozir nechta buyurtma bor (yangi haydovchi bonusi hisobi uchun) */
     long countByDriverIdAndStatusIn(Long driverId, Collection<OrderStatus> statuses);
 
+    /** Pochta chegarasi: haydovchida hozir nechta pochta bor (olgan, hali yetkazmagan) */
+    long countByDriverIdAndKindAndStatusIn(Long driverId, OrderKind kind, Collection<OrderStatus> statuses);
+
+    /** «Reysga yig'ish»: haydovchining olgan, hali yetkazmagan buyurtmalari (mashinadagi o'rinlar va pochtalar) */
+    List<Order> findByDriverIdAndStatusIn(Long driverId, Collection<OrderStatus> statuses);
+
+    /** Pochta chegarasiga yetgan haydovchilar (shu ro'yxatdan): yangi pochta haqida ularga xabar bormaydi */
+    @Query("""
+            select o.driver.id from Shipment o
+            where o.kind = :kind and o.status in :statuses and o.driver.id in :driverIds
+            group by o.driver.id having count(o) >= :cap
+            """)
+    List<Long> driversWithAtLeast(@Param("driverIds") Collection<Long> driverIds, @Param("kind") OrderKind kind,
+                                  @Param("statuses") Collection<OrderStatus> statuses, @Param("cap") long cap);
+
     /** Foydalanuvchi avval shoshilinch e'lon bergan(mi) — "birinchi shoshilinch bepul" uchun */
     boolean existsBySenderIdAndUrgentTrueAndIdNot(Long senderId, Long excludeOrderId);
 

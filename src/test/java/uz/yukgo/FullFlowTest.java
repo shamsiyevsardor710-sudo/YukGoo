@@ -422,4 +422,71 @@ class FullFlowTest {
         assertThat(call("GET", "/api/notifications", null, owner, 200).get("total").asLong()).isEqualTo(ownerBefore - 5);
         assertThat(call("GET", "/api/admin/support?from=drivers", null, owner, 200).get("items").size()).isEqualTo(1);
     }
+
+    @Test
+    @Order(7)
+    void tripPlanAndParcelCap() throws Exception {
+        String owner = call("POST", "/api/auth/login", Map.of("phone", "+998900000000", "password", "owner12345"), null, 200)
+                .get("token").asText();
+        String driver = register("+998907070701", "Reys", "Yiguvchi");
+        String p1 = register("+998907070702", "Yolovchi", "Bir");
+        String p2 = register("+998907070703", "Yolovchi", "Ikki");
+        String p3 = register("+998907070704", "Pochta", "Uch");
+        call("PUT", "/api/users/me/vehicle", Map.of("brand", "Cobalt", "plateNumber", "01 a 707 aa", "bodyType", "SEDAN"), driver, 200);
+        long r = firstRegion();
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Tashkent")).plusDays(1);
+        // Avval e'lonlar, keyin reys — reys e'lon qilinganda «Reysga yig'ish» xulosasi qaytadi
+        long a = call("POST", "/api/orders", Map.of("kind", "PASSENGER", "seats", 2, "pickupDate", tomorrow.toString(),
+                "from", Map.of("regionId", r), "to", Map.of("regionId", r + 2)), p1, 200).get("id").asLong();
+        call("POST", "/api/orders", Map.of("kind", "PASSENGER", "seats", 1, "pickupDate", tomorrow.toString(),
+                "from", Map.of("regionId", r), "to", Map.of("regionId", r + 2)), p2, 200);
+        java.util.List<Long> parcels = new java.util.ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            parcels.add(call("POST", "/api/orders", Map.of("kind", "PARCEL", "title", "Hujjat " + i, "pickupDate", tomorrow.toString(),
+                    "from", Map.of("regionId", r), "to", Map.of("regionId", r + 2)), p3, 200).get("id").asLong());
+        }
+        JsonNode trip = call("POST", "/api/trips", Map.of("fromRegionId", r, "toRegionId", r + 2,
+                "departAt", tomorrow + "T07:00:00", "seats", 4), driver, 200);
+        assertThat(trip.get("plan").get("passengers").asInt()).isEqualTo(2);
+        assertThat(trip.get("plan").get("people").asInt()).isEqualTo(3);
+        assertThat(trip.get("plan").get("parcels").asInt()).isEqualTo(2);
+        long tripId = trip.get("id").asLong();
+        JsonNode plan = call("GET", "/api/trips/" + tripId + "/plan", null, driver, 200);
+        assertThat(plan.get("capacity").asInt()).isEqualTo(4);
+        assertThat(plan.get("seatsFilled").asInt()).isEqualTo(3);
+        assertThat(plan.get("freeSeats").asInt()).isEqualTo(1);
+        assertThat(plan.get("passengers").size()).isEqualTo(2);
+        assertThat(plan.get("parcels").size()).isEqualTo(2);
+        assertThat(plan.get("moreParcels").asInt()).isEqualTo(1);
+        assertThat(plan.get("parcelCap").asInt()).isEqualTo(2);
+        JsonNode senderPhone = plan.get("passengers").get(0).get("sender").get("phone");
+        assertThat(senderPhone == null || senderPhone.isNull()).isTrue();   // hali olmagan — raqam yopiq
+        call("GET", "/api/trips/" + tripId + "/plan", null, p1, 403);
+        call("GET", "/api/trips/" + tripId + "/plan", null, null, 401);
+        assertThat(call("GET", "/api/trips/my", null, driver, 200).get(0).get("plan").get("parcels").asInt()).isEqualTo(2);
+
+        // Pochta chegarasi: bir vaqtda ko'pi bilan 2 ta
+        call("POST", "/api/orders/" + parcels.get(0) + "/take", null, driver, 200);
+        call("POST", "/api/orders/" + parcels.get(1) + "/take", null, driver, 200);
+        JsonNode err = call("POST", "/api/orders/" + parcels.get(2) + "/take", null, driver, 400);
+        assertThat(err.get("message").asText()).contains("ko'pi bilan 2 ta pochta");
+        plan = call("GET", "/api/trips/" + tripId + "/plan", null, driver, 200);
+        assertThat(plan.get("parcels").size()).isZero();
+        assertThat(plan.get("parcelSlots").asInt()).isZero();
+        assertThat(plan.get("inCar").size()).isEqualTo(2);
+        // Qoidalar: faqat ega o'zgartiradi
+        JsonNode rules = call("GET", "/api/admin/rules", null, owner, 200);
+        assertThat(rules.get("parcelCap").asInt()).isEqualTo(2);
+        assertThat(rules.get("canEdit").asBoolean()).isTrue();
+        call("GET", "/api/admin/rules", null, driver, 403);
+        call("PUT", "/api/admin/rules", Map.of("parcelCap", -1), owner, 400);
+        assertThat(call("PUT", "/api/admin/rules", Map.of("parcelCap", 3), owner, 200).get("parcelCap").asInt()).isEqualTo(3);
+        call("POST", "/api/orders/" + parcels.get(2) + "/take", null, driver, 200);
+        call("PUT", "/api/admin/rules", Map.of("parcelCap", 2), owner, 200);
+        // Yo'lovchi — chegara faqat pochtaga; mashinadagi o'rinlar rejada hisobga olinadi
+        call("POST", "/api/orders/" + a + "/take", null, driver, 200);
+        plan = call("GET", "/api/trips/" + tripId + "/plan", null, driver, 200);
+        assertThat(plan.get("seatsInCar").asInt()).isEqualTo(2);
+        assertThat(plan.get("passengers").size()).isEqualTo(1);
+    }
 }

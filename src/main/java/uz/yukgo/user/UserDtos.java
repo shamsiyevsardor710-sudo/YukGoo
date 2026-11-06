@@ -61,7 +61,7 @@ public final class UserDtos {
         }
     }
 
-    /** Men bloklagan foydalanuvchi (Profil → Bloklanganlar) */
+    /** Men bloklagan foydalanuvchi (Profil → Sozlamalar → Bloklanganlar) */
     public record BlockedUserDto(Long id, String fullName, String avatarUrl, Instant blockedAt) {
         public static BlockedUserDto of(User u, Instant blockedAt) {
             return new BlockedUserDto(u.getId(), u.getFullName(), u.getAvatarUrl(), blockedAt);

@@ -9,8 +9,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
+import uz.yukgo.notification.Msg;
 import uz.yukgo.notification.NotificationService;
+import uz.yukgo.notification.TgCard;
 import uz.yukgo.order.Order;
+import uz.yukgo.order.OrderNotes;
 import uz.yukgo.order.OrderRepository;
 import uz.yukgo.order.OrderStatus;
 import uz.yukgo.security.CurrentUser;
@@ -72,11 +75,27 @@ public class ReviewService {
         target.setRatingSum(target.getRatingSum() + req.stars());
         target.setRatingCount(target.getRatingCount() + 1);
 
-        notifications.notify(target, "Sizga yangi baho: " + "⭐".repeat(req.stars()),
-                me.getFullName() + " sizni #" + orderId + " buyurtma bo'yicha baholadi"
-                        + (r.getComment() != null ? ": \"" + r.getComment() + "\"" : ""),
-                "#/u/" + target.getId());
+        notifications.notify(target, reviewNote(o, me, req.stars(), r.getComment()), "#/u/" + target.getId());
         return ReviewDto.of(r);
+    }
+
+    /** Baholangan odamga: yulduzlar, kim, qaysi safar, izoh; 4–5 yulduzda — tabrik rasmi */
+    static Msg reviewNote(Order o, User from, int stars, String comment) {
+        boolean good = stars >= 4;
+        Msg m = Msg.of(good ? "⭐ Sizga yangi baho!" : "Sizga yangi baho")
+                .strong("", "⭐".repeat(Math.max(1, Math.min(5, stars))) + "  " + stars + " / 5")
+                .kv("👤", "Kim", from.getFullName())
+                .line("📍", OrderNotes.route(o))
+                .kv("💬", "Izoh", comment == null ? null : "«" + comment + "»")
+                .note(good ? "Barakalla! Yaxshi baholar sizga ko'proq buyurtma olib keladi" : "Fikr uchun rahmat — keyingi safar yanada yaxshi bo'ladi");
+        if (good) {
+            m.card(TgCard.of(TgCard.Theme.SUCCESS).badge("Yangi baho").title(stars == 5 ? "Sizga 5 yulduzli baho!" : "Sizga yaxshi baho!")
+                    .route(OrderNotes.main(o.getFromRegion(), o.getFromDistrict()), OrderNotes.sub(o.getFromRegion(), o.getFromDistrict()),
+                            OrderNotes.main(o.getToRegion(), o.getToDistrict()), OrderNotes.sub(o.getToRegion(), o.getToDistrict()))
+                    .chip(TgCard.Icon.STAR, stars + " / 5").chip(TgCard.Icon.PEOPLE, from.getFirstName())
+                    .tagline("Shunday davom eting!").confetti());
+        }
+        return m.button("⭐ Profilim");
     }
 
     @Transactional(readOnly = true)

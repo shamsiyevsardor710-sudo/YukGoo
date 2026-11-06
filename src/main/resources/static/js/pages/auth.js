@@ -137,7 +137,7 @@ export function phoneVerification(el, { startFn, verifyFn, onDone, onCodeStep, p
   function phoneStep() {
     el.innerHTML = `<form class="stack" novalidate>
       <label class="field"><span>${esc(phoneLabel)}</span>
-        <input class="input" name="phone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="${esc(presetPhone)}" autocomplete="tel" required>
+        <input class="input" name="phone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="${esc(presetPhone ? phoneFmt(presetPhone) : '')}" autocomplete="tel" required>
         <small id="code-hint">Shu raqamga tasdiqlash kodi yuboriladi.</small></label>
       <button class="btn btn-primary btn-lg btn-block" type="submit">Kod olish</button></form>`;
     const form = $('form', el);

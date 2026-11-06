@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
+import uz.yukgo.notification.Msg;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.*;
 import uz.yukgo.order.OrderDtos.OrderDto;
@@ -229,9 +230,10 @@ public class AdminService {
         r.setResolution(blankToNull(req.resolution()));
         r.setResolvedById(me.getId());
         r.setResolvedAt(Instant.now());
-        notifications.notify(r.getAuthor(), "Murojaatingiz ko'rib chiqildi",
-                (r.getStatus() == Report.Status.RESOLVED ? "Hal qilindi" : "Rad etildi")
-                        + (r.getResolution() != null ? ": " + r.getResolution() : ""), null);
+        boolean solved = r.getStatus() == Report.Status.RESOLVED;
+        notifications.notify(r.getAuthor(), Msg.of("📋 Murojaatingiz ko'rib chiqildi")
+                .strong(solved ? "✅" : "❌", solved ? "Hal qilindi" : "Rad etildi")
+                .kv("💬", "Izoh", r.getResolution()), null);
         return ReportDto.of(r);
     }
 

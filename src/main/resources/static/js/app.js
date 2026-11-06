@@ -1,11 +1,12 @@
 // YukGo — ilova qobig'i va marshrutlash (hash router)
 import { auth, loadMe, get, setUnauthorizedHandler, setTermsRequiredHandler } from './api.js';
-import { $, esc, icon, avatar, toast } from './ui.js';
+import { $, esc, icon, avatar, toast, setupPhoneInputs } from './ui.js';
 import { loginPage, registerPage, forgotPage, welcomePage } from './pages/auth.js';
 import { marketPage, createOrderPage, orderPage, myOrdersPage } from './pages/orders.js';
 import { navigationPage } from './pages/navigation.js';
 import { profilePage, publicProfilePage, notificationsPage, driversPage, deleteAccountModal } from './pages/profile.js';
-import { tripsPage } from './pages/trips.js';
+import { tripsPage, tripPlanPage } from './pages/trips.js';
+import { settingsPage } from './pages/settings.js';
 import { messagesPage } from './pages/messages.js';
 import { adminPage } from './pages/admin.js';
 import { supportPage, supportInboxPage } from './pages/support.js';
@@ -28,8 +29,10 @@ const routes = [
   { path: '/nav/:id', page: navigationPage, auth: true, bare: true },
   { path: '/my', page: myOrdersPage, auth: true, nav: 'my' },
   { path: '/trips', page: tripsPage, auth: true, nav: 'trips' },
+  { path: '/trips/:id/plan', page: tripPlanPage, auth: true, nav: 'trips' },
   { path: '/drivers', page: driversPage, auth: true, nav: 'drivers' },
   { path: '/profile', page: profilePage, auth: true, nav: 'profile' },
+  { path: '/settings', page: settingsPage, auth: true, nav: 'profile' },
   { path: '/u/:id', page: publicProfilePage, auth: true },
   { path: '/notifications', page: notificationsPage, auth: true },
   { path: '/messages', page: messagesPage, auth: true },
@@ -273,6 +276,7 @@ function nativeBackButton() {
 
 (async function boot() {
   nativeBackButton();
+  setupPhoneInputs();   // telefon maydonlarida «+998» o'zi yoziladi
   bindDocLinks();   // shartlar va maxfiylik siyosati havolalari ilova ichida, oynada ochiladi
   captureAttribution();   // ?src=KOD / ?ref=ID — qaysi kanal, hamkor yoki do'st havolasidan kelgani
   await initTelegram();   // oddiy brauzerda hech narsa qilmaydi

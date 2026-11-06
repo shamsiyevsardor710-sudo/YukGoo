@@ -52,6 +52,12 @@ public class Trip {
     /** Bo'sh o'rinlar (yo'lovchilar uchun), ixtiyoriy */
     private Integer seats;
 
+    /**
+     * Bo'sh o'rinlar qachon yozilgan (e'lon qilinganda yoki o'zgartirilganda). Undan oldin olingan yo'lovchilar shu songa
+     * kirmagan (haydovchi bo'sh qolganini yozgan), keyin olinganlari — shu o'rinlarni egallaydi. null — createdAt.
+     */
+    private Instant seatsAt;
+
     /** (eski) bo'sh joy, kg va hajm — endi so'ralmaydi */
     private Integer availableKg;
     private Double availableM3;

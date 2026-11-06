@@ -1311,7 +1311,7 @@ export function reportDialog(targetUserId, orderId, { name, onBlocked } = {}) {
 export async function blockUser(userId, name, onDone) {
   const ok = await confirmDialog(`${name || 'Foydalanuvchi'} bloklansinmi?`,
     "Bir-biringizga yoza olmaysiz, u e'lonlaringizga taklif bera olmaydi, bozor, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz. "
-    + "Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Profil → Bloklanganlar bo'limida istalgan vaqtda blokdan chiqarishingiz mumkin.",
+    + "Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Profil → Sozlamalar → Bloklanganlar bo'limida istalgan vaqtda blokdan chiqarishingiz mumkin.",
     { okText: 'Bloklash', danger: true });
   if (!ok) return false;
   try {

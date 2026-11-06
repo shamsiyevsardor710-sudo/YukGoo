@@ -89,7 +89,7 @@ public class TelegramAuthService {
         if (previous != null) {
             telegram.send(previous, "⚠️ YukGo hisobingiz (" + TelegramClient.esc(user.getFullName()) + ") boshqa Telegram hisobiga ulandi"
                     + (tg.username() != null ? " (@" + TelegramClient.esc(tg.username()) + ")" : "") + ".\n"
-                    + "Bu siz bo'lmasangiz, parolingizni darhol o'zgartiring (Profil → Parolni o'zgartirish yoki "
+                    + "Bu siz bo'lmasangiz, parolingizni darhol o'zgartiring (Profil → Sozlamalar → Parol yoki "
                     + "«Parolni unutdingizmi?»): boshqa qurilmalardagi kirishlar bekor bo'ladi va begona Telegram parolsiz kira olmaydi.");
         }
     }

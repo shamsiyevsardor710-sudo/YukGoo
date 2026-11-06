@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
@@ -34,6 +35,7 @@ public class TripService {
     private final CurrentUser currentUser;
     private final UserRepository userRepository;
     private final MatchService matches;
+    private final TripPlanService plans;
 
     /**
      * Reys e'loni: qayerdan, qayerga, qachon (yoki «har kuni»), ixtiyoriy bo'sh o'rinlar, narx va izoh.
@@ -52,16 +54,20 @@ public class TripService {
             Boolean daily,
             @Min(value = 1, message = "Bo'sh o'rin kamida 1") @Max(value = 60, message = "Bo'sh o'rinlar juda ko'p") Integer seats) {}
 
-    /** matches — faqat yangi reys e'lon qilinganda: shu yo'nalishdagi mos ochiq e'lonlar soni (ularga xabar ketdi) */
+    /**
+     * matches — faqat yangi reys e'lon qilinganda: shu yo'nalishdagi mos ochiq e'lonlar soni (ularga xabar ketdi);
+     * plan — faqat o'z reyslarimda: «Reysga yig'ish» xulosasi (nechta yo'lovchi va pochta bitta reysga sig'adi)
+     */
     public record TripDto(Long id, UserBrief driver, Long fromRegionId, String fromRegion, Long fromDistrictId,
                           String fromDistrict, Long toRegionId, String toRegion, Long toDistrictId, String toDistrict,
                           LocalDateTime departAt, boolean daily, Integer seats, Integer availableKg, Double availableM3,
-                          String priceNote, String comment, boolean active, Instant createdAt, Integer matches) {
+                          String priceNote, String comment, boolean active, Instant createdAt, Integer matches,
+                          TripPlanService.PlanSummary plan) {
         static TripDto of(Trip t) {
-            return of(t, null);
+            return of(t, null, null);
         }
 
-        static TripDto of(Trip t, Integer matches) {
+        static TripDto of(Trip t, Integer matches, TripPlanService.PlanSummary plan) {
             return new TripDto(t.getId(), UserBrief.of(t.getDriver()), t.getFromRegion().getId(), t.getFromRegion().getName(),
                     t.getFromDistrict() == null ? null : t.getFromDistrict().getId(),
                     t.getFromDistrict() == null ? null : t.getFromDistrict().getName(),
@@ -69,7 +75,7 @@ public class TripService {
                     t.getToDistrict() == null ? null : t.getToDistrict().getId(),
                     t.getToDistrict() == null ? null : t.getToDistrict().getName(),
                     t.getDepartAt(), t.isDaily(), t.getSeats(), t.getAvailableKg(), t.getAvailableM3(),
-                    t.getPriceNote(), t.getComment(), t.isActive(), t.getCreatedAt(), matches);
+                    t.getPriceNote(), t.getComment(), t.isActive(), t.getCreatedAt(), matches, plan);
         }
     }
 
@@ -92,7 +98,10 @@ public class TripService {
 
     @Transactional(readOnly = true)
     public List<TripDto> mine() {
-        return tripRepository.findByDriverIdOrderByDepartAtDesc(currentUser.id()).stream().map(TripDto::of).toList();
+        User me = currentUser.get();
+        List<Trip> list = tripRepository.findByDriverIdOrderByDepartAtDesc(me.getId());
+        Map<Long, TripPlanService.PlanSummary> summary = plans.summaries(me, list);
+        return list.stream().map(t -> TripDto.of(t, null, summary.get(t.getId()))).toList();
     }
 
     /** Yangi reys: shu yo'nalishda yo'lovchi/pochta/yuk kutayotganlarga «haydovchi bor» xabari boradi */
@@ -106,7 +115,7 @@ public class TripService {
         apply(t, req);
         tripRepository.save(t);
         int found = matches.onNewTrip(t);
-        return TripDto.of(t, found);
+        return TripDto.of(t, found, plans.summary(me, t));
     }
 
     /** Botdan e'lon qilingan reys; duplicate — xuddi shunday reys yaqinda e'lon qilingan (yangisi ochilmadi) */
@@ -204,6 +213,8 @@ public class TripService {
         t.setToDistrict(req.toDistrictId() == null ? null : locationService.district(req.toDistrictId(), tr));
         t.setDepartAt(req.departAt());
         t.setDaily(daily);
+        // «Bo'sh o'rinlar» yangi yozildi — «Reysga yig'ish» shu paytdan keyin olingan yo'lovchilarni shu o'rinlardan ayiradi
+        if (t.getId() == null || !java.util.Objects.equals(t.getSeats(), req.seats())) t.setSeatsAt(Instant.now());
         t.setSeats(req.seats());
         // Bo'sh joy (kg) va hajm endi so'ralmaydi — eskisi ham tozalanadi
         t.setAvailableKg(null);

@@ -4,11 +4,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import uz.yukgo.channel.OrderCard;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.Order;
 import uz.yukgo.order.OrderKind;
 import uz.yukgo.order.OrderRepository;
+import uz.yukgo.order.OrderRules;
 import uz.yukgo.telegram.TelegramClient;
 import uz.yukgo.user.BlockService;
 import uz.yukgo.user.BodyType;
@@ -19,7 +19,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,6 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *    (ilovada ham, Telegramda ham), keyin uyi yoki ishlaydigan viloyati shu yerda bo'lgan haydovchilarga (Telegram) —
  *    «Faqat reyslarimga mos e'lonlar» yoqqan haydovchilardan tashqari (ularga faqat birinchi qadamdagi xabar boradi);
  *  • yangi reys → shu yo'nalishda haydovchi kutayotganlarga «Yo'nalishingizda haydovchi bor».
+ * Reysi mos haydovchiga xabarda «Reysga yig'ish» maslahati ham bo'ladi: shu e'lon bilan reysiga yana nechta yo'lovchi
+ * va pochta sig'adi ({@link TripPlanner}) — Telegramda «🧩 Reysni yig'ish» tugmasi bilan.
  * Blok bo'lgan juftliklar, haydovchi xabar olmaydigan e'lon turlari va mos kelmaydigan mashina turi hisobga olinadi.
  * Xatolar e'lon yoki reys yaratilishini to'xtatmaydi.
  */
@@ -43,13 +44,15 @@ public class MatchService {
     static final int MAX_SENDERS = 100;
     /** Bir haydovchining reyslari haqida bir odamga shu vaqt ichida bir martadan ortiq xabar bormaydi */
     static final Duration SENDER_QUIET = Duration.ofHours(12);
-    private static final DateTimeFormatter HHMM = DateTimeFormatter.ofPattern("HH:mm");
+    /** Bitta e'lon haqida ko'pi bilan shuncha haydovchi uchun «Reysga yig'ish» hisoblanadi (har biriga 2 ta so'rov) */
+    static final int MAX_PLANS = 50;
 
     private final TripRepository tripRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final BlockService blocks;
     private final NotificationService notifications;
+    private final OrderRules rules;
 
     /** "haydovchiId:odamId" → oxirgi xabar vaqti (qayta-qayta reys ochib spam qilinmasin) */
     private final Map<String, Instant> senderNotified = new ConcurrentHashMap<>();
@@ -92,12 +95,31 @@ public class MatchService {
         // Avval tumani aniq mos reyslar
         List<Trip> ordered = new ArrayList<>(trips);
         ordered.sort(Comparator.comparingInt(t -> sameFromDistrict(t, o) ? 0 : 1));
+        List<Order> onRoute = null;   // «Reysga yig'ish» uchun: shu yo'nalishdagi ochiq e'lonlar — barcha haydovchilarga bitta so'rov
+        Integer cap = null;
+        int planned = 0;
+        // Pochta: chegaraga yetgan (bir vaqtda N ta pochta olgan) haydovchilarga xabar bormaydi — baribir ola olmaydi
+        boolean parcel = o.getKind() == OrderKind.PARCEL;
+        Set<Long> full = parcel ? atCap(ordered.stream().map(t -> t.getDriver().getId()).toList()) : Set.of();
         for (Trip t : ordered) {
             User d = t.getDriver();
-            if (done.contains(d.getId()) || blocked.contains(d.getId())) continue;
+            if (done.contains(d.getId()) || blocked.contains(d.getId()) || full.contains(d.getId())) continue;
             if (!d.isNotifyNewOrders() || !kindAndVehicleFit(d, o) || !tripFits(t, o, now)) continue;
             done.add(d.getId());
-            notifications.notify(d, tripMatchTitle(o), tripMatchBody(o, t), link);
+            TripPlanner.Plan plan = null;
+            if (planned++ < MAX_PLANS && (o.isPassenger() || o.getKind() == OrderKind.PARCEL)) {
+                try {
+                    if (onRoute == null) {
+                        onRoute = orderRepository.findOpenOnRoute(o.getFromRegion().getId(), o.getToRegion().getId(), -1L,
+                                now.toLocalDate(), PageRequest.of(0, 300));
+                        cap = rules.parcelCap();
+                    }
+                    plan = planFor(t, d, now, onRoute, cap);
+                } catch (Exception e) {
+                    log.debug("Reysga yig'ish hisoblanmadi (reys {}): {}", t.getId(), e.toString());
+                }
+            }
+            notifications.notify(d, TripNotes.tripMatch(o, t, plan), link);
             if (++sent >= MAX_DRIVERS) return sent;
         }
 
@@ -106,19 +128,35 @@ public class MatchService {
         List<User> drivers = new ArrayList<>(userRepository.findDriversToNotify(
                 o.getFromRegion().getId(), o.getToRegion().getId(), sender.getId()));
         drivers.sort(Comparator.comparingInt(d -> nearRank(d, o)));   // avval o'z tumanidan, keyin viloyatidan
+        Set<Long> full2 = parcel ? atCap(drivers.stream().map(User::getId).toList()) : Set.of();
         for (User d : drivers) {
-            if (done.contains(d.getId()) || blocked.contains(d.getId()) || d.isRouteOnly()) continue;
+            if (done.contains(d.getId()) || blocked.contains(d.getId()) || d.isRouteOnly() || full2.contains(d.getId())) continue;
             if (!kindAndVehicleFit(d, o)) continue;
             done.add(d.getId());
             boolean near = nearRank(d, o) == 0;
-            String card = OrderCard.text(o);
-            String html = (near ? "📍 <b>Tumaningizdan</b>\n" : "") + card;
             // Telegrami ulanmagan (Android ilovadagi) haydovchiga — push
-            if (!notifications.telegramOrPush(d, html, near ? "📍 Tumaningizdan yangi e'lon" : "🆕 Yangi e'lon",
-                    NotificationService.plain(card).replace("\n", " · "), link)) continue;
+            if (!notifications.telegramOrPush(d, TripNotes.newOrder(o, near), link)) continue;
             if (++sent >= MAX_DRIVERS) break;
         }
         return sent;
+    }
+
+    /** Pochta chegarasiga yetganlar; hisoblab bo'lmasa — hech kim (xabarlar avvalgidek ketadi) */
+    private Set<Long> atCap(List<Long> driverIds) {
+        try {
+            return rules.atParcelCap(driverIds);
+        } catch (Exception e) {
+            log.debug("Pochta chegarasi tekshirilmadi: {}", e.toString());
+            return Set.of();
+        }
+    }
+
+    /** Haydovchining shu reysi uchun «Reysga yig'ish» (mashinadagilar, pochta chegarasi va blok hisobga olinadi) */
+    TripPlanner.Plan planFor(Trip t, User d, LocalDateTime now, List<Order> onRoute, int cap) {
+        List<Order> active = orderRepository.findByDriverIdAndStatusIn(d.getId(), OrderRules.ACTIVE);
+        long parcels = active.stream().filter(x -> x.getKind() == OrderKind.PARCEL).count();
+        return TripPlanner.plan(t, d, now, Instant.now(), onRoute, blocks.related(d.getId()), active,
+                OrderRules.parcelSlots(cap, parcels));
     }
 
     /** E'lon sanasiga mos reyslar oralig'i: o'sha kuni yoki ertasiga; sanasiz e'longa — keyingi 3 kun */
@@ -168,28 +206,6 @@ public class MatchService {
         };
     }
 
-    /** "Kosonsoy → Toshkent shahri, ertaga, 2 kishi, 300 000 so'm. Reysingiz: Kosonsoy → Toshkent, 2-noyabr 07:00" */
-    static String tripMatchBody(Order o, Trip t) {
-        StringBuilder sb = new StringBuilder();
-        if (!sameFromDistrict(t, o)) sb.append("Yo'lingizda: ");
-        sb.append(OrderCard.place(o.getFromRegion(), o.getFromDistrict())).append(" → ")
-                .append(OrderCard.place(o.getToRegion(), o.getToDistrict()));
-        if (o.getPickupDate() != null) sb.append(", ").append(OrderCard.dateLabel(o.getPickupDate()).toLowerCase(Locale.ROOT));
-        if (o.isPassenger()) sb.append(", ").append(o.getSeats() == null ? 1 : o.getSeats()).append(" kishi");
-        else if (o.getKind() == OrderKind.CARGO) sb.append(", «").append(OrderCard.publicTitle(o.getTitle())).append("»");
-        sb.append(", ").append(o.getPrice() != null ? OrderCard.money(o.getPrice()) : "narx kelishiladi");
-        sb.append(". Reysingiz: ").append(OrderCard.place(t.getFromRegion(), t.getFromDistrict())).append(" → ")
-                .append(OrderCard.place(t.getToRegion(), t.getToDistrict())).append(", ").append(when(t));
-        return sb.toString();
-    }
-
-    /** «har kuni 07:00» yoki «ertaga 07:00», «05.11.2026 07:00» */
-    static String when(Trip t) {
-        String time = t.getDepartAt().format(HHMM);
-        if (t.isDaily()) return "har kuni " + time;
-        return OrderCard.dateLabel(t.getDepartAt().toLocalDate()).toLowerCase(Locale.ROOT) + " " + time;
-    }
-
     // =====================================================================
     // Yangi reys → e'lon egalari
     // =====================================================================
@@ -223,23 +239,10 @@ public class MatchService {
             Instant last = senderNotified.get(key);
             if (last != null && last.isAfter(at.minus(SENDER_QUIET))) continue;
             senderNotified.put(key, at);
-            notifications.notify(s, "🚗 Yo'nalishingizda haydovchi bor", senderBody(d, t), "#/orders/" + o.getId());
+            notifications.notify(s, TripNotes.driverOnRoute(d, t), "#/orders/" + o.getId());
             sent++;
         }
         return matched;
-    }
-
-    /** "Ali Valiyev (⭐ 4.8), Chevrolet Cobalt — Kosonsoy → Toshkent, ertaga 07:00, 3 ta bo'sh o'rin. Telefon: +998..." */
-    static String senderBody(User d, Trip t) {
-        StringBuilder sb = new StringBuilder(d.getFullName());
-        if (d.getRatingCount() > 0) sb.append(" (⭐ ").append(d.getRatingAvg()).append(")");
-        if (d.getVehicle() != null && d.getVehicle().getBrand() != null) sb.append(", ").append(d.getVehicle().getBrand());
-        sb.append(" — ").append(OrderCard.place(t.getFromRegion(), t.getFromDistrict())).append(" → ")
-                .append(OrderCard.place(t.getToRegion(), t.getToDistrict())).append(", ").append(when(t));
-        if (t.getSeats() != null) sb.append(", ").append(t.getSeats()).append(" ta bo'sh o'rin");
-        if (t.getPriceNote() != null) sb.append(", ").append(t.getPriceNote());
-        sb.append(". Telefon: ").append(d.getPhone());
-        return sb.toString();
     }
 
     private void pruneQuiet(Instant at) {

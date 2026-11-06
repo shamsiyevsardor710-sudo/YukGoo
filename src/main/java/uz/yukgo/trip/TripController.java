@@ -15,6 +15,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TripController {
     private final TripService tripService;
+    private final TripPlanService planService;
 
     /** minKg — eski ilova versiyalari yuboradi, endi e'tiborga olinmaydi (bo'sh joy kg da so'ralmaydi) */
     @Operation(summary = "Haydovchilarning reys e'lonlari: kirganlarga avval o'z tumani va viloyatidan")
@@ -31,6 +32,12 @@ public class TripController {
     @GetMapping("/my")
     public List<TripDto> mine() {
         return tripService.mine();
+    }
+
+    @Operation(summary = "«Reysga yig'ish»: reysga mos yo'lovchilar (bo'sh o'rinlargacha) va 2 tagacha pochta — faqat reys egasiga")
+    @GetMapping("/{id}/plan")
+    public TripPlanService.PlanDto plan(@PathVariable Long id) {
+        return planService.plan(id);
     }
 
     @PostMapping

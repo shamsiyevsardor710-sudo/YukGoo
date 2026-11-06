@@ -9,6 +9,7 @@ import uz.yukgo.admin.AdminLog;
 import uz.yukgo.admin.AdminLogRepository;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.growth.GrowthDtos.*;
+import uz.yukgo.notification.Msg;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.Order;
 import uz.yukgo.order.OrderRepository;
@@ -135,15 +136,14 @@ public class GrowthService {
         if (done != 1) return;
         referred.setReferralRewardedAt(Instant.now());
         wallet.credit(referred.getId(), bonus, TxType.REFERRAL_BONUS, o.getId(), "Taklif bonusi: birinchi buyurtmangiz yakunlandi", null);
-        notifications.notify(referred, "🎁 Taklif bonusi",
-                "Birinchi buyurtmangiz yakunlandi — balansingizga " + money(bonus) + " qo'shildi", "#/profile");
+        notifications.notify(referred, Msg.of("🎁 Taklif bonusi").strong("➕", "+" + money(bonus))
+                .para("Birinchi buyurtmangiz yakunlandi — bonus balansingizga qo'shildi."), "#/profile");
         User referrer = userRepository.findById(referrerId).orElse(null);
         if (referrer != null && referrer.getStatus() == UserStatus.ACTIVE) {
             wallet.credit(referrerId, bonus, TxType.REFERRAL_BONUS, o.getId(),
                     "Taklif bonusi: " + referred.getFirstName() + " birinchi buyurtmasini yakunladi", null);
-            notifications.notify(referrer, "🎁 Taklif bonusi",
-                    "Siz taklif qilgan " + referred.getFirstName() + " birinchi buyurtmasini yakunladi — balansingizga "
-                            + money(bonus) + " qo'shildi. Rahmat!", "#/profile");
+            notifications.notify(referrer, Msg.of("🎁 Taklif bonusi").strong("➕", "+" + money(bonus))
+                    .para("Siz taklif qilgan " + referred.getFirstName() + " birinchi buyurtmasini yakunladi. Rahmat!"), "#/profile");
         }
         log.info("Taklif bonusi: user={} referrer={} {} so'm", referred.getId(), referrerId, bonus);
     }

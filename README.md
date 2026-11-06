@@ -14,6 +14,8 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   (qishloq va uy manzili so'ralmaydi, parol bir marta — «ko'rsatish» tugmasi bilan) → **foydalanish shartlari va maxfiylik siyosatiga rozilik** (belgi).
 - Ro'yxatdan o'tgach bitta savol: «Men haydovchiman» (mashina qo'shishga) yoki «E'lon beraman» (yangi e'lon formasiga).
 - Shartlar paydo bo'lishidan oldin ro'yxatdan o'tganlarga ilova kirganda bir marta shartlarni ko'rsatadi («Qabul qilaman»). Shartlar jiddiy o'zgarsa — `Terms.VERSION` oshiriladi va hamma qayta qabul qiladi.
+- **Telefon raqam maydonlari**da «+998» o'zi yoziladi — faqat qolgan 9 ta raqam kiritiladi (`90 123 45 67`); yozilayotganda raqam
+  `+998 90 123 45 67` ko'rinishiga keltiriladi. «+998 90…», «998…» yoki «90…» ko'rinishida qo'yilgan (nusxalangan) raqamni ham tushunadi.
 - O'zbekistonning 14 ta hududi va barcha tumanlari bazaga avtomatik yoziladi.
 - Kirish: **ism + familiya + parol** (bir xil ismli odamlar bo'lsa — telefon + parol).
 - Parolni tiklash va telefon raqamni almashtirish ham shu kod orqali.
@@ -22,10 +24,16 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 ### Profil
 - Rasm yuklash, reyting (⭐ o'rtacha va taqsimot), bergan buyurtmalar va yetkazgan yuklar soni.
 - **«Tahrirlash»** tugmasi ichida: ism-familiya, viloyat va tuman, o'zi haqida, telefon raqam, parol.
+- **Sozlamalar** (`#/settings`, Profil → «Sozlamalar»): hammasi bitta sahifada, guruhlarga bo'lingan — **Haydovchi** («Hozir bo'shman»,
+  yangi e'lonlar haqida xabar, «Faqat reyslarimga mos e'lonlar», e'lon turlari, ishlaydigan viloyatlar, «Mening reyslarim»),
+  **Bildirishnomalar** (Telegram ulash/uzish, 🔔 ro'yxati), **Hisob** (ism va manzil, telefon, parol), **Ko'rinish** (kechki/kunduzgi),
+  **Maxfiylik va hujjatlar** (Bloklanganlar, shartlar, maxfiylik siyosati), pastda «Chiqish» va «Hisobni o'chirish».
+  Profilning o'zi qisqa: rasm va reyting, mashina, balans, taklif havolasi, «Sozlamalar» qatori (haydovchiga — hozirgi holati bilan)
+  va «Biz bilan bog'lanish».
 - **Mashina**: nomi (masalan «Chevrolet Cobalt»), davlat raqami, turi — 6 tadan biri: yuk mashinasi, yengil mashina, ochiq bortli,
   furgon, konteyner tashuvchi, boshqa — ixtiyoriy rangi va rasmi. Yuk ko'tarish, hajm, yil so'ralmaydi. **Hammaga ko'rinadi**.
   Eski turlar (tentli, refrijerator, samosval, Damas/Labo…) ishga tushishda avtomatik shu 6 tadan biriga o'tkaziladi.
-- **Kunduzgi va kechki rejim**: yuqoridagi quyosh/oy tugmasi (va Profil → Rejim). Birinchi kirishda — kechki; tanlov shu qurilmada eslab qolinadi.
+- **Kunduzgi va kechki rejim**: yuqoridagi quyosh/oy tugmasi (va Sozlamalar → Ko'rinish). Birinchi kirishda — kechki; tanlov shu qurilmada eslab qolinadi.
 - Telefon raqam profilda turadi — boshqalar qo'ng'iroq qila oladi.
 - Ommaviy profil sahifasi: boshqa foydalanuvchilar mashina, reyting va sharhlarni ko'radi.
 
@@ -72,13 +80,26 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   (bo'sh o'rin — yengil mashina, furgon va «boshqa» turida; narx va izoh — ixtiyoriy). Ro'yxat ham yaqinlik bo'yicha, viloyat → tuman qidiruvi bilan.
 - **Avtomatik moslash** (`trip/MatchService`):
   - yangi e'lon → shu yo'nalishda (viloyatdan viloyatga), o'sha kuni yoki ertasi (yoki «har kuni») jo'naydigan reysi bor haydovchilarga
-    «🎯 Siz uchun yangi yo'lovchi / pochta / buyurtma» (ilova ichida ham, Telegramda ham; boshqa tumandan bo'lsa — «Yo'lingizda»);
+    «🎯 Siz uchun yangi yo'lovchi / pochta / buyurtma» (ilova ichida ham, Telegramda ham; boshqa tumandan bo'lsa — «Yo'lingizda»;
+    reysga yana boshqa e'lonlar ham sig'sa — «💡 Reysingizga endi 2 yo'lovchi (3 kishi) va 1 ta pochta mos…» va «🧩 Reysni yig'ish» tugmasi);
     so'ng uyi yoki ishlaydigan viloyati e'lon yo'nalishida bo'lgan bo'sh haydovchilarga Telegram orqali (o'z tumanidagilarga
     «📍 Tumaningizdan» belgisi bilan, avval ular);
   - yangi reys → shu yo'nalishda haydovchi kutayotgan e'lon egalariga «🚗 Yo'nalishingizda haydovchi bor» (ism, mashina, telefon);
     bitta haydovchining reyslari haqida bir odamga 12 soatda bir martadan ortiq xabar bormaydi; haydovchiga mos e'lonlar soni ko'rsatiladi;
-  - haydovchi qaysi e'lonlar haqida xabar olishini tanlaydi (Profil → Haydovchi sozlamalari): standart — yengil mashina: yo'lovchi va pochta,
+  - haydovchi qaysi e'lonlar haqida xabar olishini tanlaydi (Sozlamalar → Haydovchi): standart — yengil mashina: yo'lovchi va pochta,
     yuk mashinalari: yuk va pochta, furgon va boshqalar: hammasi. Mashina turi so'ralgan yuk mos mashinaga boradi; blok bo'lganlarga bormaydi.
+- **«Reysga yig'ish»** (`trip/TripPlanner`, `#/trips/ID/plan`, `GET /api/trips/{id}/plan`): haydovchi «8-noyabr, Kosonsoy → Toshkent,
+  4 o'rin» deb reys e'lon qilsa, shu yo'nalishdagi (viloyatdan viloyatga) o'sha kunga — yoki sanasiz, so'nggi 3 kunda berilgan — ochiq
+  e'lonlardan bitta reysda olib ketiladigan to'plamni tavsiya qiladi: bo'sh o'rinlarni eng ko'p to'ldiradigan yo'lovchilar (masalan,
+  4 o'ringa 3 + 2 emas, 2 + 2; reysdagi «bo'sh o'rinlar» — yozilgan paytdagisi: undan keyin olingan yo'lovchilar ayiriladi, oldin
+  olinganlari esa allaqachon hisobga olingan; o'rinlar ko'rsatilmagan bo'lsa — mashina turiga qarab: yengil 4, furgon 6, yuk mashinasi 2)
+  va **2 tagacha pochta**. Avval reys tumanidan va boradigan tumanidan, keyin birinchi berilgani.
+  «Mening reyslarim»da reys tagida «Reysga yig'ish: 2 yo'lovchi (3 kishi) · 1 pochta mos», sahifada — o'rinlar sxemasi va har bir e'londa
+  «Olaman». Mos e'lon bo'lmasa — hech narsa chiqmaydi. Reys kuni ertalab 07:00 da «☀️ Xayrli tong! Bugungi reysingizga mos e'lonlar bor»
+  xabari keladi (ertalabki xulosa o'rniga), yangi mos e'lon tushganda ham «💡 Reysingizga endi … mos» deyiladi.
+- **Pochta chegarasi** (`order/OrderRules`): bitta haydovchi bir vaqtda ko'pi bilan **2 ta pochta** oladi (olgan, hali yetkazmagan;
+  yetkazgach yoki bekor bo'lgach yana oladi) — qolgan pochtalar boshqa haydovchilarga ham qolsin. «Olaman», narx taklifi va taklifni
+  qabul qilishda tekshiriladi; chegaraga yetgan haydovchiga yangi pochta haqida xabar ham bormaydi. Ega **Boshqaruv → Buyurtmalar → «Qoidalar»** da o'zgartiradi (0 — cheklovsiz, 50 gacha; `GET/PUT /api/admin/rules`).
 - E'lon egasi sahifasida **«Yo'nalishingizdagi haydovchilar»**: shu yo'nalishda reys e'lon qilganlar, qo'ng'iroq tugmasi bilan.
 - **Haydovchilar katalogi**: avval o'z tumani va viloyatidagilar, so'ng yaqin viloyatlardagilar; har birining ichida — tekshirilgan
   haydovchilar, reyting va bajargan buyurtmalar bo'yicha.
@@ -91,6 +112,8 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   (`POST /api/orders/{id}/reschedule`). Ko'chirilgan e'lon yana yangilar qatorida turadi va haydovchilarga qayta xabar boradi.
 - **Ertalabki xulosa**: har kuni 07:00 da haydovchiga «☀️ Bugun va ertaga yo'nalishlaringizda 7 ta ochiq e'lon bor» — turi va eng ko'p
   yo'nalishlar bilan (yangi e'lonlar haqidagi xabar yoqilgan va «Hozir bo'shman» bo'lsa; Telegramga, Telegrami yo'q bo'lsa — push).
+  Shu kuni jo'naydigan reysi bo'lsa va unga mos e'lonlar bo'lsa — umumiy xulosa o'rniga «Reysga yig'ish» xabari (ko'pi bilan 2 ta reys uchun;
+  «Bandman» bo'lsa ham keladi — reysga mos xabarlar doim keladi, faqat umumiy xulosa kelmaydi).
 - **Qayta joylash**: e'lon sahifasida «🔁 Qayta joylash» (`#/new?copy=ID`) — forma o'sha e'lon bilan, bugungi sana bilan to'ldiriladi.
 - **Narx maslahati**: yo'lovchi va pochta formasida «💡 Bu yo'nalishda odatda 120 000 – 150 000 so'm (1 kishi uchun)» va «… qo'yish»
   tugmasi (`GET /api/orders/price-hint`): so'nggi 4 oydagi shu yo'nalishdagi (ikkala tomonga) e'lonlar narxining o'rtadagi yarmi,
@@ -109,7 +132,7 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
   tozalanadi — buyurtma, taklif va yozishmalar o'chmaydi).
 - **Bloklash** (Google Play talabi — 1:1 yozishma bor): bloklangan foydalanuvchi bilan bir-biringizga yoza olmaysiz, taklif bera/qabul qila
   olmaysiz, e'lonlar, reyslar va haydovchilar ro'yxatida bir-biringizni ko'rmaysiz, yangi e'lon va mos reys xabari bormaydi; ochiq takliflar yopiladi.
-  Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Ro'yxat va blokdan chiqarish: Profil → Bloklanganlar.
+  Boshlangan buyurtma davom etadi, faqat yozishma yopiladi. Ro'yxat va blokdan chiqarish: Sozlamalar → Bloklanganlar.
 - Hujjatlar: `/terms.html` (foydalanish shartlari: taqiqlangan kontent, shikoyat, bloklash), `/privacy.html`, `/delete-account.html` —
   ilova ichida oynada ochiladi.
 
@@ -124,13 +147,20 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 - Navigatsiya ekranidan to'g'ridan-to'g'ri: qo'ng'iroq, «Yukni oldim» / «Yo'lovchini oldim», «Topshirish (kod)» / «Yetib keldik».
 - «Hozir bo'shman» rejimi, xabar olinadigan e'lon turlari, ishlaydigan viloyatlar (o'z viloyati doim hisobga olinadi), yangi mos e'lonlar
   Telegramga (Telegrami ulanmagan, Android ilovadagi haydovchiga — push).
-- **«Faqat reyslarimga mos e'lonlar»** (Profil → Haydovchi sozlamalari): yoqilsa, yangi e'lon haqida faqat «Reyslar»da e'lon qilgan
+- **«Faqat reyslarimga mos e'lonlar»** (Sozlamalar → Haydovchi): yoqilsa, yangi e'lon haqida faqat «Reyslar»da e'lon qilgan
   yo'nalishiga (viloyatdan viloyatga, sanasi va bo'sh joylari mos) xabar keladi; uyi va ishlaydigan viloyatlari bo'yicha xabarlar va ertalabki
-  xulosadagi boshqa e'lonlar — yo'q. Faol reysi bo'lmasa, profilda «xabar kelmaydi» ogohlantirishi va «Reys e'lon qilish» havolasi chiqadi.
+  xulosadagi boshqa e'lonlar — yo'q. Faol reysi bo'lmasa, Sozlamalarda «xabar kelmaydi» ogohlantirishi va «Reys e'lon qilish» havolasi chiqadi.
 
 ### Telegram bot
 - Tasdiqlash kodlarini yuboradi.
 - Barcha bildirishnomalar: yangi taklif, haydovchi tanlandi, yuk yo'lda, yetkazildi, yangi baho, yangi mos e'lonlar va yo'nalishdagi haydovchilar (yozishmadagi xabarlar — faqat saytda).
+- **Rasmli bildirishnomalar** (`notification/CardRenderer`, `TelegramCards`): yangi e'lon, «Haydovchi topildi», «Oq yo'l!», «Yetkazildi»,
+  ertalabki xabar va «Reysga yig'ish» Telegramga kartochka-rasm bilan keladi — katta sarlavha, yo'nalish, sana, narx, o'rinlar
+  (shriftlar — Onest va Unbounded, OFL litsenziyasi, `src/main/resources/fonts/`); rasm tagida qalin sarlavha va belgili qatorlardan
+  iborat aniq matn va tugmalar. Bir xil rasm Telegramga qayta yuklanmaydi (`file_id` qayta ishlatiladi). Rasm yuborib bo'lmasa — xuddi
+  shu matn oddiy xabar bo'lib boradi. Rasmsiz, faqat matn: Railway'da `TELEGRAM_CARDS=false`. Qolgan xabarlar (bekor qilish, haydovchi
+  voz kechdi, taklif rad etildi, yangi baho — 4–5 yulduzda rasm bilan, balans, bonus, tekshiruv, sanasi o'tgan e'lon) ham bir xil tartibda:
+  qalin sarlavha, 📍 yo'nalish, 📅 sana, 🧍/✉️ nima, 💬 sabab.
 - **Guruhlarda**: botni Telegram guruhiga qo'shsangiz, u guruhdagi aniq e'lonni (*«Toshkentdan Samarqandga 2 kishi ertaga»*) ko'rib,
   muallifga «✅ YukGo'ga joylash» tugmasini taklif qiladi (`t.me/BOT?start=gp_…`). Muallif bossa — botga o'tadi va e'lon bir bosishda
   saytga chiqadi (ulanmagan bo'lsa — to'ldirilgan forma va raqam tugmasi, manba «guruh»). Savol va oddiy gaplarga javob bermaydi;
@@ -171,6 +201,7 @@ Telegram bot va REST API (Android ilova shu saytni ochadi). Haydovchilar reys e'
 | Egaga nisbatan har qanday amal | ❌ | ❌ |
 | Kanallar, manbalar, haydovchi hujjatlarini tekshirish | ✅ | ✅ |
 | Daromad va bonus sozlamalari | ❌ | ✅ |
+| Pochta chegarasi (Boshqaruv → Buyurtmalar → Qoidalar; admin faqat ko'radi) | ❌ | ✅ |
 
 Har bir admin amali jurnalga yoziladi (kim, kimga, qachon, sabab).
 
@@ -273,6 +304,7 @@ Asosiy muhit o'zgaruvchilari: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `YA
    | `PAYME_MERCHANT_ID`, `PAYME_KEY` | Payme orqali to'lov. Sinov paytida `PAYME_TEST=true` va sinov kaliti (Payme foydalanuvchilarga ko'rinmaydi) |
    | `PAYNET_USERNAME`, `PAYNET_PASSWORD`, `PAYNET_SERVICE_ID` | Paynet orqali to'lov (Paynet beradi). Uchalasi ham bo'lmasa Paynet o'chiq |
    | `PAYMENT_MIN`, `PAYMENT_MAX` | ixtiyoriy: bitta to'lov chegarasi, so'm (standart 1 000 va 10 000 000) |
+   | `TELEGRAM_CARDS` | ixtiyoriy: `false` — Telegram bildirishnomalari rasmsiz, faqat matn bilan (standart — rasm bilan) |
    | `FCM_SERVICE_ACCOUNT` | Android ilovaga push-bildirishnoma (pastdagi «Push-bildirishnomalar» bo'limi): Firebase xizmat hisobi JSON faylining to'liq matni. Berilmasa — push o'chiq |
 
    `JWT_SECRET` yaratish (PowerShell):
@@ -409,14 +441,14 @@ Barcha so'rovlar `Authorization: Bearer <token>` bilan (kirishsiz faqat ro'yxatd
 | Kuzatuv | `POST /api/orders/{id}/track {lat,lng}`, `GET /api/orders/{id}/track` |
 | Yozishma | `GET /api/orders/{id}/messages?after=&driverId=`, `POST /api/orders/{id}/messages {text, driverId}` (e'lon egasi — qaysi haydovchiga; haydovchi — doim o'z yozishmasi), `GET /api/orders/{id}/threads` (e'lon egasiga: yozgan haydovchilar) |
 | Baho | `POST /api/orders/{id}/review`, `GET /api/users/{id}/reviews` |
-| Reyslar | `GET /api/trips` (`fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`), `POST /api/trips` (`daily`, `seats`; javobda `matches` — mos e'lonlar soni), `GET /api/trips/my` |
+| Reyslar | `GET /api/trips` (`fromRegion`, `fromDistrict`, `toRegion`, `toDistrict`), `POST /api/trips` (`daily`, `seats`; javobda `matches` — mos e'lonlar soni va `plan`), `GET /api/trips/my` (har birida `plan`: mos yo'lovchilar, kishilar, pochtalar, bo'sh o'rinlar), `GET /api/trips/{id}/plan` («Reysga yig'ish»: o'rinlar, mashinadagilar, tavsiya etilgan yo'lovchilar va pochtalar, pochta chegarasi; faqat reys egasiga) |
 | Taklif | `GET /api/users/me/referral` |
 | Bildirishnomalar | `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all`, `DELETE /api/notifications` (hammasini o'chirish) |
 | Biz bilan bog'lanish | `GET/POST /api/support {topic: IDEA/PROBLEM/QUESTION/OTHER, text}`; ega va adminlar: `GET /api/admin/support?from=drivers\|users&status=NEW`, `GET /api/admin/support/counts`, `POST /api/admin/support/{id}/reply {text}`, `POST /api/admin/support/{id}/close` |
 | Haydovchi tekshiruvi | `GET/POST /api/users/me/driver-verification` (multipart: `license`, `techPassport`) |
 | Balansni to'ldirish | `GET /api/payments/options`, `POST /api/payments/topup {provider, amount}`, `GET /api/payments/{id}` |
 | To'lov tizimlari | `POST /api/pay/click/prepare`, `/api/pay/click/complete`, `/api/pay/payme`, `/api/pay/paynet` (token emas — imzo yoki login-parol) |
-| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications, payments, support) |
+| Admin | `/api/admin/**` (stats, users, orders, reports, broadcast, logs, channels, sources, driver-verifications, payments, support, rules — `GET/PUT /api/admin/rules {parcelCap}`) |
 
 To'liq sxema: `/swagger-ui.html`. Mobil ilovada Yandex MapKit SDK (Android/iOS) dan foydalanish tavsiya etiladi.
 
@@ -433,12 +465,13 @@ src/main/java/uz/yukgo/
   driver/        «Tekshirilgan haydovchi» arizalari
   user/          foydalanuvchi, profil, mashina
   order/         buyurtma, takliflar, holatlar, GPS kuzatuv, yozishma, narx hisoblagich
-  trip/          haydovchi reyslari
+  trip/          haydovchi reyslari, mos e'lonlarni topish (MatchService) va «Reysga yig'ish» (TripPlanner)
   review/        baholash va reyting
   admin/         admin/ega paneli, shikoyatlar, jurnal
-  notification/  sayt ichidagi va Telegram bildirishnomalari
+  notification/  sayt ichidagi, push va Telegram bildirishnomalari (Msg — matn, CardRenderer — rasm-kartochka)
   location/      viloyat va tumanlar
   security/      JWT, Spring Security
 src/main/resources/static/   veb-sayt (SPA): index.html, css/, js/; promo.html — chop etiladigan varaqa va stiker
+src/main/resources/fonts/    Telegram kartochkalari shriftlari (Onest, Unbounded — SIL Open Font License, OFL.txt)
 marketing/                   jalb qilish rejasi, kanal postlari, hamkor va agentlar uchun materiallar
 ```

@@ -70,6 +70,7 @@ public class OrderService {
     private final uz.yukgo.common.RowLocks locks;
     private final BlockService blocks;
     private final uz.yukgo.trip.MatchService matches;
+    private final OrderRules rules;
 
     // =====================================================================
     // Yaratish va ko'rish
@@ -300,6 +301,7 @@ public class OrderService {
         if (o.getSender().getId().equals(me.getId())) throw ApiException.badRequest("O'z buyurtmangizga taklif bera olmaysiz");
         if (o.getStatus() != OrderStatus.NEW) throw ApiException.badRequest("Bu buyurtma endi taklif qabul qilmaydi");
         blocks.requireNone(me.getId(), o.getSender().getId(), "Bu buyurtmaga taklif bera olmaysiz");
+        requireParcelSlot(me, o);
         // Daromad tizimi yoqilgan bo'lsa: qabul qilinganda komissiyani to'lay olishini oldindan tekshiramiz
         // (yangi haydovchining bonusli — komissiyasiz — buyurtmalari bo'lsa, balans shart emas)
         if (wallet.freeDeliveriesLeft(me) <= 0) wallet.requireBalanceForCommission(me, req.price());
@@ -319,11 +321,7 @@ public class OrderService {
         offerRepository.save(offer);
         o.setOffersCount((int) offerRepository.countByOrderIdAndStatus(orderId, OfferStatus.PENDING));
 
-        notifications.notify(o.getSender(),
-                isNew ? "Yangi taklif: " + money(req.price()) : "Taklif yangilandi: " + money(req.price()),
-                me.getFullName() + " (⭐ " + me.getRatingAvg() + ", " + me.getDeliveriesCompleted() + " ta yetkazish) — \""
-                        + o.getTitle() + "\"",
-                "#/orders/" + o.getId());
+        notifications.notify(o.getSender(), OrderNotes.newOffer(o, me, req.price(), isNew), "#/orders/" + o.getId());
         return OfferDto.of(offer);
     }
 
@@ -375,6 +373,7 @@ public class OrderService {
             throw ApiException.badRequest("Bu buyurtmada narx kelishiladi — taklif yuboring");
         }
         blocks.requireNone(me.getId(), o.getSender().getId(), "Bu buyurtmani ola olmaysiz");
+        requireParcelSlot(me, o);
 
         Offer offer = offerRepository.findFirstByOrderIdAndDriverIdAndStatus(orderId, me.getId(), OfferStatus.PENDING)
                 .orElseGet(Offer::new);
@@ -479,9 +478,7 @@ public class OrderService {
         if (offer.getStatus() != OfferStatus.PENDING) return;
         offer.setStatus(OfferStatus.REJECTED);
         o.setOffersCount((int) offerRepository.countByOrderIdAndStatus(orderId, OfferStatus.PENDING));
-        notifications.notify(offer.getDriver(), "Taklifingiz rad etildi",
-                "\"" + uz.yukgo.channel.OrderCard.publicTitle(o.getTitle()) + "\" buyurtmasi bo'yicha taklifingiz qabul qilinmadi",
-                "#/orders/" + o.getId());
+        notifications.notify(offer.getDriver(), OrderNotes.offerRejected(o), "#/orders/" + o.getId());
     }
 
     private void assignDriver(Order o, Offer accepted, User actor) {
@@ -491,6 +488,15 @@ public class OrderService {
         // bir vaqtda bir nechta buyurtma olib, bepul buyurtmalar sonidan oshirib bo'lmasin (foydalanuvchi qatori emas —
         // hisobni o'chirish bilan teskari tartibda bloklanib qolmasin)
         wallet.lockWallet(accepted.getDriver().getId());
+        // Pochta chegarasi: hamyon qatori bloklangan — bir vaqtda ikkita pochta olib, chegaradan oshirib bo'lmaydi
+        if (o.getKind() == OrderKind.PARCEL) {
+            int cap = rules.parcelCap();
+            if (cap > 0 && rules.activeParcels(accepted.getDriver().getId()) >= cap) {
+                throw ApiException.badRequest(byDriver ? OrderRules.parcelCapMessage(cap)
+                        : "Bu haydovchida hozir " + cap + " ta pochta bor (chegara) — u ularni yetkazgach qabul qila olasiz "
+                        + "yoki boshqa taklifni tanlang");
+            }
+        }
         boolean freeRide = wallet.freeDeliveriesLeft(accepted.getDriver()) > 0;
         // Narxsiz olingan (pochta, yo'lovchi) e'lon: taklif narxi 0 — yakuniy narx «kelishiladi»
         Long agreed = accepted.getPrice() != null && accepted.getPrice() > 0 ? accepted.getPrice() : null;
@@ -505,38 +511,31 @@ public class OrderService {
         for (Offer other : offerRepository.findByOrderIdAndStatus(o.getId(), OfferStatus.PENDING)) {
             if (other.getId().equals(accepted.getId())) continue;
             other.setStatus(OfferStatus.REJECTED);
-            notifications.notify(other.getDriver(), "E'lon boshqa haydovchiga berildi",
-                    "\"" + uz.yukgo.channel.OrderCard.publicTitle(o.getTitle()) + "\" — boshqa taklif tanlandi", null);
+            notifications.notify(other.getDriver(), OrderNotes.givenToOther(o), null);
         }
         o.setOffersCount(0);
         User driver = accepted.getDriver();
         event(o, OrderStatus.ACCEPTED, "Haydovchi tanlandi: " + driver.getFullName() + ", narx " + money(agreed), actor);
         channels.orderChanged(o.getId());   // kanalda: "✅ Haydovchi topildi"
 
-        boolean passenger = o.isPassenger();
-        String who = passenger ? "Yo'lovchi" : "Yuboruvchi";
-        notifications.notify(driver, passenger ? "✅ Yo'lovchi sizniki!" : "✅ Buyurtma sizga berildi!",
-                "\"" + o.getTitle() + "\" — " + o.getFromRegion().getName() + " → " + o.getToRegion().getName()
-                        + ", narx " + money(agreed) + ". " + who + ": " + o.getSender().getFullName()
-                        + ", " + o.getSender().getPhone()
-                        + (agreed == null ? ". Narxni telefonda kelishib oling" : "")
-                        + (fee > 0 ? ". Balansingizdan " + money(fee) + " komissiya yechildi" : ""),
-                "#/orders/" + o.getId());
+        notifications.notify(driver, OrderNotes.assignedToDriver(o, agreed, fee), "#/orders/" + o.getId());
         if (!actor.getId().equals(o.getSender().getId())) {
-            notifications.notify(o.getSender(), passenger ? "🚗 Haydovchi topildi!" : "Haydovchi buyurtmangizni oldi",
-                    driver.getFullName() + " (" + driver.getPhone() + ")" + vehicleNote(driver)
-                            + (passenger ? " sizni olib ketadi" : " \"" + o.getTitle() + "\" ni olib ketadi")
-                            + (agreed == null ? ". Narxni telefonda kelishib oling" : ""),
-                    "#/orders/" + o.getId());
+            notifications.notify(o.getSender(), OrderNotes.driverFound(o, driver, agreed), "#/orders/" + o.getId());
         }
     }
 
-    /** ", Chevrolet Cobalt, 01 A 123 BC" — haydovchini kutib turgan yo'lovchi mashinani tanishi uchun */
-    private static String vehicleNote(User driver) {
-        if (driver.getVehicle() == null || !driver.getVehicle().isPresent()) return "";
-        var v = driver.getVehicle();
-        return ", " + v.getBrand() + (v.getModel() != null ? " " + v.getModel() : "")
-                + (v.getPlateNumber() != null ? ", " + v.getPlateNumber() : "");
+    /** Pochta chegarasi (taklif yuborish va olishdan oldin — tushunarli xato bilan). Aniq tekshiruv — assignDriver'da */
+    private void requireParcelSlot(User driver, Order o) {
+        if (o.getKind() != OrderKind.PARCEL) return;
+        int cap = rules.parcelCap();
+        if (cap > 0 && rules.activeParcels(driver.getId()) >= cap) throw ApiException.badRequest(OrderRules.parcelCapMessage(cap));
+    }
+
+    /** Ro'yxat uchun DTO (masalan, «Reysga yig'ish»): ko'rayotgan odamga qarab maxfiy maydonlar yopiladi */
+    public List<OrderDto> listDtos(List<Order> list, User viewer) {
+        List<OrderDto> out = new ArrayList<>(list.size());
+        for (Order o : list) out.add(toDto(o, viewer));
+        return out;
     }
 
     // =====================================================================
@@ -554,15 +553,11 @@ public class OrderService {
         o.setPickedUpAt(Instant.now());
         if (o.isPassenger()) {
             event(o, OrderStatus.IN_TRANSIT, "Yo'lovchi olindi, yo'lga chiqildi", me);
-            notifications.notify(o.getSender(), "🚗 Oq yo'l!",
-                    "Safaringiz bexatar bo'lsin. Manzilga yetgach haydovchini baholashni unutmang.", "#/orders/" + o.getId());
+            notifications.notify(o.getSender(), OrderNotes.pickedUp(o, me), "#/orders/" + o.getId());
             return toDto(o, me, true);
         }
         event(o, OrderStatus.IN_TRANSIT, (o.getKind() == OrderKind.PARCEL ? "Pochta" : "Yuk") + " olindi, haydovchi yo'lda", me);
-        notifications.notify(o.getSender(), o.getKind() == OrderKind.PARCEL ? "✉️ Pochtangiz yo'lda" : "🚚 Yukingiz yo'lda",
-                me.getFullName() + " \"" + o.getTitle() + "\" ni oldi. Xaritada kuzatishingiz mumkin. "
-                        + "Qabul qiluvchiga topshirish kodini ayting: " + o.getDeliveryCode(),
-                "#/orders/" + o.getId());
+        notifications.notify(o.getSender(), OrderNotes.pickedUp(o, me), "#/orders/" + o.getId());
         notifyReceiver(o);
         return toDto(o, me, true);
     }
@@ -604,18 +599,8 @@ public class OrderService {
         me.setDeliveriesCompleted(me.getDeliveriesCompleted() + 1);
         event(o, OrderStatus.DELIVERED, passenger ? "Manzilga yetib kelindi" : "Qabul qiluvchiga topshirildi", me);
         growth.onDelivered(o);   // taklif havolasi orqali kelganlarga birinchi yetkazishda bonus
-        if (passenger) {
-            notifications.notify(o.getSender(), "🎉 Manzilga yetdingiz!",
-                    "Safar yakunlandi. Iltimos, haydovchini baholang.", "#/orders/" + o.getId());
-            notifications.notify(me, "Safar yakunlandi",
-                    "\"" + o.getTitle() + "\" — rahmat! Yo'lovchini baholashni unutmang.", "#/orders/" + o.getId());
-        } else {
-            notifications.notify(o.getSender(), o.getKind() == OrderKind.PARCEL ? "🎉 Pochta yetkazildi!" : "🎉 Yuk yetkazildi!",
-                    "\"" + o.getTitle() + "\" qabul qiluvchiga topshirildi. Iltimos, haydovchini baholang.",
-                    "#/orders/" + o.getId());
-            notifications.notify(me, "Buyurtma yakunlandi",
-                    "\"" + o.getTitle() + "\" — rahmat! Yuboruvchini baholashni unutmang.", "#/orders/" + o.getId());
-        }
+        notifications.notify(o.getSender(), OrderNotes.deliveredToSender(o), "#/orders/" + o.getId());
+        notifications.notify(me, OrderNotes.deliveredToDriver(o), "#/orders/" + o.getId());
         return toDto(o, me, true);
     }
 
@@ -657,9 +642,7 @@ public class OrderService {
             User assigned = o.getDriver();
             closeAsCancelled(o, reason, me);
             if (assigned != null) {
-                notifications.notify(assigned, "Buyurtma bekor qilindi",
-                        "Yuboruvchi \"" + o.getTitle() + "\" ni bekor qildi" + (reason != null ? ": " + reason : ""),
-                        "#/orders/" + o.getId());
+                notifications.notify(assigned, OrderNotes.cancelledBySender(o, reason), "#/orders/" + o.getId());
                 refundCommission(o, assigned, "Yuboruvchi buyurtmani bekor qildi (#" + o.getId() + ")");
             }
         } else if (driver) {
@@ -682,9 +665,7 @@ public class OrderService {
             me.setCancelledAsDriver(me.getCancelledAsDriver() + 1);
             event(o, OrderStatus.NEW, "Haydovchi voz kechdi" + (reason != null ? ": " + reason : "") + ". Buyurtma qayta e'lon qilindi", me);
             channels.orderChanged(o.getId());   // kanaldagi post yana ochiq e'longa qaytadi
-            notifications.notify(o.getSender(), "Haydovchi voz kechdi",
-                    me.getFullName() + " \"" + o.getTitle() + "\" ni olib keta olmasligini bildirdi. Buyurtmangiz qayta e'lon qilindi.",
-                    "#/orders/" + o.getId());
+            notifications.notify(o.getSender(), OrderNotes.driverWithdrew(o, me, reason), "#/orders/" + o.getId());
             matches.onNewOrder(o, o.getSender(), me.getId());   // e'lon qayta ochildi — mos haydovchilarga (voz kechganning o'zidan boshqa) xabar
         } else if (me.getRole().isStaff()) {
             adminCancel(o, reason, me);
@@ -704,10 +685,9 @@ public class OrderService {
         // Komissiya faqat yuk olinmasdan oldin qaytariladi: yo'ldagi buyurtma bo'yicha nizoda admin o'zi qaror qiladi
         boolean beforePickup = o.getStatus() == OrderStatus.ACCEPTED;
         closeAsCancelled(o, "Admin tomonidan" + (reason != null ? ": " + reason : ""), admin);
-        String text = "\"" + o.getTitle() + "\" admin tomonidan bekor qilindi" + (reason != null ? ": " + reason : "");
-        notifications.notify(o.getSender(), "Buyurtma bekor qilindi", text, "#/orders/" + o.getId());
+        notifications.notify(o.getSender(), OrderNotes.cancelledByAdmin(o, reason), "#/orders/" + o.getId());
         if (driver != null) {
-            notifications.notify(driver, "Buyurtma bekor qilindi", text, "#/orders/" + o.getId());
+            notifications.notify(driver, OrderNotes.cancelledByAdmin(o, reason), "#/orders/" + o.getId());
             if (beforePickup) refundCommission(o, driver, "Admin buyurtmani bekor qildi (#" + o.getId() + ")");
         }
     }
@@ -778,8 +758,7 @@ public class OrderService {
         if (driver == null || fee == null || fee <= 0) return;
         wallet.refundCommission(driver.getId(), o.getId(), fee, reason);
         o.setCommission(null);
-        notifications.notify(driver, "Komissiya qaytarildi",
-                money(fee) + " balansingizga qaytarildi: \"" + o.getTitle() + "\"", "#/profile");
+        notifications.notify(driver, OrderNotes.commissionRefunded(o, fee), "#/profile");
     }
 
     private void closeAsCancelled(Order o, String reason, User actor) {
@@ -1008,10 +987,7 @@ public class OrderService {
         for (Order o : orderRepository.findByStatusAndPickupDateBefore(OrderStatus.NEW, limit)) {
             if (o.getStatus() != OrderStatus.NEW) continue;   // yuqorida 30 kunlik qoida bilan yopilgan
             closeAsCancelled(o, "Olib ketish sanasi o'tib ketdi (avtomatik)", null);
-            notifications.notify(o.getSender(), "E'loningiz yopildi",
-                    "\"" + o.getTitle() + "\" — olib ketish sanasi o'tgani uchun e'lon avtomatik yopildi. "
-                            + "Yuk hali jo'natilmagan bo'lsa, yangi sana bilan qayta joylang.",
-                    "#/orders/" + o.getId());
+            notifications.notify(o.getSender(), OrderNotes.autoClosed(o), "#/new?copy=" + o.getId());
             closed++;
         }
         if (closed > 0) log.info("{} ta muddati o'tgan e'lon yopildi", closed);

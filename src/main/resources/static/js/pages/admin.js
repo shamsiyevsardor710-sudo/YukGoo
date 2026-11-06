@@ -327,11 +327,43 @@ async function act(action, id, name, reload) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/** «Qoidalar»: pochta chegarasi — bitta haydovchi bir vaqtda nechta pochta oladi (o'zgartirish — faqat ega) */
+async function rulesBox(el) {
+  let r;
+  try { r = await get('/admin/rules'); } catch { el.remove(); return; }
+  if (!document.body.contains(el)) return;
+  el.innerHTML = `<h2>Qoidalar</h2>
+    <form class="stack-sm" id="rules-form" novalidate>
+      <label class="field"><span>Pochta chegarasi</span>
+        <span class="row rules-line">Bitta haydovchi bir vaqtda ko'pi bilan
+          <input class="input rules-num" name="parcelCap" type="number" min="0" max="50" step="1" inputmode="numeric"
+            value="${esc(r.parcelCap)}" aria-label="Pochta chegarasi" ${r.canEdit ? '' : 'disabled'}> ta pochta oladi</span></label>
+      <p class="tiny muted">Olgan, hali yetkazmagan pochtalari hisoblanadi — yetkazgach yana oladi, qolgan pochtalar boshqa
+        haydovchilarga ham qoladi. «Reysga yig'ish» tavsiyasida ham shuncha (ko'pi bilan 2 ta). 0 — cheklovsiz, standart — ${esc(r.defaultParcelCap)}.</p>
+      ${r.canEdit ? `<div><button class="btn btn-primary btn-sm" type="submit">Saqlash</button></div>` : `<p class="small muted">Qoidalarni faqat ega o'zgartira oladi.</p>`}
+    </form>`;
+  const form = $('#rules-form', el);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearError(form);
+    const raw = String(form.parcelCap.value).trim();
+    const v = raw === '' ? NaN : Number(raw);   // bo'sh maydon «0 — cheklovsiz» bo'lib saqlanib ketmasin
+    if (!Number.isInteger(v) || v < 0 || v > 50) return showError(form, { message: '0 dan 50 gacha butun son kiriting (0 — cheklovsiz)' });
+    try {
+      r = await busy(form.querySelector('[type=submit]'), () => put('/admin/rules', { parcelCap: v }));
+      form.parcelCap.value = r.parcelCap;
+      toast('Saqlandi', 'ok');
+    } catch (err) { showError(form, err); }
+  });
+}
+
 async function orders(pane) {
-  pane.innerHTML = `<form class="filters" id="of" style="margin:0 0 14px">
+  pane.innerHTML = `<section class="panel stack-sm" id="rules" style="margin-bottom:14px">${skeletons(1)}</section>
+    <form class="filters" id="of" style="margin:0 0 14px">
       <input class="input" name="q" type="search" placeholder="Yuk nomi yoki yuboruvchi telefoni" aria-label="Qidiruv">
       <select class="select" name="status" aria-label="Holat">${options(STATUS, '', 'Barcha holatlar')}</select></form>
     <div id="ol">${skeletons()}</div>`;
+  rulesBox($('#rules', pane));
   const f = $('#of', pane);
   const load = async () => {
     const data = await get('/admin/orders', Object.fromEntries(new FormData(f)));
@@ -433,6 +465,7 @@ async function logs(pane) {
     CHANNEL_ADD: "kanal qo'shdi", CHANNEL_UPDATE: "kanalni o'zgartirdi", CHANNEL_DELETE: "kanalni o'chirdi",
     CHANNEL_SETTINGS: "kanal tugmasini sozladi", SOURCE_CREATE: 'havola kodi yaratdi', SOURCE_DELETE: "havola kodini o'chirdi",
     DRIVER_VERIFY: 'haydovchini tasdiqladi', DRIVER_REJECT: 'haydovchi arizasini rad etdi',
+    RULES: "qoidalarni o'zgartirdi",
   };
   pane.innerHTML = data.items.length ? `<div class="table-wrap"><table><thead><tr><th>Vaqt</th><th>Kim</th><th>Amal</th><th>Kimga</th><th>Tafsilot</th></tr></thead>
     <tbody>${data.items.map(l => `<tr><td class="small">${esc(dateTime(l.createdAt))}</td><td class="small">${esc(l.actorName)}</td>

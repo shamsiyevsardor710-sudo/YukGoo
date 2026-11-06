@@ -99,13 +99,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
                                    @Param("excludeId") Long excludeId);
 
     /**
-     * Ertalabki xulosa oladigan haydovchilar: yangi e'lonlar haqida xabar yoqilgan, bo'sh, Telegram yoki Android ilovasi
-     * (push) ulangan. Ishlaydigan viloyatlari birga yuklanadi (xulosa tranzaksiyadan tashqarida yuboriladi).
+     * Ertalabki xabar oladigan haydovchilar: yangi e'lonlar haqida xabar yoqilgan, Telegram yoki Android ilovasi (push)
+     * ulangan. «Bandman» (available = false) bo'lsa ham — ularga umumiy xulosa emas, faqat bugungi reysiga «Reysga yig'ish».
+     * Ishlaydigan viloyatlari birga yuklanadi (xabarlar tranzaksiyadan tashqarida yuboriladi).
      */
     @Query("""
             select distinct u from User u left join fetch u.workRegionIds
             where u.status = uz.yukgo.user.UserStatus.ACTIVE and u.vehicle.brand is not null and u.notifyNewOrders = true
-              and u.available = true
               and (u.telegramChatId is not null or exists (select p.id from PushToken p where p.userId = u.id))
             """)
     List<User> findDriversForDigest();

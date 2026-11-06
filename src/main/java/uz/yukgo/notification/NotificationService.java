@@ -17,8 +17,15 @@ import uz.yukgo.user.User;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.function.UnaryOperator;
 
-/** Sayt ichidagi bildirishnoma + Telegram xabari + Android ilovaga push. */
+/**
+ * Sayt ichidagi bildirishnoma + Telegram xabari (muhimlarida — rasm bilan) + Android ilovaga push.
+ * Telegram va push — tranzaksiya muvaffaqiyatli tugagandan keyin (bekor bo'lgan amal haqida xabar ketmasin).
+ */
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
@@ -28,6 +35,9 @@ public class NotificationService {
     /** Android ilovaga push (Firebase sozlanmagan bo'lsa — hech narsa yuborilmaydi). Konstruktorda emas: sinovlarda kerak emas */
     @Autowired(required = false)
     private PushService pushService;
+    /** Rasmli Telegram xabarlari (sinovlarda yo'q — matn yuboriladi) */
+    @Autowired(required = false)
+    private TelegramCards cards;
 
     public record NotificationDto(Long id, String title, String body, String link, boolean read, Instant createdAt) {
         static NotificationDto of(Notification n) {
@@ -37,34 +47,75 @@ public class NotificationService {
 
     @Transactional
     public void notify(User user, String title, String body, String link) {
+        notify(user, Msg.of(title, body), link);
+    }
+
+    /** Sayt ichida 🔔, Telegram (rasm bo'lsa — rasm bilan) va push */
+    @Transactional
+    public void notify(User user, Msg msg, String link) {
         if (user == null) return;
+        save(user, msg.title(), msg.plain(), link);
+        if (user.getTelegramChatId() != null) telegram(user.getTelegramChatId(), msg, link);
+        push(user, msg.title(), msg.plain(), link);
+    }
+
+    private void save(User user, String title, String body, String link) {
         Notification n = new Notification();
         n.setUserId(user.getId());
         n.setTitle(cut(title, 150));
         n.setBody(cut(body, 1000));
         n.setLink(link);
         repository.save(n);
-        if (user.getTelegramChatId() != null) {
-            String html = "<b>" + TelegramClient.esc(title) + "</b>\n" + TelegramClient.esc(body);
-            if (link != null) {
-                telegram.sendWithAppButton(user.getTelegramChatId(), html, "Ochish", appUrl(link), siteUrl(link));
-            } else {
-                telegram.send(user.getTelegramChatId(), html);
-            }
+    }
+
+    /** Telegram: rasmli (karta bo'lsa) yoki matnli; tugmalar — Mini App, sayt havolasi yoki tugmasiz */
+    void telegram(long chatId, Msg msg, String link) {
+        String html = msg.html();
+        List<Object> keyboards = keyboards(msg, link);
+        TgCard card = msg.card();
+        afterCommit(() -> {
+            if (card != null && cards != null && cards.enabled()) cards.send(chatId, card, html, keyboards);
+            else telegram.sendWithFallbacks(chatId, html, keyboards);
+        });
+    }
+
+    /**
+     * Tugmalar variantlari: avval Mini App (YukGo Telegram ichida ochiladi), keyin oddiy havola; ikkalasi ham bo'lmasa
+     * (masalan, localhost) — tugmasiz. Qisqa ikki tugma bir qatorda, uzunlari — alohida qatorda.
+     */
+    List<Object> keyboards(Msg msg, String link) {
+        List<Msg.Button> buttons = new ArrayList<>();
+        if (link != null) buttons.add(new Msg.Button(msg.buttonText(), link));
+        buttons.addAll(msg.extraButtons());
+        List<Object> variants = new ArrayList<>();
+        if (buttons.isEmpty()) return variants;
+        Object app = keyboard(buttons, "web_app", h -> appUrl(h), TelegramClient::isHttpsPublic);
+        if (app != null) variants.add(app);
+        Object web = keyboard(buttons, "url", h -> siteUrl(h), TelegramClient::isPublicUrl);
+        if (web != null) variants.add(web);
+        return variants;
+    }
+
+    private static Object keyboard(List<Msg.Button> buttons, String type, UnaryOperator<String> url,
+                                   java.util.function.Predicate<String> ok) {
+        List<Map<String, Object>> all = new ArrayList<>();
+        for (Msg.Button b : buttons) {
+            String u = url.apply(b.link());
+            if (!ok.test(u)) return null;
+            all.add(Map.of("text", b.text(), type, "web_app".equals(type) ? Map.of("url", u) : u));
         }
-        push(user, title, body, link);
+        List<List<Map<String, Object>>> rows = new ArrayList<>();
+        boolean pair = all.size() == 2 && buttons.get(0).text().length() <= 16 && buttons.get(1).text().length() <= 18;
+        if (pair) rows.add(all);
+        else for (Map<String, Object> b : all) rows.add(List.of(b));
+        return Map.of("inline_keyboard", rows);
     }
 
     /** Sayt ichida 🔔 va telefonga push, Telegramsiz (Telegramga chaqiruvchining o'zi tugmali xabar yuboradi) */
     @Transactional
     public void inApp(User user, String title, String body, String link) {
         if (user == null) return;
-        Notification n = new Notification();
-        n.setUserId(user.getId());
-        n.setTitle(cut(title, 150));
-        n.setBody(cut(body, 1000));
-        n.setLink(link);
-        repository.save(n);
+        save(user, title, body, link);
         push(user, title, body, link);
     }
 
@@ -79,17 +130,16 @@ public class NotificationService {
     }
 
     /**
-     * Haydovchiga yangi e'lon haqida: Telegram ulangan bo'lsa — Telegramga (karta), bo'lmasa — telefoniga push
-     * (sayt ichida 🔔 emas: bunday xabarlar ko'p bo'ladi). @return xabar yuborildimi
+     * Haydovchiga yangi e'lon yoki ertalabki xulosa: Telegram ulangan bo'lsa — Telegramga (rasm bo'lsa — rasm bilan),
+     * bo'lmasa — telefoniga push (sayt ichida 🔔 emas: bunday xabarlar ko'p bo'ladi). @return xabar yuborildimi
      */
-    public boolean telegramOrPush(User user, String html, String pushTitle, String pushBody, String link) {
+    public boolean telegramOrPush(User user, Msg msg, String link) {
         if (user.getTelegramChatId() != null) {
-            if (link != null) telegram.sendWithAppButton(user.getTelegramChatId(), html, "Ko'rish", appUrl(link), siteUrl(link));
-            else telegram.send(user.getTelegramChatId(), html);
+            telegram(user.getTelegramChatId(), msg, link);
             return true;
         }
         if (pushService == null || !pushService.enabled()) return false;
-        push(user, pushTitle, pushBody, link);
+        push(user, msg.title(), msg.plain(), link);
         return true;
     }
 

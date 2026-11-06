@@ -848,3 +848,69 @@ body.guest { --tabbar-h: 0px; }
   #sx-from .tab-count { position: absolute; top: -7px; right: -3px; margin: 0; }
 }
 @media (max-width: 340px) { #sx-from button { white-space: normal; } }
+
+/* Bildirishnoma matni qator-qator keladi (📍 yo'nalish, 📅 sana, 💰 narx...) */
+.notif-body { white-space: pre-line; overflow-wrap: anywhere; }
+
+/* Ichki sahifalarda orqaga qaytish havolasi */
+.back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+.back-link svg { width: 18px; height: 18px; }
+.back-link:hover { color: var(--asphalt); }
+.warn-text { color: var(--warn); }
+
+/* Reysga yig'ish */
+.plan-chip { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--r-md);
+  background: var(--signal-soft); color: var(--asphalt); border: 1px solid rgba(242, 183, 5, .45); }
+.plan-chip svg { width: 20px; height: 20px; color: var(--signal); flex: none; }
+.plan-chip span:first-of-type { flex: 1; min-width: 0; }
+.plan-go { font-size: 22px; line-height: 1; color: var(--muted); }
+.plan-hint { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-md); background: var(--route-soft); }
+.plan-hint svg { width: 20px; height: 20px; color: var(--route); flex: none; margin-top: 1px; }
+.plan-trip .route { margin: 0; }
+.plan-trip p svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; color: var(--muted); }
+.plan-h { display: flex; align-items: center; gap: 8px; font-size: 18px; margin-top: 8px; }
+.plan-h svg { width: 20px; height: 20px; color: var(--signal); }
+.plan-item { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.plan-item .order-row { border-bottom: 0; }
+.plan-actions { display: flex; gap: 8px; padding: 0 18px 14px; }
+.plan-actions .btn { flex: 1; justify-content: center; }
+.plan-actions .btn-primary { flex: 2; }
+.plan-empty { padding: 4px 2px; }
+.seat-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.seat { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; border: 2px dashed var(--line); color: var(--muted); }
+.seat svg { width: 20px; height: 20px; }
+.seat.in-car { border: 2px solid var(--asphalt); background: var(--asphalt); color: var(--surface); }
+.seat.pick { border: 2px solid var(--signal); background: var(--signal); color: var(--signal-ink); }
+
+/* Sozlamalar sahifasi: guruhlar va qatorlar */
+.settings-page .page-head { margin-bottom: 6px; }
+.set-group { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 4px 18px; margin-top: 14px; }
+.set-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); padding: 14px 0 6px; font-family: var(--font); }
+.set-title svg { width: 18px; height: 18px; color: var(--signal); }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line-soft);
+  width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; color: inherit; text-align: left; font: inherit; }
+.set-title + .set-row { border-top: 0; }
+.set-row.set-col { display: grid; gap: 8px; justify-content: stretch; }
+.set-row .setting { width: 100%; }
+.set-text { display: grid; gap: 3px; min-width: 0; }
+.set-text .small, .set-text .tiny { line-height: 1.4; }
+.set-link { cursor: pointer; }
+.set-link > svg { width: 20px; height: 20px; color: var(--muted); flex: none; }
+.set-link:hover b { color: var(--route); }
+.set-row .seg svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 4px; }
+.set-row.set-wrap { flex-wrap: wrap; row-gap: 10px; }
+.set-row .seg { flex: none; flex-wrap: nowrap; }
+.set-row .seg button { white-space: nowrap; }
+.set-bottom { margin-top: 18px; justify-items: center; }
+.settings-link { display: flex; align-items: center; gap: 14px; color: inherit; }
+.settings-link > svg { width: 22px; height: 22px; color: var(--muted); flex: none; margin-left: auto; }
+.settings-ico { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--signal-soft); color: var(--signal); flex: none; }
+.settings-ico svg { width: 24px; height: 24px; }
+.settings-link:hover b { color: var(--route); }
+/* Profilda hali to'ldirilmagan (yoki kerak bo'lmagan) bo'limlar ortiqcha bo'shliq qoldirmasin */
+#wallet-slot:empty, #verify-slot:empty, #invite-slot:empty { display: none; }
+
+/* Boshqaruv → Buyurtmalar → Qoidalar */
+.rules-line { gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 500; }
+.rules-num { width: 84px; text-align: center; }

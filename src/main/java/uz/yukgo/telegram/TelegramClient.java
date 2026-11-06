@@ -33,6 +33,8 @@ public class TelegramClient {
     private volatile boolean healthy = true;
     /** Botning o'z Telegram ID si (getMe) — kanalda admin ekanini tekshirish uchun */
     private volatile long botId;
+    /** Rasmli xabarlar (sendPhoto) */
+    private final TelegramPhotoApi photos;
 
     public TelegramClient(AppProperties props) {
         AppProperties.Telegram cfg = props.telegram();
@@ -45,6 +47,7 @@ public class TelegramClient {
                 .requestFactory(f)
                 .baseUrl("https://api.telegram.org/bot" + token)
                 .build();
+        this.photos = new TelegramPhotoApi("https://api.telegram.org/bot" + token);
     }
 
     /** Bot tokeni ko'rinishidagi matn: "123456789:AA…" (kamida 30 belgili kalit qismi bilan) */
@@ -179,6 +182,64 @@ public class TelegramClient {
     @Async
     public void send(long chatId, String html) {
         sendNow(chatId, html, null);
+    }
+
+    /** Fon rejimida, tugma variantlari bilan (birinchisi rad etilsa — keyingisi, oxirida tugmasiz) */
+    @Async
+    public void sendWithFallbacks(long chatId, String html, List<Object> markups) {
+        sendNowWithFallbacks(chatId, html, markups);
+    }
+
+    /**
+     * Rasmli xabar natijasi: sent — yetib bordi; fileId — Telegramdagi rasm (keyingi yuborishlar shu bilan, qayta
+     * yuklanmaydi); gone — foydalanuvchi botni bloklagan yoki chat yo'q (matnli xabar ham yetmaydi)
+     */
+    public record PhotoResult(boolean sent, String fileId, boolean gone) {
+        static final PhotoResult FAILED = new PhotoResult(false, null, false);
+    }
+
+    /**
+     * Rasm (png baytlari yoki avval yuklangan fileId) va HTML izoh bilan sinxron yuborish. Tugmalar navbat bilan
+     * sinaladi (400 — keyingisi, oxirida tugmasiz). 429 da bir marta kutib qayta uriladi.
+     */
+    public PhotoResult sendPhotoNow(long chatId, byte[] png, String fileId, String captionHtml, List<Object> markups) {
+        if (!enabled()) {
+            log.info("[TELEGRAM o'chiq] chat={} rasmli xabar: {}", chatId, captionHtml);
+            return PhotoResult.FAILED;
+        }
+        if (png == null && (fileId == null || fileId.isBlank())) return PhotoResult.FAILED;
+        List<Object> attempts = new ArrayList<>();
+        if (markups != null) for (Object m : markups) if (m != null) attempts.add(m);
+        attempts.add(null);
+        boolean waited = false;
+        for (int i = 0; i < attempts.size(); i++) {
+            Object markup = attempts.get(i);
+            try {
+                TelegramPhotoApi.Result r = png != null ? photos.upload(chatId, png, captionHtml, markup)
+                        : photos.byId(chatId, fileId, captionHtml, markup);
+                if (r.ok()) return new PhotoResult(true, r.fileId() != null ? r.fileId() : fileId, false);
+                if (r.status() == 429 && !waited) {
+                    waited = true;
+                    if (!pause(retryAfterMs(r.body()))) return PhotoResult.FAILED;
+                    i--;
+                    continue;
+                }
+                if (r.status() == 403 || r.body().contains("chat not found") || r.body().contains("user is deactivated")) {
+                    log.debug("Rasmli xabar yetmadi (chat={}): {}", chatId, redact(r.body()));
+                    return new PhotoResult(false, null, true);
+                }
+                if (r.status() == 400 && markup != null) continue;
+                log.warn("Telegramga rasm yuborib bo'lmadi (chat={}): {}", chatId, redact(r.body()));
+                return PhotoResult.FAILED;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return PhotoResult.FAILED;
+            } catch (Exception e) {
+                log.warn("Telegramga rasm yuborib bo'lmadi (chat={}): {}", chatId, safe(e));
+                return PhotoResult.FAILED;
+            }
+        }
+        return PhotoResult.FAILED;
     }
 
     @Async

@@ -1,11 +1,10 @@
 // Profil, ommaviy profil, bildirishnomalar, haydovchilar ro'yxati
-import { auth, get, post, put, del, upload, config, regions } from '../api.js';
+import { auth, get, post, put, del, upload, config } from '../api.js';
 import {
   $, $$, esc, icon, avatar, stars, toast, modal, confirmDialog, formData, showError, clearError, busy,
   bindRegionDistrict, regionOptions, options, phoneFmt, date, ago, num, emptyState, skeletons, BODY, ROLE,
-  money, dateTime, verifiedBadge, bodyLabel, bodyCanon, KIND, KIND_ICON,
+  money, dateTime, verifiedBadge, bodyLabel, bodyCanon,
 } from '../ui.js';
-import { currentTheme, themeLabel, toggleTheme } from '../theme.js';
 import { phoneVerification } from './auth.js';
 import { inviteBlock, verifyBlock } from './growth-ui.js';
 import { reportDialog, blockUser, unblockUser } from './orders.js';
@@ -75,7 +74,8 @@ function heroBlock(u, editable) {
         ${u.phone
           ? `<a class="btn btn-route" href="tel:${esc(u.phone)}">${icon('phone')}${esc(phoneFmt(u.phone))}</a>`
           : `<p class="phone-lock">${icon('shield')}Raqam yashirin — buyurtma orqali bog'langanlarga ko'rinadi</p>`}
-        ${editable ? `<button class="btn" id="edit-profile">${icon('edit')}Tahrirlash</button>` : ''}
+        ${editable ? `<button class="btn" id="edit-profile">${icon('edit')}Tahrirlash</button>
+          <a class="btn" href="#/settings" id="open-settings">${icon('settings')}Sozlamalar</a>` : ''}
       </div>
     </div>
     <div class="stat-row">
@@ -119,6 +119,14 @@ async function walletHistoryModal() {
   modal('Balans tarixi', html, { onMount: ({ el, close }) => $$('a', el).forEach(a => a.addEventListener('click', close)) });
 }
 
+/** Profildagi «Sozlamalar» qatori: haydovchiga — hozirgi holati, boshqalarga — nimalar borligi */
+function settingsSummary(u) {
+  if (!u.driver) return "Bildirishnomalar, Telegram, hisob, rejim va maxfiylik";
+  const parts = [u.available ? "Bo'shman" : 'Bandman', u.notifyNewOrders ? 'xabarlar yoqilgan' : "xabarlar o'chiq"];
+  if (u.routeOnly) parts.push('faqat reyslarimga mos');
+  return parts.join(' · ') + ' — haydovchi sozlamalari, Telegram va hisob';
+}
+
 // =====================================================================
 // O'z profilim
 // =====================================================================
@@ -153,22 +161,10 @@ export async function profilePage(main, _p, query) {
         <div id="wallet-slot"></div>
         <div id="verify-slot"></div>
         <div id="invite-slot"></div>
-        ${u.driver ? `<section class="panel stack">
-          <h2>Haydovchi sozlamalari</h2>
-          <label class="setting"><span><b>Hozir bo'shman</b><br><span class="small muted">O'chirsangiz, yangi e'lonlar haqida xabar kelmaydi (reyslaringizga moslari bundan mustasno)</span></span>
-            <span class="switch"><input type="checkbox" id="s-available" ${u.available ? 'checked' : ''}><span></span></span></label>
-          <label class="setting"><span><b>Yangi e'lonlar haqida xabar</b><br><span class="small muted">Yo'nalishingiz va hududingiz bo'yicha — Telegramga yoki ilovaga; har kuni ertalab 7 da qisqa xulosa ham</span></span>
-            <span class="switch"><input type="checkbox" id="s-notify" ${u.notifyNewOrders ? 'checked' : ''}><span></span></span></label>
-          <div><label class="setting"><span><b>Faqat reyslarimga mos e'lonlar</b><br><span class="small muted">Yoqsangiz, faqat «Reyslar» bo'limida e'lon qilgan yo'nalishingizga mos e'lonlar haqida xabar keladi. Uyingiz va ishlaydigan viloyatlaringiz bo'yicha boshqa e'lonlar haqida — yo'q.</span></span>
-            <span class="switch"><input type="checkbox" id="s-route-only" ${u.routeOnly ? 'checked' : ''}><span></span></span></label>
-            <p class="tiny warn-note hidden" id="route-only-warn">Hozir faol reysingiz yo'q — yangi e'lonlar haqida xabar kelmaydi. <a href="#/trips?new=1">Reys e'lon qilish</a></p></div>
-          <div><b>Qaysi e'lonlar haqida xabar kelsin</b>
-            <div class="kind-picks" id="s-kinds" role="group" aria-label="E'lon turlari">${Object.keys(KIND).map(k =>
-              `<button type="button" class="kind-pick ${(u.notifyKinds || []).includes(k) ? 'on' : ''}" data-kind="${k}" aria-pressed="${(u.notifyKinds || []).includes(k)}">${icon(KIND_ICON[k])}${esc(KIND[k])}</button>`).join('')}</div>
-            <p class="tiny muted" style="margin-top:6px">${u.notifyKindsChosen ? "O'zingiz tanlagansiz." : 'Mashinangiz turiga qarab tanlangan — xohlasangiz o\'zgartiring.'}</p></div>
-          <div><b>Ishlaydigan viloyatlarim</b><p class="small muted" id="work-regions">…</p>
-            <button class="btn btn-sm" style="margin-top:8px" id="edit-regions">Tanlash</button></div>
-        </section>` : ''}
+        <a class="panel settings-link" href="#/settings">
+          <span class="settings-ico">${icon('settings')}</span>
+          <span class="set-text"><b>Sozlamalar</b><span class="small muted">${esc(settingsSummary(u))}</span></span>
+          ${icon('chevron')}</a>
         <section class="panel stack-sm">
           <h2>Biz bilan bog'lanish</h2>
           <p class="small muted">Taklif, muammo yoki savolingiz bo'lsa — yozing${cfg.supportPhone ? " yoki qo'ng'iroq qiling" : ''}. Javob bildirishnoma bo'lib keladi.</p>
@@ -177,32 +173,11 @@ export async function profilePage(main, _p, query) {
             ${cfg.supportPhone ? `<a class="btn btn-sm" href="${esc(telHref(cfg.supportPhone))}">${icon('phone')}${esc(phoneFmt(cfg.supportPhone) || cfg.supportPhone)}</a>` : ''}
           </div>
         </section>
-        <details class="more settings-box" id="settings">
-          <summary>Sozlamalar</summary>
-          <div class="stack-sm" style="margin-top:12px">
-            <div class="setting-row">
-              <span><b>Manzilim</b><br><span class="place-line small">${icon('pin')}${esc([u.district?.name, u.region?.name].filter(Boolean).join(', ') || '—')}</span>
-                <br><span class="tiny muted">Bosh sahifada avval shu tumandan, keyin viloyatingiz va yaqin hududlardan e'lonlar chiqadi.</span></span>
-              <button class="btn btn-sm" id="edit-place">${icon('edit')}O'zgartirish</button></div>
-            <a class="btn btn-ghost" href="#/u/${u.id}">Profilim boshqalarga qanday ko'rinadi</a>
-            <button class="btn btn-ghost" id="theme">${icon(currentTheme() === 'dark' ? 'moon' : 'sun')}Rejim: ${esc(themeLabel())}</button>
-            <button class="btn btn-ghost" id="blocked-list">Bloklanganlar</button>
-            ${u.telegramLinked ? `<button class="btn btn-ghost" id="tg-unlink">${icon('telegram')}Telegramdan uzish</button>` : ''}
-            <a class="btn btn-ghost" href="/terms.html" data-doc>Foydalanish shartlari</a>
-            <a class="btn btn-ghost" href="/privacy.html" data-doc>Maxfiylik siyosati</a>
-            <button class="link-btn danger-link" id="delete-account">Hisobni o'chirish</button>
-          </div>
-        </details>
-        <button class="btn btn-danger" id="logout">${icon('logout')}Chiqish</button>
       </div>
     </div></div>`;
 
   if ($('#reviews', main)) reviewsBlock($('#reviews', main), u.id);
   walletBlock($('#wallet-slot', main));
-  // Sozlamalar ochiq/yopiqligi sahifa qayta chizilganda (masalan, rejim almashtirilganda) saqlansin
-  const settings = $('#settings', main);
-  try { if (sessionStorage.getItem('yukgo_settings_open') === '1') settings.open = true; } catch { /* */ }
-  settings.addEventListener('toggle', () => { try { sessionStorage.setItem('yukgo_settings_open', settings.open ? '1' : '0'); } catch { /* */ } });
   // Click / Payme to'lov sahifasidan qaytildi (#/profile?topup=ID) — holatini ko'rsatamiz (bir marta)
   const topupId = query && query.get('topup');
   if (topupId && /^\d{1,18}$/.test(topupId)) {
@@ -231,79 +206,7 @@ export async function profilePage(main, _p, query) {
   });
   $('#edit-profile', main).addEventListener('click', () => editProfileModal(() => profilePage(main, _p, query)));
   bindVehicle(main, () => profilePage(main, _p, query));
-  $('#logout', main).addEventListener('click', () => logout());
-  $('#tg-unlink', main)?.addEventListener('click', async () => {
-    const ok = await confirmDialog('Telegramdan uzilsinmi?',
-      "Buyurtmalar va takliflar haqidagi xabarlar Telegramga kelmay qoladi, YukGo Telegram ichida o'zi kirmaydi. "
-      + "Qayta ulash uchun botda «Telefon raqamni yuborish» tugmasini bosing yoki Telegram ichida parol bilan kiring.",
-      { okText: 'Uzish' });
-    if (!ok) return;
-    try {
-      auth.user = await post('/users/me/telegram/unlink');
-      toast('Telegramdan uzildi', 'ok');
-      profilePage(main, _p, query);
-    } catch (err) { toast(err.message, 'err'); }
-  });
-  $('#delete-account', main).addEventListener('click', deleteAccountModal);
-  $('#blocked-list', main).addEventListener('click', blockedListModal);
-  $('#theme', main).addEventListener('click', () => { toggleTheme(); profilePage(main, _p, query); });
-  $('#edit-place', main).addEventListener('click', () => editProfileModal(() => profilePage(main, _p, query)));
 
-  if (u.driver) {
-    const saveSetting = async (body) => {
-      try { auth.user = await put('/users/me/settings', body); toast('Saqlandi'); } catch (err) { toast(err.message, 'err'); }
-    };
-    $('#s-available', main).addEventListener('change', (e) => saveSetting({ available: e.target.checked }));
-    $('#s-notify', main).addEventListener('change', (e) => saveSetting({ notifyNewOrders: e.target.checked }));
-    // «Faqat reyslarimga mos»: faol reys bo'lmasa, xabar umuman kelmasligini ogohlantiramiz
-    let hasTrip = null;
-    const routeWarn = async () => {
-      const warn = $('#route-only-warn', main);
-      if (!warn) return;
-      if (!auth.user?.routeOnly) { warn.classList.add('hidden'); return; }
-      if (hasTrip === null) {
-        const mine = await get('/trips/my').catch(() => null);
-        const soon = Date.now() - 3 * 3600 * 1000;
-        hasTrip = !mine || mine.some(t => t.active && (t.daily || new Date(t.departAt).getTime() > soon));
-      }
-      warn.classList.toggle('hidden', hasTrip);
-    };
-    $('#s-route-only', main).addEventListener('change', async (e) => { await saveSetting({ routeOnly: e.target.checked }); routeWarn(); });
-    routeWarn();
-    const all = await regions();
-    const showRegions = () => {
-      const ids = auth.user.workRegionIds || [];
-      $('#work-regions', main).textContent = ids.length
-        ? `${auth.user.region?.name ? auth.user.region.name + ' (uyingiz), ' : ''}${all.filter(r => ids.includes(r.id) && r.id !== auth.user.region?.id).map(r => r.name).join(', ')}`.replace(/, $/, '')
-        : `${auth.user.region?.name || 'O\'z viloyatingiz'} — uyingiz joylashgan viloyat (shu yerdan va shu yerga e'lonlar)`;
-    };
-    // E'lon turlari: kamida bittasi tanlangan bo'lsin
-    $$('#s-kinds .kind-pick', main).forEach(b => b.addEventListener('click', async () => {
-      const on = $$('#s-kinds .kind-pick.on', main).map(x => x.dataset.kind);
-      const next = b.classList.contains('on') ? on.filter(k => k !== b.dataset.kind) : [...on, b.dataset.kind];
-      if (!next.length) { toast("Kamida bitta turni tanlang"); return; }
-      b.classList.toggle('on');
-      b.setAttribute('aria-pressed', b.classList.contains('on'));
-      await saveSetting({ notifyKinds: next });
-    }));
-    showRegions();
-    $('#edit-regions', main).addEventListener('click', () => {
-      const ids = new Set(auth.user.workRegionIds || []);
-      modal('Ishlaydigan viloyatlar', `<form class="stack"><p class="small muted">O'z viloyatingizdan va unga keladigan e'lonlar haqida doim xabar olasiz. Boshqa qatnaydigan viloyatlaringizni ham belgilang — ulardan va ularga e'lonlar haqida ham xabar keladi. Reyslaringizga mos e'lonlar haqida esa doim xabar keladi.</p>
-          <div class="stack-sm">${all.map(r => `<label class="check"><input type="checkbox" value="${r.id}" ${ids.has(r.id) ? 'checked' : ''}>${esc(r.name)}</label>`).join('')}</div>
-          <button class="btn btn-primary" type="submit">Saqlash</button></form>`, {
-        onMount: ({ el, close }) => {
-          $('form', el).addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const chosen = $$('input:checked', el).map(i => Number(i.value));
-            await saveSetting({ workRegionIds: chosen });
-            showRegions();
-            close();
-          });
-        },
-      });
-    });
-  }
   if (query?.get('vehicle') && !u.vehicle) vehicleModal(() => profilePage(main, _p, new URLSearchParams()));
 }
 
@@ -359,8 +262,8 @@ function vehicleModal(onSaved) {
   });
 }
 
-/** "Tahrirlash" — ism, familiya, manzil; telefon raqam; parol */
-function editProfileModal(onSaved) {
+/** "Tahrirlash" — ism, familiya, manzil; telefon raqam; parol. tab — qaysi yorliq ochilsin (info, phone, pass) */
+export function editProfileModal(onSaved, tab = 'info') {
   const u = auth.user;
   let stopVerify = null;
   modal('Profilni tahrirlash', `
@@ -399,6 +302,7 @@ function editProfileModal(onSaved) {
           });
         }
       }));
+      if (tab !== 'info') $(`#tabs button[data-t="${tab}"]`, el)?.click();
       const info = $('[data-pane=info] form', el);
       await bindRegionDistrict(info.regionId, info.districtId, { regionId: u.region?.id, districtId: u.district?.id });
       info.addEventListener('submit', async (e) => {
@@ -459,7 +363,7 @@ export function deleteAccountModal() {
 }
 
 /** Men bloklagan foydalanuvchilar: blokdan chiqarish shu yerda */
-function blockedListModal() {
+export function blockedListModal() {
   const ctx = modal('Bloklanganlar', skeletons(2));
   const body = $('.modal-body', ctx.el);
   const load = async () => {
@@ -525,7 +429,7 @@ export async function notificationsPage(main) {
     $('#list', main).innerHTML = data.items.length
       ? `<div class="orders">${data.items.map(n => `<a class="order-row" href="${esc(n.link || '#/notifications')}" data-id="${n.id}" style="${n.read ? '' : 'background:var(--signal-soft)'}">
           <div class="order-top"><b>${esc(n.title)}</b><span class="small muted">${esc(ago(n.createdAt))}</span></div>
-          ${n.body ? `<p class="small">${esc(n.body)}</p>` : ''}</a>`).join('')}</div>`
+          ${n.body ? `<p class="small notif-body">${esc(n.body)}</p>` : ''}</a>`).join('')}</div>`
       : emptyState("Bildirishnoma yo'q", 'Takliflar va buyurtma holati haqidagi xabarlar shu yerda paydo bo\'ladi.');
     $$('[data-id]', main).forEach(a => a.addEventListener('click', () => { post(`/notifications/${a.dataset.id}/read`).then(refreshUnread).catch(() => {}); }));
   };

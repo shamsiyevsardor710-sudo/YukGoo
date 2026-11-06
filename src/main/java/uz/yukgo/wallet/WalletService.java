@@ -12,6 +12,7 @@ import uz.yukgo.admin.AdminLogRepository;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.common.Phones;
+import uz.yukgo.notification.Msg;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.order.OrderRepository;
 import uz.yukgo.order.OrderStatus;
@@ -311,8 +312,9 @@ public class WalletService {
         apply(w, amount, amount > 0 ? TxType.TOPUP : TxType.ADJUSTMENT, null,
                 note != null ? note : amount > 0 ? "Balans to'ldirildi" : "Balansdan yechildi", me.getFullName());
         log(me, amount > 0 ? "BALANCE_TOPUP" : "BALANCE_DEBIT", target, money(Math.abs(amount)) + (note != null ? ": " + note : ""));
-        notifications.notify(target, amount > 0 ? "💰 Balansingiz to'ldirildi" : "Balansingizdan yechildi",
-                (amount > 0 ? "+" : "−") + money(Math.abs(amount)) + ". Joriy balans: " + money(w.getBalance()), "#/profile");
+        notifications.notify(target, Msg.of(amount > 0 ? "💰 Balansingiz to'ldirildi" : "💳 Balansingizdan yechildi")
+                .strong(amount > 0 ? "➕" : "➖", (amount > 0 ? "+" : "−") + money(Math.abs(amount)))
+                .kv("💼", "Joriy balans", money(w.getBalance())), "#/profile");
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("userId", target.getId());
         m.put("userName", target.getFullName());

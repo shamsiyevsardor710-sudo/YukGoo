@@ -14,6 +14,7 @@ import org.springframework.data.domain.PageRequest;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.common.PageResponse;
 import uz.yukgo.config.AppProperties;
+import uz.yukgo.notification.Msg;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.payment.PaymentDtos.AdminPaymentDto;
 import uz.yukgo.payment.PaymentDtos.AdminSetup;
@@ -196,9 +197,10 @@ public class PaymentService {
         wallet.credit(p.getUserId(), p.getAmount(), TxType.TOPUP, null, note, null);
         log.info("To'lov #{} qabul qilindi ({}): user={}, {} so'm", p.getId(), p.getProvider(), p.getUserId(), p.getAmount());
         Long userId = p.getUserId();
-        String body = "+" + money(p.getAmount()) + " — " + p.getProvider().label() + " orqali";
+        Msg msg = Msg.of("💰 Balans to'ldirildi").strong("➕", "+" + money(p.getAmount()))
+                .kv("💳", "To'lov", p.getProvider().label()).note("Rahmat! To'lov qabul qilindi");
         // Xabar faqat to'lov bazaga yozilgandan keyin ketadi (xato bo'lib hammasi bekor bo'lsa — "to'ldirildi" demaymiz)
-        afterCommit(() -> users.findById(userId).ifPresent(u -> notifications.notify(u, "Balans to'ldirildi", body, "#/profile")));
+        afterCommit(() -> users.findById(userId).ifPresent(u -> notifications.notify(u, msg, "#/profile")));
     }
 
     /** To'langan to'lovni qaytarish: summa balansdan yechiladi. Pul ishlatib bo'lingan bo'lsa — false (hech narsa o'zgarmaydi) */

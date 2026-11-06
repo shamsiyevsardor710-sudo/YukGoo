@@ -9,6 +9,7 @@ import uz.yukgo.admin.AdminLog;
 import uz.yukgo.admin.AdminLogRepository;
 import uz.yukgo.common.ApiException;
 import uz.yukgo.driver.DriverVerificationDtos.*;
+import uz.yukgo.notification.Msg;
 import uz.yukgo.notification.NotificationService;
 import uz.yukgo.security.CurrentUser;
 import uz.yukgo.user.User;
@@ -133,9 +134,10 @@ public class DriverVerificationService {
         u.setDriverVerified(true);
         u.setDriverVerifiedAt(now);
         decide(v, APPROVED, admin, null, now);
-        notifications.notify(u, "✅ Siz tekshiruvdan o'tdingiz",
-                "Hujjatlaringiz tasdiqlandi. Profilingiz va takliflaringizda «Tekshirilgan haydovchi» belgisi ko'rinadi — "
-                        + "yuk egalari sizga ko'proq ishonadi. Hujjat rasmlari tizimdan o'chirildi.", "#/profile");
+        notifications.notify(u, Msg.of("✅ Siz tekshiruvdan o'tdingiz!")
+                .strong("🛡", "«Tekshirilgan haydovchi» belgisi berildi")
+                .para("Profilingiz va takliflaringizda belgi ko'rinadi — yuk egalari sizga ko'proq ishonadi.")
+                .note("Hujjat rasmlari tizimdan o'chirildi"), "#/profile");
         adminLog(admin, "DRIVER_VERIFY", u, "Tasdiqlandi: " + v.getVehicleInfo() + " · " + v.getPlateNumber());
         return item(v, u);
     }
@@ -148,9 +150,10 @@ public class DriverVerificationService {
         decide(v, REJECTED, admin, why, Instant.now());
         User u = users.findById(v.getUserId()).orElse(null);
         if (u != null) {
-            notifications.notify(u, "Tekshiruvdan o'tmadingiz",
-                    (why != null ? "Sabab: " + why + ". " : "") + "Rasmlar o'chirildi. Hujjatlarning aniq, to'liq va o'qiladigan "
-                            + "rasmini qaytadan yuborishingiz mumkin: Profil → «Tekshirilgan haydovchi».", "#/profile");
+            notifications.notify(u, Msg.of("Tekshiruvdan o'tmadingiz")
+                    .kv("💬", "Sabab", why)
+                    .para("Hujjatlarning aniq, to'liq va o'qiladigan rasmini qaytadan yuborishingiz mumkin: Profil → «Tekshirilgan haydovchi».")
+                    .note("Yuborilgan rasmlar o'chirildi"), "#/profile");
             adminLog(admin, "DRIVER_REJECT", u, "Rad etildi" + (why != null ? ": " + why : ""));
         }
         return item(v, u);
